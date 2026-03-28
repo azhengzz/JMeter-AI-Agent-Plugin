@@ -440,62 +440,77 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             protected List<String> doInBackground() {
                 // Get models from both services
                 List<String> allModels = new ArrayList<>();
-                // TODO 如果没有配置API KEY则不主动查询了
-                // Get Anthropic models
-                try {
-                    ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
-                    if (anthropicModels != null && anthropicModels.data() != null) {
-                        for (ModelInfo model : anthropicModels.data()) {
-                            allModels.add(model.id());
-                            log.debug("Added Anthropic model: {}", model.id());
-                        }
-                        log.info("Added {} Anthropic models", anthropicModels.data().size());
-                    }
-                } catch (Exception e) {
-                    log.error("Error loading Anthropic models: {}", e.getMessage(), e);
-                }
 
-                // Add OpenAI models
-                try {
-                    com.openai.models.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
-                    if (openAiModels != null && openAiModels.data() != null) {
-                        // Convert OpenAI models to string IDs
-                        for (Model openAiModel : openAiModels.data()) {
-                            // Only include GPT models and filter out specific model types
-                            if (openAiModel.id().startsWith("gpt") &&
-                                    !openAiModel.id().contains("audio") &&
-                                    !openAiModel.id().contains("tts") &&
-                                    !openAiModel.id().contains("whisper") &&
-                                    !openAiModel.id().contains("davinci") &&
-                                    !openAiModel.id().contains("search") &&
-                                    !openAiModel.id().contains("transcribe") &&
-                                    !openAiModel.id().contains("realtime") &&
-                                    !openAiModel.id().contains("instruct")) {
-
-                                String modelId = "openai:" + openAiModel.id();
-                                allModels.add(modelId);
-                                log.debug("Added OpenAI model to selector: {}", openAiModel.id());
+                // Get Anthropic models (only if API key is configured)
+                String anthropicApiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty("anthropic.api.key", "");
+                if (anthropicApiKey != null && !anthropicApiKey.isEmpty() && !anthropicApiKey.equals("YOUR_API_KEY")) {
+                    try {
+                        ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
+                        if (anthropicModels != null && anthropicModels.data() != null) {
+                            for (ModelInfo model : anthropicModels.data()) {
+                                allModels.add(model.id());
+                                log.debug("Added Anthropic model: {}", model.id());
                             }
+                            log.info("Added {} Anthropic models", anthropicModels.data().size());
                         }
-                        log.info("Added OpenAI models to selector");
+                    } catch (Exception e) {
+                        log.error("Error loading Anthropic models: {}", e.getMessage(), e);
                     }
-                } catch (Exception e) {
-                    log.error("Error adding OpenAI models: {}", e.getMessage(), e);
+                } else {
+                    log.debug("Skipping Anthropic models - API key not configured");
                 }
 
-                // Add Ollama models
-                try {
-                    List<io.github.ollama4j.models.response.Model> ollamaModels = ollamaService.listModels();
-                    if (ollamaModels != null) {
-                        for (io.github.ollama4j.models.response.Model ollamaModel : ollamaModels) {
-                            String modelId = "ollama:" + ollamaModel.getName();
-                            allModels.add(modelId);
-                            log.debug("Added Ollama model to selector: {}", ollamaModel.getName());
+                // Add OpenAI models (only if API key is configured)
+                String openaiApiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty("openai.api.key", "");
+                if (openaiApiKey != null && !openaiApiKey.isEmpty() && !openaiApiKey.equals("YOUR_OPENAI_API_KEY")) {
+                    try {
+                        com.openai.models.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
+                        if (openAiModels != null && openAiModels.data() != null) {
+                            // Convert OpenAI models to string IDs
+                            for (Model openAiModel : openAiModels.data()) {
+                                // Only include GPT models and filter out specific model types
+                                if (openAiModel.id().startsWith("gpt") &&
+                                        !openAiModel.id().contains("audio") &&
+                                        !openAiModel.id().contains("tts") &&
+                                        !openAiModel.id().contains("whisper") &&
+                                        !openAiModel.id().contains("davinci") &&
+                                        !openAiModel.id().contains("search") &&
+                                        !openAiModel.id().contains("transcribe") &&
+                                        !openAiModel.id().contains("realtime") &&
+                                        !openAiModel.id().contains("instruct")) {
+
+                                    String modelId = "openai:" + openAiModel.id();
+                                    allModels.add(modelId);
+                                    log.debug("Added OpenAI model to selector: {}", openAiModel.id());
+                                }
+                            }
+                            log.info("Added OpenAI models to selector");
                         }
-                        log.info("Added {} Ollama models to selector", ollamaModels.size());
+                    } catch (Exception e) {
+                        log.error("Error adding OpenAI models: {}", e.getMessage(), e);
                     }
-                } catch (Exception e) {
-                    log.error("Error adding Ollama models: {}", e.getMessage(), e);
+                } else {
+                    log.debug("Skipping OpenAI models - API key not configured");
+                }
+
+                // Add Ollama models (check if enabled and service is reachable)
+                boolean ollamaEnabled = Boolean.parseBoolean(org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ollama.enabled", "true"));
+                if (ollamaEnabled && ollamaService.isReachable()) {
+                    try {
+                        List<io.github.ollama4j.models.response.Model> ollamaModels = ollamaService.listModels();
+                        if (ollamaModels != null) {
+                            for (io.github.ollama4j.models.response.Model ollamaModel : ollamaModels) {
+                                String modelId = "ollama:" + ollamaModel.getName();
+                                allModels.add(modelId);
+                                log.debug("Added Ollama model to selector: {}", ollamaModel.getName());
+                            }
+                            log.info("Added {} Ollama models to selector", ollamaModels.size());
+                        }
+                    } catch (Exception e) {
+                        log.error("Error adding Ollama models: {}", e.getMessage(), e);
+                    }
+                } else {
+                    log.debug("Skipping Ollama models - service not reachable");
                 }
 
                 // Add Chinese LLM provider models
