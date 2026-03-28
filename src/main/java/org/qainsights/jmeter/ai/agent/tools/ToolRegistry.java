@@ -2,6 +2,7 @@ package org.qainsights.jmeter.ai.agent.tools;
 
 import org.qainsights.jmeter.ai.agent.model.ToolCall;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
+import org.qainsights.jmeter.ai.agent.model.ToolEvent;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,12 +24,18 @@ import java.util.stream.Collectors;
  */
 public class ToolRegistry {
     private static final Logger log = LoggerFactory.getLogger(ToolRegistry.class);
+    private static final long DEFAULT_TIMEOUT_MS = 30000; // 30 seconds default timeout
 
     private final Map<String, Tool> tools = new ConcurrentHashMap<>();
     private final Executor executor;
+    private final long defaultTimeoutMs;
 
     public ToolRegistry() {
-        this(Executors.newCachedThreadPool(r -> {
+        this(DEFAULT_TIMEOUT_MS);
+    }
+
+    public ToolRegistry(long defaultTimeoutMs) {
+        this(defaultTimeoutMs, Executors.newCachedThreadPool(r -> {
             Thread thread = new Thread(r, "tool-executor");
             thread.setDaemon(true);
             return thread;
@@ -36,6 +43,11 @@ public class ToolRegistry {
     }
 
     public ToolRegistry(Executor executor) {
+        this(DEFAULT_TIMEOUT_MS, executor);
+    }
+
+    public ToolRegistry(long defaultTimeoutMs, Executor executor) {
+        this.defaultTimeoutMs = defaultTimeoutMs;
         this.executor = executor;
     }
 
@@ -117,36 +129,251 @@ public class ToolRegistry {
      * Execute a tool synchronously
      */
     public ToolResult execute(String name, Map<String, Object> parameters) {
+        return executeWithEvent(name, parameters).result();
+    }
+
+    /**
+     * Execute a tool synchronously and return result with event
+     */
+    public ToolExecutionResult executeWithEvent(String name, Map<String, Object> parameters) {
+        long startTime = System.currentTimeMillis();
         Tool tool = tools.get(name);
+
         if (tool == null) {
             String error = String.format("Tool '%s' not found. Available tools: %s",
                     name, String.join(", ", getToolNames()));
             log.warn(error);
-            return ToolResult.error(error);
+            long duration = System.currentTimeMillis() - startTime;
+            return new ToolExecutionResult(
+                ToolResult.error(error),
+                ToolEvent.notFound(name)
+            );
         }
 
-        return tool.execute(parameters);
+        try {
+            ToolResult result = tool.execute(parameters);
+            long duration = System.currentTimeMillis() - startTime;
+
+            // Create event based on result
+            ToolEvent event;
+            if (result.isSuccess()) {
+                String detail = truncateDetail(result.getResult());
+                event = ToolEvent.success(name, detail, duration);
+            } else {
+                event = ToolEvent.error(name, result.getError(), duration);
+            }
+
+            log.debug("Tool {} executed in {}ms with status {}", name, duration, event.getStatus());
+
+            return new ToolExecutionResult(result, event);
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            String error = "Exception executing " + name + ": " + e.getMessage();
+            log.error(error, e);
+            return new ToolExecutionResult(
+                ToolResult.error(error),
+                ToolEvent.error(name, error, duration)
+            );
+        }
+    }
+
+    /**
+     * Truncate detail for logging
+     */
+    private String truncateDetail(String detail) {
+        if (detail == null) return "";
+        detail = detail.replace("\n", " ").trim();
+        if (detail.isEmpty()) return "(empty)";
+        if (detail.length() > 120) return detail.substring(0, 120) + "...";
+        return detail;
+    }
+
+    /**
+     * Record that combines ToolResult and ToolEvent
+     */
+    public static class ToolExecutionResult {
+        private final ToolResult result;
+        private final ToolEvent event;
+
+        ToolExecutionResult(ToolResult result, ToolEvent event) {
+            this.result = result;
+            this.event = event;
+        }
+
+        public ToolResult result() { return result; }
+        public ToolEvent event() { return event; }
     }
 
     /**
      * Execute a tool asynchronously
      */
     public CompletableFuture<ToolResult> executeAsync(String name, Map<String, Object> parameters) {
-        return CompletableFuture.supplyAsync(() -> execute(name, parameters), executor);
+        return executeAsync(name, parameters, defaultTimeoutMs);
+    }
+
+    /**
+     * Execute a tool asynchronously with timeout
+     */
+    public CompletableFuture<ToolResult> executeAsync(String name, Map<String, Object> parameters, long timeoutMs) {
+        return executeAsyncWithEvent(name, parameters, timeoutMs)
+                .thenApply(ToolExecutionResult::result);
+    }
+
+    /**
+     * Execute a tool asynchronously with timeout, returning event as well
+     */
+    public CompletableFuture<ToolExecutionResult> executeAsyncWithEvent(String name, Map<String, Object> parameters, long timeoutMs) {
+        // Check if tool has custom timeout
+        Tool tool = tools.get(name);
+        long effectiveTimeout = timeoutMs;
+        if (tool != null && tool.getTimeoutMs() > 0) {
+            effectiveTimeout = tool.getTimeoutMs();
+        }
+
+        final long finalTimeout = effectiveTimeout;
+        return CompletableFuture.supplyAsync(() -> executeWithEvent(name, parameters), executor)
+                .orTimeout(finalTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> {
+                    if (ex instanceof java.util.concurrent.TimeoutException) {
+                        log.warn("Tool execution timed out after {}ms: {}", finalTimeout, name);
+                        return new ToolExecutionResult(
+                            ToolResult.error("Tool execution timed out after " + finalTimeout + "ms"),
+                            ToolEvent.timeout(name, finalTimeout)
+                        );
+                    }
+                    return new ToolExecutionResult(
+                        ToolResult.error("Tool execution failed: " + ex.getMessage()),
+                        ToolEvent.error(name, "Tool execution failed: " + ex.getMessage(), 0)
+                    );
+                });
     }
 
     /**
      * Execute multiple tool calls asynchronously
      */
     public CompletableFuture<List<ToolResult>> executeAsync(List<ToolCall> toolCalls) {
-        List<CompletableFuture<ToolResult>> futures = toolCalls.stream()
-                .map(call -> executeAsync(call.getName(), call.getArguments()))
+        return executeAsyncWithEvents(toolCalls, defaultTimeoutMs)
+                .thenApply(ToolBatchResult::results);
+    }
+
+    /**
+     * Execute multiple tool calls asynchronously with events
+     */
+    public CompletableFuture<ToolBatchResult> executeAsyncWithEvents(List<ToolCall> toolCalls) {
+        return executeAsyncWithEvents(toolCalls, defaultTimeoutMs);
+    }
+
+    /**
+     * Execute multiple tool calls asynchronously with timeout
+     * Tools are executed in priority order (higher priority first)
+     */
+    public CompletableFuture<List<ToolResult>> executeAsync(List<ToolCall> toolCalls, long timeoutMs) {
+        return executeAsyncWithEvents(toolCalls, timeoutMs)
+                .thenApply(ToolBatchResult::results);
+    }
+
+    /**
+     * Execute multiple tool calls asynchronously with timeout and events
+     * Tools are executed in priority order (higher priority first)
+     */
+    public CompletableFuture<ToolBatchResult> executeAsyncWithEvents(List<ToolCall> toolCalls, long timeoutMs) {
+        // Sort tool calls by priority (highest first) while keeping track of original index
+        List<IndexedToolCall> sortedCalls = new ArrayList<>();
+        for (int i = 0; i < toolCalls.size(); i++) {
+            sortedCalls.add(new IndexedToolCall(toolCalls.get(i), i));
+        }
+        sortedCalls.sort((a, b) -> {
+            int priorityA = getPriority(a.call.getName());
+            int priorityB = getPriority(b.call.getName());
+            return Integer.compare(priorityB, priorityA); // Descending order
+        });
+
+        // Execute all tools
+        List<CompletableFuture<IndexedToolExecutionResult>> futures = sortedCalls.stream()
+                .map(item -> executeAsyncWithEvent(item.call.getName(), item.call.getArguments(), timeoutMs)
+                        .thenApply(result -> new IndexedToolExecutionResult(result, item.originalIndex)))
                 .collect(Collectors.toList());
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .collect(Collectors.toList()));
+                .thenApply(v -> {
+                    // Return results in original order
+                    List<IndexedToolExecutionResult> indexedResults = futures.stream()
+                            .map(CompletableFuture::join)
+                            .collect(Collectors.toList());
+                    indexedResults.sort((a, b) -> Integer.compare(a.originalIndex, b.originalIndex));
+
+                    List<ToolResult> results = indexedResults.stream()
+                            .map(ir -> ir.executionResult.result())
+                            .collect(Collectors.toList());
+                    List<ToolEvent> events = indexedResults.stream()
+                            .map(ir -> ir.executionResult.event())
+                            .collect(Collectors.toList());
+
+                    return new ToolBatchResult(results, events);
+                });
+    }
+
+    /**
+     * Batch result containing tool results and events
+     */
+    public static class ToolBatchResult {
+        private final List<ToolResult> results;
+        private final List<ToolEvent> events;
+
+        ToolBatchResult(List<ToolResult> results, List<ToolEvent> events) {
+            this.results = results;
+            this.events = events;
+        }
+
+        public List<ToolResult> results() { return results; }
+        public List<ToolEvent> events() { return events; }
+    }
+
+    /**
+     * Get the priority of a tool by name
+     */
+    private int getPriority(String toolName) {
+        Tool tool = tools.get(toolName);
+        return tool != null ? tool.getPriority() : 0;
+    }
+
+    /**
+     * Helper class to track original index of tool calls
+     */
+    private static class IndexedToolCall {
+        final ToolCall call;
+        final int originalIndex;
+
+        IndexedToolCall(ToolCall call, int originalIndex) {
+            this.call = call;
+            this.originalIndex = originalIndex;
+        }
+    }
+
+    /**
+     * Helper class to track original index of results
+     */
+    private static class IndexedToolResult {
+        final ToolResult result;
+        final int originalIndex;
+
+        IndexedToolResult(ToolResult result, int originalIndex) {
+            this.result = result;
+            this.originalIndex = originalIndex;
+        }
+    }
+
+    /**
+     * Helper class to track original index of execution results
+     */
+    private static class IndexedToolExecutionResult {
+        final ToolExecutionResult executionResult;
+        final int originalIndex;
+
+        IndexedToolExecutionResult(ToolExecutionResult executionResult, int originalIndex) {
+            this.executionResult = executionResult;
+            this.originalIndex = originalIndex;
+        }
     }
 
     private Map<String, Object> toOpenAIToolDefinition(Tool tool) {

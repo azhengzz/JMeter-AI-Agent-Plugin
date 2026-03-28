@@ -12,6 +12,12 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import org.qainsights.jmeter.ai.intellisense.InputBoxIntellisense;
+import org.qainsights.jmeter.ai.agent.AgentLoop;
+import org.qainsights.jmeter.ai.agent.AgentLoopFactory;
+import org.qainsights.jmeter.ai.agent.model.AgentResponse;
+import org.qainsights.jmeter.ai.agent.swing.AgentSwingWorker;
+import org.qainsights.jmeter.ai.service.AiService;
+import org.qainsights.jmeter.ai.service.ClaudeService;
 
 import com.openai.models.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
@@ -22,7 +28,6 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.qainsights.jmeter.ai.service.ClaudeService;
 import org.qainsights.jmeter.ai.usage.UsageCommandHandler;
 import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 import org.qainsights.jmeter.ai.utils.JMeterElementRequestHandler;
@@ -33,7 +38,6 @@ import org.qainsights.jmeter.ai.lint.LintCommandHandler;
 import org.qainsights.jmeter.ai.wrap.WrapCommandHandler;
 import org.qainsights.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.qainsights.jmeter.ai.service.OpenAiService;
-import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.service.OllamaAiService;
 import org.qainsights.jmeter.ai.service.provider.AiServiceFactory;
 import org.qainsights.jmeter.ai.service.provider.ProviderRegistry;
@@ -46,12 +50,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Panel for interacting with AI to generate and modify JMeter test plans.
- * This class has been refactored to improve composability, readability, and
- * reusability
- * by delegating responsibilities to specialized component classes.
+ * Now uses AgentLoop for full agent capabilities (tools, memory, skills).
  */
 public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static final Logger log = LoggerFactory.getLogger(AiChatPanel.class);
+    private static final String CHAT_SESSION_KEY = "jmeter-ai-chat";
 
     // UI components (kept for backward compatibility)
     private JTextPane chatArea;
@@ -59,11 +62,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JButton sendButton;
     private JComboBox<String> modelSelector;
     private List<String> conversationHistory;
-    private ClaudeService claudeService;
-    private OpenAiService openAiService;
-    private OllamaAiService ollamaService;
     private TreeNavigationButtons treeNavigationButtons;
     private JPanel navigationPanel; // Added field for navigation panel
+
+    // Agent components
+    private AgentLoop agentLoop;
+    private ClaudeService claudeService; // Keep for model loading
+    private OpenAiService openAiService; // Keep for model loading
+    private OllamaAiService ollamaService; // Keep for model loading
+    private AiService currentAiService; // Track current service
 
     // Store the base font sizes for scaling
     private float baseChatFontSize;
@@ -86,11 +93,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Constructs a new AiChatPanel.
      */
     public AiChatPanel() {
-        // Initialize services and utilities
+        // Initialize services (keep for model loading)
         claudeService = new ClaudeService();
         openAiService = new OpenAiService();
         ollamaService = new OllamaAiService();
-        
+
+        // Initialize AgentLoop with ClaudeService as the default AI service
+        initializeAgentLoop();
+
         messageProcessor = new MessageProcessor();
 
         // Initialize tree navigation buttons with action listeners
@@ -127,7 +137,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Load models in background
         loadModelsInBackground();
 
-        // Add a listener to log model changes
+        // Add a listener to handle model changes
         modelSelector.addActionListener(e -> {
             String selectedModel = (String) modelSelector.getSelectedItem();
             if (selectedModel != null) {
@@ -142,25 +152,30 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     modelName = parts[1];
 
                     // Set the model in the appropriate service
+                    // Note: We pass the FULL model ID (with prefix) so OpenAiService can detect the provider
                     switch (provider) {
                         case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
-                            // These will be handled by AiServiceFactory
+                            openAiService.setModel(selectedModel);  // Pass full ID with prefix
                             log.info("Using {} provider for model: {}", provider, modelName);
                         }
-                        case "ollama" -> ollamaService.setModel(modelName);
+                        case "ollama" -> {
+                            ollamaService.setModel(modelName);  // Ollama doesn't need prefix
+                            log.info("Using ollama provider for model: {}", modelName);
+                        }
                         default -> {
                             // For Anthropic (no prefix) and others
                             claudeService.setModel(selectedModel);
-                            openAiService.setModel(selectedModel);
-                            ollamaService.setModel(selectedModel);
+                            log.info("Using Anthropic provider for model: {}", selectedModel);
                         }
                     }
                 } else {
-                    // No provider prefix, set in all services
+                    // No provider prefix, assume Anthropic
                     claudeService.setModel(selectedModel);
-                    openAiService.setModel(selectedModel);
-                    ollamaService.setModel(selectedModel);
+                    log.info("Using Anthropic provider for model: {}", selectedModel);
                 }
+
+                // Switch the AI service based on the selected model
+                switchAiService();
             }
         });
 
@@ -562,18 +577,137 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     if (defaultModel != null) {
                         modelSelector.setSelectedItem(defaultModel);
                         log.info("Selected default model: {}", defaultModel);
+                        // Set model on the appropriate service
+                        setModelForProvider(defaultModel);
+                        // Switch to the appropriate service
+                        switchAiService();
                     } else if (modelSelector.getItemCount() > 0) {
                         // If default model not found, select the first one
                         modelSelector.setSelectedIndex(0);
                         String selectedModel = (String) modelSelector.getSelectedItem();
-                        claudeService.setModel(selectedModel);
+                        setModelForProvider(selectedModel);
                         log.info("Default model not found, selected first available: {}", selectedModel);
+                        // Switch to the appropriate service
+                        switchAiService();
                     }
                 } catch (Exception e) {
                     log.error("Failed to load models", e);
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Initialize the AgentLoop with the appropriate AI service.
+     */
+    private void initializeAgentLoop() {
+        try {
+            // Get the default AI service based on current model selection
+            // During construction, modelSelector may not be initialized yet
+            AiService aiService;
+            if (modelSelector == null) {
+                // Use default service during construction
+                aiService = claudeService;
+                currentAiService = claudeService;
+            } else {
+                aiService = getAiServiceForCurrentModel();
+            }
+
+            agentLoop = AgentLoopFactory.getAgentLoop(aiService);
+
+            if (agentLoop == null) {
+                log.warn("AgentLoop is disabled or failed to initialize. Some features may not work.");
+            } else {
+                log.info("AgentLoop initialized successfully");
+            }
+        } catch (Exception e) {
+            log.error("Failed to initialize AgentLoop", e);
+        }
+    }
+
+    /**
+     * Get the appropriate AiService based on the current model selection.
+     * NOTE: This method does NOT modify currentAiService to avoid side effects.
+     */
+    private AiService getAiServiceForCurrentModel() {
+        String selectedModel = (String) modelSelector.getSelectedItem();
+        if (selectedModel == null) {
+            return claudeService;
+        }
+
+        // Extract provider from model ID (format: "provider:model" or just "model")
+        String[] parts = selectedModel.split(":", 2);
+        String provider = parts.length == 2 ? parts[0] : "";
+
+        // Select service based on provider (without setting currentAiService)
+        return switch (provider) {
+            case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> openAiService;
+            case "ollama" -> ollamaService;
+            default -> claudeService; // Default to Claude for Anthropic models or no prefix
+        };
+    }
+
+    /**
+     * Set the model on the appropriate service based on the model ID.
+     * Helper method to avoid code duplication.
+     */
+    private void setModelForProvider(String modelId) {
+        if (modelId == null) return;
+
+        if (modelId.contains(":")) {
+            String[] parts = modelId.split(":", 2);
+            String provider = parts[0];
+            String modelName = parts[1];
+
+            switch (provider) {
+                case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                    openAiService.setModel(modelId);  // Pass full ID with prefix
+                    log.info("Set {} provider model: {}", provider, modelName);
+                }
+                case "ollama" -> {
+                    ollamaService.setModel(modelName);  // Ollama doesn't need prefix
+                    log.info("Set ollama provider model: {}", modelName);
+                }
+                default -> {
+                    claudeService.setModel(modelId);
+                    log.info("Set Anthropic provider model: {}", modelId);
+                }
+            }
+        } else {
+            // No provider prefix, assume Anthropic
+            claudeService.setModel(modelId);
+            log.info("Set Anthropic provider model: {}", modelId);
+        }
+    }
+
+    /**
+     * Switch the AI service based on the selected model.
+     * This recreates the AgentLoop with the appropriate service.
+     */
+    private void switchAiService() {
+        try {
+            AiService newService = getAiServiceForCurrentModel();
+
+            // Only recreate if service changed
+            if (newService != currentAiService) {
+                log.info("Switching AI service from {} to {}",
+                        currentAiService.getName(), newService.getName());
+
+                // Reset and recreate AgentLoop with new service
+                AgentLoopFactory.reset();
+                agentLoop = AgentLoopFactory.getAgentLoop(newService);
+
+                if (agentLoop == null) {
+                    log.warn("AgentLoop failed to initialize after service switch");
+                } else {
+                    log.info("AI service switched successfully to {}", newService.getName());
+                    // Update currentAiService after successful switch
+                    currentAiService = newService;
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to switch AI service", e);
+        }
     }
 
     /**
@@ -621,7 +755,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
-     * Sends the message from the input field to the chat.
+     * Sends the message from the input field to the chat using AgentLoop.
      */
     private void sendMessage() {
         String message = messageField.getText().trim();
@@ -651,27 +785,55 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.error("Error adding loading indicator", e);
         }
 
-        // Check for special commands
-        if (message.trim().startsWith("@this")) {
-            handleThisCommand();
-            return;
-        } else if (message.trim().startsWith("@optimize")) {
-            handleOptimizeCommand();
-            return;
-        } else if (message.trim().startsWith("@code")) {
+        // Check for special commands that don't go through AgentLoop
+        if (message.trim().startsWith("@code")) {
             // @code command is disabled - use right-click context menu instead
             try {
                 messageProcessor.appendMessage(chatArea.getStyledDocument(),
                         "The @code command is disabled. Please use the right-click context menu in the JSR223 editor instead.",
                         Color.RED, false);
-
-                // Re-enable input
+                removeLoadingIndicator();
                 messageField.setEnabled(true);
                 sendButton.setEnabled(true);
                 messageField.requestFocusInWindow();
             } catch (BadLocationException e) {
                 log.error("Error displaying message", e);
             }
+            return;
+        }
+
+        // Check if AgentLoop is available
+        if (agentLoop == null) {
+            // AgentLoop not initialized, fall back to legacy handling
+            log.warn("AgentLoop not available, using legacy handling");
+            handleLegacyMessage(message);
+            return;
+        }
+
+        // Disable input while processing
+        messageField.setEnabled(false);
+        sendButton.setEnabled(false);
+
+        // Use AgentSwingWorker to process the message through AgentLoop
+        new AgentSwingWorker(
+                agentLoop,
+                message,
+                CHAT_SESSION_KEY,
+                this::handleAgentResponse,
+                this::handleProgress
+        ).execute();
+    }
+
+    /**
+     * Handle legacy messages when AgentLoop is not available.
+     */
+    private void handleLegacyMessage(String message) {
+        // Check for special commands
+        if (message.trim().startsWith("@this")) {
+            handleThisCommand();
+            return;
+        } else if (message.trim().startsWith("@optimize")) {
+            handleOptimizeCommand();
             return;
         } else if (message.trim().startsWith("@lint")) {
             handleLintCommand(message);
@@ -760,6 +922,54 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Handle AgentLoop response callback.
+     */
+    private void handleAgentResponse(AgentResponse response) {
+        // Remove the loading indicator
+        removeLoadingIndicator();
+
+        if (!response.isSuccess()) {
+            // Display error message
+            try {
+                messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                        "Error: " + response.getErrorMessage(),
+                        Color.RED, false);
+            } catch (BadLocationException e) {
+                log.error("Error displaying error message", e);
+            }
+        } else {
+            // Process the AI response
+            processAiResponse(response.getContent());
+
+            // Add to conversation history
+            conversationHistory.add(response.getContent());
+        }
+
+        // Re-enable input
+        messageField.setEnabled(true);
+        sendButton.setEnabled(true);
+        messageField.requestFocusInWindow();
+    }
+
+    /**
+     * Handle AgentLoop progress callback.
+     */
+    private void handleProgress(String progress) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Remove the loading indicator if it exists
+                removeLoadingIndicator();
+
+                // Add progress message
+                messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                        progress, Color.GRAY, false);
+            } catch (BadLocationException e) {
+                log.error("Error displaying progress", e);
+            }
+        });
     }
 
     /**

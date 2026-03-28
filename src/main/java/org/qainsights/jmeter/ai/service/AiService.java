@@ -5,7 +5,12 @@ import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 
 import java.util.List;
+import java.util.function.Consumer;
 
+/**
+ * AI Service interface for LLM providers.
+ * Supports text generation, tool calling, and streaming responses.
+ */
 public interface AiService {
     String generateResponse(List<String> conversation);
     String generateResponse(List<String> conversation, String model);
@@ -58,5 +63,41 @@ public interface AiService {
      */
     default boolean supportsForcedToolChoice() {
         return false;
+    }
+
+    /**
+     * Check if this service supports streaming responses
+     */
+    default boolean supportsStreaming() {
+        return false;
+    }
+
+    /**
+     * Generate streaming response.
+     * The consumer is called for each chunk of the response.
+     *
+     * @param conversation The conversation history
+     *param chunkConsumer Consumer for response chunks
+     */
+    default void generateResponseStreaming(List<String> conversation, Consumer<String> chunkConsumer) {
+        // Default implementation falls back to non-streaming
+        String response = generateResponse(conversation);
+        chunkConsumer.accept(response);
+    }
+
+    /**
+     * Generate streaming response with tool calling support.
+     *
+     * @param messages List of messages with roles
+     * @param tools List of available tools
+     * @param chunkConsumer Consumer for response chunks
+     * @return LLM response including potential tool calls
+     */
+    default LLMResponse generateResponseStreamingWithTools(
+            List<Message> messages,
+            List<ToolDefinition> tools,
+            Consumer<String> chunkConsumer) {
+        // Default implementation falls back to non-streaming
+        return generateResponseWithTools(messages, tools);
     }
 }

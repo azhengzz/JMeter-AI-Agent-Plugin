@@ -33,6 +33,9 @@ public class AgentConfig {
     private final boolean jmeterToolsEnabled;
     private final boolean filesystemToolsEnabled;
     private final boolean websearchToolsEnabled;
+    private final boolean concurrentToolsEnabled;
+    private final boolean failOnToolError;
+    private final long toolTimeoutMs;
 
     private AgentConfig() {
         // Agent Loop Configuration
@@ -55,6 +58,9 @@ public class AgentConfig {
         this.jmeterToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.jmeter.enabled", "true"));
         this.filesystemToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.filesystem.enabled", "false"));
         this.websearchToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.websearch.enabled", "false"));
+        this.concurrentToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.concurrent.enabled", "false"));
+        this.failOnToolError = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.fail.on.error", "false"));
+        this.toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
 
         logConfiguration();
     }
@@ -67,6 +73,9 @@ public class AgentConfig {
         log.info("  memoryEnabled: {}", memoryEnabled);
         log.info("  workspacePath: {}", workspacePath);
         log.info("  jmeterToolsEnabled: {}", jmeterToolsEnabled);
+        log.info("  concurrentToolsEnabled: {}", concurrentToolsEnabled);
+        log.info("  failOnToolError: {}", failOnToolError);
+        log.info("  toolTimeoutMs: {}", toolTimeoutMs);
     }
 
     // Singleton instance
@@ -123,5 +132,17 @@ public class AgentConfig {
 
     public boolean isWebsearchToolsEnabled() {
         return websearchToolsEnabled;
+    }
+
+    public boolean isConcurrentToolsEnabled() {
+        return concurrentToolsEnabled;
+    }
+
+    public boolean isFailOnToolError() {
+        return failOnToolError;
+    }
+
+    public long getToolTimeoutMs() {
+        return toolTimeoutMs;
     }
 }

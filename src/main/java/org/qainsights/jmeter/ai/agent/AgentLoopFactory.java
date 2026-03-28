@@ -25,7 +25,12 @@ public class AgentLoopFactory {
      * Get or create the Agent Loop singleton instance
      */
     public static synchronized AgentLoop getAgentLoop(AiService aiService) {
-        if (instance == null) {
+        // Always recreate if a different service is requested
+        if (instance == null || !instance.getAiService().equals(aiService)) {
+            if (instance != null) {
+                log.info("Switching AgentLoop from {} to {}", instance.getAiService().getName(), aiService.getName());
+                instance.shutdown();
+            }
             instance = createAgentLoop(aiService);
         }
         return instance;

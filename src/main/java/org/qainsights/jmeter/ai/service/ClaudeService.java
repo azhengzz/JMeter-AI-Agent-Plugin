@@ -344,6 +344,41 @@ public class ClaudeService implements AiService {
     }
 
     @Override
+    public boolean supportsStreaming() {
+        // Claude supports streaming with Claude 3 models and above
+        return supportsToolCalling();
+    }
+
+    @Override
+    public void generateResponseStreaming(List<String> conversation, java.util.function.Consumer<String> chunkConsumer) {
+        // For now, fall back to non-streaming implementation
+        // The infrastructure is ready via AgentHook.wantsStreaming()
+        // TODO: Implement proper streaming when anthropic-java SDK API is finalized
+        log.info("Using fallback streaming implementation (non-streaming API)");
+
+        try {
+            String response = generateResponse(conversation);
+            // Split response into chunks for simulated streaming
+            String[] chunks = response.split("(?<=\\s)|(?<=\\n)");
+            for (String chunk : chunks) {
+                if (!chunk.isEmpty()) {
+                    chunkConsumer.accept(chunk);
+                    // Small delay to simulate streaming
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error in streaming response", e);
+            chunkConsumer.accept("Error: " + extractUserFriendlyErrorMessage(e));
+        }
+    }
+
+    @Override
     public LLMResponse generateResponseWithTools(List<org.qainsights.jmeter.ai.agent.model.Message> messages, List<ToolDefinition> tools) {
         // TODO: Implement full tool calling support with anthropic-java SDK
         // For now, convert to simple text-based response

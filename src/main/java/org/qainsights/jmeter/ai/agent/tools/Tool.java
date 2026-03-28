@@ -49,4 +49,25 @@ public interface Tool {
     default boolean hasRequiredParameters() {
         return false;
     }
+
+    /**
+     * Get tool execution priority.
+     * Higher values = higher priority. Default is 0.
+     * Tools with higher priority are executed first when using concurrent execution.
+     *
+     * @return Tool priority (0-100, where 100 is highest priority)
+     */
+    default int getPriority() {
+        return 0;
+    }
+
+    /**
+     * Get tool execution timeout in milliseconds.
+     * Returns 0 to use the default timeout from ToolRegistry.
+     *
+     * @return Timeout in milliseconds, or 0 for default
+     */
+    default long getTimeoutMs() {
+        return 0;
+    }
 }

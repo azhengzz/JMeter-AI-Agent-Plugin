@@ -16,7 +16,7 @@ import org.qainsights.jmeter.ai.usage.OpenAiUsage;
 public class OpenAiService implements AiService {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiService.class);
-    private final OpenAIClient client;
+    private OpenAIClient client;
     private boolean systemPromptInitialized = false;
 
     private final int maxHistorySize;
@@ -25,40 +25,19 @@ public class OpenAiService implements AiService {
     private String systemPrompt;
     private long maxTokens;
 
+    // Provider prefixes that use OpenAI-compatible API
+    private static final String[] OPENAI_COMPATIBLE_PROVIDERS = {
+        "openai", "deepseek", "zhipu", "moonshot", "minimax"
+    };
+
     public OpenAiService() {
-        String API_KEY = AiConfig.getProperty("openai.api.key", "");
-        String loggingLevel = AiConfig.getProperty("openai.log.level", "");
-        if (!loggingLevel.isEmpty()) {
-            // Set the environment variable for the OpenAI client logging
-            System.setProperty("OPENAI_LOG", loggingLevel);
-            log.info("Enabled OpenAI client logging with level: {}", loggingLevel);
-        }
-
-        // Build the client with optional custom base URL
-        OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
-                .apiKey(API_KEY);
-
-        // Check if a custom base URL is configured
-        String baseUrl = AiConfig.getProperty("openai.api.base.url", "");
-        if (!baseUrl.isEmpty()) {
-            clientBuilder.baseUrl(baseUrl);
-            log.info("Using custom OpenAI API base URL: {}", baseUrl);
-        }
-
-        this.client = clientBuilder.build();
-
-        // Set the client in the OpenAiUsage singleton for token usage tracking
-        try {
-            OpenAiUsage.getInstance().setClient(this.client);
-            log.info("Set OpenAI client in OpenAiUsage during initialization");
-        } catch (Exception e) {
-            log.error("Failed to set OpenAI client in OpenAiUsage", e);
-        }
-
         this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("openai.max.history.size", "10"));
         this.currentModelId = AiConfig.getProperty("openai.default.model", "gpt-4o");
         this.temperature = Float.parseFloat(AiConfig.getProperty("openai.temperature", "0.7"));
         this.maxTokens = Long.parseLong(AiConfig.getProperty("openai.max.tokens", "4096"));
+
+        // Initialize client with default (openai) configuration
+        initializeClient("openai");
 
         // Load system prompt using centralized utility
         this.systemPrompt = SystemPrompt.get();
@@ -67,12 +46,124 @@ public class OpenAiService implements AiService {
                 systemPrompt.substring(0, Math.min(100, systemPrompt.length())));
     }
 
+    /**
+     * Initialize the OpenAI client with configuration for a specific provider.
+     */
+    private void initializeClient(String provider) {
+        String apiKey = getConfigValue(provider, "api.key", "");
+        String baseUrl = getConfigValue(provider, "api.base.url", "");
+        String loggingLevel = getConfigValue(provider, "log.level", "");
+        String maskedApiKey = apiKey.isEmpty() ? "(empty)" : (apiKey.length() > 10 ? apiKey.substring(0, 10) + "..." : apiKey);
+
+        log.info("=== Initializing OpenAI Client for Provider: {} ===", provider);
+        log.info("API Key: {}", maskedApiKey);
+        log.info("Base URL: {}", baseUrl.isEmpty() ? "(default OpenAI)" : baseUrl);
+        log.info("Logging Level: {}", loggingLevel.isEmpty() ? "(default)" : loggingLevel);
+
+        if (!loggingLevel.isEmpty()) {
+            System.setProperty("OPENAI_LOG", loggingLevel);
+            log.info("Enabled OpenAI client logging with level: {} for provider: {}", loggingLevel, provider);
+        }
+
+        // Build the client with optional custom base URL
+        OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
+                .apiKey(apiKey);
+
+        if (!baseUrl.isEmpty()) {
+            clientBuilder.baseUrl(baseUrl);
+            log.info("Set custom base URL for provider {}: {}", provider, baseUrl);
+        } else {
+            log.info("Using default OpenAI API endpoint for provider: {}", provider);
+        }
+
+        this.client = clientBuilder.build();
+
+        log.info("OpenAI Client created successfully for provider: {}", provider);
+        log.info("===========================================");
+
+        // Update the client in the OpenAiUsage singleton
+        try {
+            OpenAiUsage.getInstance().setClient(this.client);
+            log.info("Updated OpenAI client in OpenAiUsage for provider: {}", provider);
+        } catch (Exception e) {
+            log.error("Failed to set OpenAI client in OpenAiUsage", e);
+        }
+    }
+
+    /**
+     * Get configuration value for a specific provider.
+     * Tries provider-specific key first, then falls back to generic openai key.
+     */
+    private String getConfigValue(String provider, String key, String defaultValue) {
+        // Try provider-specific configuration first (e.g., "minimax.api.key")
+        String providerKey = provider + "." + key;
+        String value = AiConfig.getProperty(providerKey, null);
+        if (value != null && !value.isEmpty()) {
+            log.debug("Using provider-specific config: {} = {}", providerKey, value);
+            return value;
+        }
+
+        // Fall back to generic openai configuration (e.g., "openai.api.key")
+        String genericKey = "openai." + key;
+        value = AiConfig.getProperty(genericKey, defaultValue);
+        log.debug("Using generic config: {} = {}", genericKey, value);
+        return value;
+    }
+
+    /**
+     * Extract the provider prefix from a model ID.
+     * For example, "minimax:MiniMax-M2.7" returns "minimax".
+     * Returns "openai" if no provider prefix is found.
+     */
+    private String extractProvider(String modelId) {
+        if (modelId != null && modelId.contains(":")) {
+            String[] parts = modelId.split(":", 2);
+            String provider = parts[0];
+            // Check if it's a known OpenAI-compatible provider
+            for (String knownProvider : OPENAI_COMPATIBLE_PROVIDERS) {
+                if (knownProvider.equals(provider)) {
+                    return provider;
+                }
+            }
+        }
+        return "openai"; // Default provider
+    }
+
+    /**
+     * Extract just the model name without provider prefix.
+     * For example, "minimax:MiniMax-M2.7" returns "MiniMax-M2.7".
+     * Returns the original modelId if no provider prefix is found.
+     */
+    private String extractModelName(String modelId) {
+        if (modelId != null && modelId.contains(":")) {
+            String[] parts = modelId.split(":", 2);
+            return parts[1];  // Return the part after the colon
+        }
+        return modelId;  // No prefix, return as-is
+    }
+
     public OpenAIClient getClient() {
         return client;
     }
 
     public void setModel(String modelId) {
+        // IMPORTANT: Extract providers BEFORE updating currentModelId
+        String newProvider = extractProvider(modelId);
+        String currentProvider = extractProvider(this.currentModelId);
+
+        // Check if we need to reinitialize the client for a different provider
+        if (!newProvider.equals(currentProvider)) {
+            log.info("=== Provider change detected ===");
+            log.info("Old provider: {}", currentProvider);
+            log.info("New provider: {}", newProvider);
+            log.info("Reinitializing client for provider: {}", newProvider);
+            initializeClient(newProvider);
+            log.info("============================");
+        }
+
+        // Update currentModelId AFTER provider comparison
         this.currentModelId = modelId;
+
         log.info("Model set to: {}", modelId);
     }
 
@@ -127,6 +218,19 @@ public class OpenAiService implements AiService {
                 log.warn("No model was set, defaulting to: {}", currentModelId);
             }
 
+            // Debug: Log current API configuration
+            String provider = extractProvider(currentModelId);
+            String apiKey = getConfigValue(provider, "api.key", "");
+            String baseUrl = getConfigValue(provider, "api.base.url", "");
+            String maskedApiKey = apiKey.isEmpty() ? "(empty)" : (apiKey.length() > 10 ? apiKey.substring(0, 10) + "..." : apiKey);
+
+            log.info("=== OpenAI Service Configuration ===");
+            log.info("Provider: {}", provider);
+            log.info("Model ID: {}", currentModelId);
+            log.info("API Key: {}", maskedApiKey);
+            log.info("Base URL: {}", baseUrl.isEmpty() ? "(default)" : baseUrl);
+            log.info("====================================");
+
             // Ensure a temperature is set
             if (temperature < 0 || temperature > 1) {
                 temperature = 0.7f;
@@ -135,6 +239,9 @@ public class OpenAiService implements AiService {
 
             // Log which model is being used for this conversation
             log.info("Generating response using model: {} and temperature: {}", currentModelId, temperature);
+
+            // Extract just the model name (without provider prefix) for the API request
+            String modelNameForApi = extractModelName(currentModelId);
 
             // Check if this is the first message in a conversation based on
             // systemPromptInitialized flag
@@ -158,17 +265,13 @@ public class OpenAiService implements AiService {
             ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
                     .maxCompletionTokens(maxTokens)
                     .temperature(temperature)
-                    .model(currentModelId);
+                    .model(modelNameForApi);  // Use model name without prefix
 
             // Always include the system prompt
             paramsBuilder.addSystemMessage(systemPrompt);
             log.info("Including system prompt in request (length: {})", systemPrompt.length());
 
-            // Debug log the conversation array
-            log.info("Conversation size: {}", conversation.size());
-
-            // Limit conversation history to last maxHistorySize messages to avoid token
-            // limits
+            // Limit conversation history to last maxHistorySize messages to avoid token limits
             List<String> limitedHistory;
             if (conversation.size() > maxHistorySize) {
                 limitedHistory = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
@@ -176,6 +279,9 @@ public class OpenAiService implements AiService {
             } else {
                 limitedHistory = new java.util.ArrayList<>(conversation);
             }
+
+            // Debug log the conversation array
+            log.info("Conversation size: {}", limitedHistory.size());
 
             // Log the conversation for debugging
             for (int i = 0; i < limitedHistory.size(); i++) {
@@ -203,12 +309,9 @@ public class OpenAiService implements AiService {
                                 msg.substring(0, Math.min(50, msg.length())));
                     } else {
                         // Assistant messages (odd indices: 1, 3, 5...)
-                        // For OpenAI Java SDK 0.31.0, we need to use a different approach
-                        // Since we can't directly add assistant messages, we'll add them as system
-                        // messages
-                        // This is a workaround and not ideal, but it should work
-                        paramsBuilder.addSystemMessage("Assistant: " + msg);
-                        log.info("Added assistant message as system message {}: {}", i,
+                        // Use addAssistantMessage(String) method from OpenAI SDK 4.x
+                        paramsBuilder.addAssistantMessage(msg);
+                        log.info("Added assistant message {}: {}", i,
                                 msg.substring(0, Math.min(50, msg.length())));
                     }
                 }
@@ -312,12 +415,23 @@ public class OpenAiService implements AiService {
 
     /**
      * Extracts a user-friendly error message from an exception
-     * 
+     *
      * @param e The exception to extract the error message from
      * @return A user-friendly error message
      */
     private String extractUserFriendlyErrorMessage(Exception e) {
         String errorMessage = e.getMessage();
+
+        // Check for JSON parsing error (likely HTML response)
+        if (e instanceof com.openai.errors.OpenAIInvalidDataException) {
+            Throwable cause = e.getCause();
+            if (cause instanceof com.fasterxml.jackson.core.JsonParseException) {
+                log.error("JSON parsing error - API likely returned HTML instead of JSON. " +
+                         "This usually means: 1) Wrong API endpoint, 2) Invalid API key, or 3) API authentication failed");
+                return "API Error: Invalid response format. This usually means the API endpoint is incorrect, " +
+                       "the API key is invalid, or authentication failed. Please check your configuration.";
+            }
+        }
 
         // Check for credit balance error
         if (errorMessage != null && errorMessage.contains("insufficient_quota")) {

@@ -146,8 +146,9 @@ public class OpenAICompatibleProvider implements AiService {
             if (i % 2 == 0) {
                 paramsBuilder.addUserMessage(msg);
             } else {
-                // OpenAI Java SDK doesn't have addAssistantMessage, use system message as workaround
-                paramsBuilder.addSystemMessage("Assistant: " + msg);
+                // Assistant messages (odd indices: 1, 3, 5...)
+                // Use addAssistantMessage(String) method from OpenAI SDK 4.x
+                paramsBuilder.addAssistantMessage(msg);
             }
         }
 
