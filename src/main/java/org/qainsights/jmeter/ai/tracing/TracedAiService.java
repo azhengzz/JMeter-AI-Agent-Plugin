@@ -222,11 +222,6 @@ public class TracedAiService implements AiService {
      * Uses the centralized SystemPrompt utility.
      */
     private String getSystemPrompt() {
-        String providerName = delegate.getName();
-        // Normalize provider name
-        String normalizedName = providerName.toLowerCase()
-                .replace(" service", "")
-                .replace(" ", "-");
-        return SystemPrompt.get(normalizedName);
+        return SystemPrompt.get();
     }
 }

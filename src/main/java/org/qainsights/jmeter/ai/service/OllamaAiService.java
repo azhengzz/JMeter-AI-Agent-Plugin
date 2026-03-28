@@ -7,6 +7,7 @@ import io.github.ollama4j.models.request.ThinkMode;
 import io.github.ollama4j.utils.Options;
 import io.github.ollama4j.utils.OptionsBuilder;
 import org.qainsights.jmeter.ai.utils.AiConfig;
+import org.qainsights.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,8 +31,6 @@ public class OllamaAiService implements AiService {
     private final long requestTimeoutSeconds;
     private final String systemPrompt;
 
-    private static final String DEFAULT_JMETER_SYSTEM_PROMPT = "You are a JMeter expert. Your task is to analyze the user's request and generate the appropriate JMeter test plan. Please provide the response in the correct format.";
-
     public OllamaAiService() {
         this.host = buildHost(
                 AiConfig.getProperty("ollama.host", "http://localhost"),
@@ -45,9 +44,8 @@ public class OllamaAiService implements AiService {
         this.requestTimeoutSeconds = parseTimeout(AiConfig.getProperty("ollama.request.timeout.seconds", "120"));
         this.ollamaClient = new Ollama(this.host);
         this.ollamaClient.setRequestTimeoutSeconds(this.requestTimeoutSeconds);
-        String configuredPrompt = AiConfig.getProperty("ollama.system.prompt", "");
-        this.systemPrompt = (configuredPrompt != null && !configuredPrompt.isEmpty())
-                ? configuredPrompt : DEFAULT_JMETER_SYSTEM_PROMPT;
+        // Load system prompt using centralized utility
+        this.systemPrompt = SystemPrompt.get();
 
         logger.info("Initialized Ollama service with host: {}, model: {}, thinking mode: {}, timeout: {}s",
                 this.host, this.model, this.isThinkingModeEnabled ? this.thinkingMode : "DISABLED", this.requestTimeoutSeconds);
@@ -177,7 +175,7 @@ public class OllamaAiService implements AiService {
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 request.withMessage(OllamaChatMessageRole.SYSTEM, systemPrompt);
             } else {
-                request.withMessage(OllamaChatMessageRole.SYSTEM, DEFAULT_JMETER_SYSTEM_PROMPT);
+                request.withMessage(OllamaChatMessageRole.SYSTEM, SystemPrompt.getDefault());
             }
 
             List<String> limitedHistory;

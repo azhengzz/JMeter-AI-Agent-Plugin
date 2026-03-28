@@ -65,7 +65,7 @@ public class ClaudeService implements AiService {
         this.maxTokens = Long.parseLong(AiConfig.getProperty("claude.max.tokens", "1024"));
 
         // Load system prompt using centralized utility
-        this.systemPrompt = SystemPrompt.get("claude");
+        this.systemPrompt = SystemPrompt.get();
         log.info("Loaded system prompt (length: {})", systemPrompt.length());
         log.debug("System prompt (first 100 chars): {}",
                 systemPrompt.substring(0, Math.min(100, systemPrompt.length())));

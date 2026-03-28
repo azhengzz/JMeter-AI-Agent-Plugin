@@ -75,8 +75,8 @@ public class OpenAICompatibleProvider implements AiService {
         this.maxHistorySize = Integer.parseInt(AiConfig.getProperty(providerName + ".max.history.size", "10"));
         this.currentModelId = AiConfig.getProperty(providerName + ".default.model", getDefaultModelForProvider(providerName));
         this.temperature = Float.parseFloat(AiConfig.getProperty(providerName + ".temperature", "0.7"));
-        // Load system prompt using centralized utility (checks provider-specific, then unified, then default)
-        this.systemPrompt = SystemPrompt.get(providerName);
+        // Load system prompt using centralized utility
+        this.systemPrompt = SystemPrompt.get();
         this.maxTokens = Long.parseLong(AiConfig.getProperty(providerName + ".max.tokens", "4096"));
 
         log.info("Initialized {} provider with model: {}", providerName, currentModelId);

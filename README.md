@@ -58,7 +58,6 @@ The Feather Wand plugin can be configured through JMeter properties. Copy the `j
 | `claude.temperature`      | Temperature setting (0.0-1.0)                                | 0.7                        |
 | `claude.max.tokens`       | Maximum tokens for AI responses                              | 1024                       |
 | `claude.max.history.size` | Maximum conversation history size                            | 10                         |
-| `claude.system.prompt`    | System prompt that guides Claude's responses                 | See sample properties file |
 | `anthropic.log.level`     | Logging level for Anthropic API requests ("info" or "debug") | Empty (disabled)           |
 
 #### OpenAI Configuration
@@ -70,7 +69,6 @@ The Feather Wand plugin can be configured through JMeter properties. Copy the `j
 | `openai.temperature`      | Temperature setting (0.0-1.0)                             | 0.5                        |
 | `openai.max.tokens`       | Maximum tokens for AI responses                           | 1024                       |
 | `openai.max.history.size` | Maximum conversation history size                         | 10                         |
-| `openai.system.prompt`    | System prompt that guides OpenAI's responses              | See sample properties file |
 | `openai.log.level`        | Logging level for OpenAI API requests ("INFO" or "DEBUG") | Empty (disabled)           |
 
 #### Ollama Configuration
@@ -85,7 +83,6 @@ The Feather Wand plugin can be configured through JMeter properties. Copy the `j
 | `ollama.thinking.mode` | Enable extended thinking (`ENABLED` or `DISABLED`) | `DISABLED` |
 | `ollama.thinking.level` | Thinking depth (`LOW`, `MEDIUM`, or `HIGH`) | `MEDIUM` |
 | `ollama.request.timeout.seconds` | HTTP request timeout in seconds (increase for thinking models) | `120` |
-| `ollama.system.prompt` | System prompt that guides Ollama's responses | See sample properties file |
 
 > ⚠️ When `ollama.thinking.mode=ENABLED`, increase `ollama.request.timeout.seconds` to at least `300` to avoid timeout errors during long inference.
 
@@ -108,9 +105,9 @@ Install Claude Code from https://code.claude.com/docs/en/quickstart
 
 ### 💬 Customizing the System Prompt
 
-The system prompt defines how the AI (Claude or OpenAI) responds to your queries. You can customize this in the properties file to focus on specific aspects of JMeter or add your own guidelines.
+The system prompt defines how the AI responds to your queries. You can customize this in the properties file to focus on specific aspects of JMeter or add your own guidelines.
 
-`claude.system.prompt`, `openai.system.prompt`, and `ollama.system.prompt` can be configured separately in the properties file. The default prompts are designed to provide helpful, JMeter-specific responses tailored to each AI model's capabilities.
+Use the `jmeter.ai.system.prompt` property to set a unified system prompt that applies to all AI providers (Claude, OpenAI, Ollama, DeepSeek, Zhipu, Moonshot, MiniMax). The default prompt is designed to provide helpful, JMeter-specific responses.
 
 ## 🔍 Special Commands
 

@@ -52,7 +52,7 @@ public interface AiService {
 | `claude.temperature` | `0.5` | 响应随机性 |
 | `claude.max.tokens` | `1024` | 最大 token 数 |
 | `claude.max.history.size` | `10` | 对话历史大小 |
-| `claude.system.prompt` | 内置提示词 | 自定义系统提示 |
+| `jmeter.ai.system.prompt` | 内置提示词 | 统一的系统提示（所有提供商） |
 
 **核心方法**：
 - `generateResponse()` - 生成 AI 响应
