@@ -4,9 +4,11 @@ import org.qainsights.jmeter.ai.agent.memory.MemoryStore;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolCall;
 import org.qainsights.jmeter.ai.agent.skills.SkillsLoader;
+import org.qainsights.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +25,14 @@ public class ContextBuilder {
     private static final Logger log = LoggerFactory.getLogger(ContextBuilder.class);
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]";
+
+    // Bootstrap files to load from workspace (similar to Nanobot's BOOTSTRAP_FILES)
+    private static final String[] BOOTSTRAP_FILES = {
+        "AGENTS.md",
+        "SOUL.md",
+        "USER.md",
+        "TOOLS.md"
+    };
 
     private final MemoryStore memoryStore;
     private final String baseSystemPrompt;
@@ -42,22 +52,28 @@ public class ContextBuilder {
     }
 
     /**
-     * Build system prompt from identity, memory, and skills.
+     * Build system prompt from identity, bootstrap files, memory, and skills.
      * Based on Nanobot's build_system_prompt logic.
      */
     public String buildSystemPrompt(List<String> activeSkills) {
         List<String> parts = new ArrayList<>();
 
-        // 1. Identity
+        // 1. Identity (from SystemPrompt or custom base prompt)
         parts.add(baseSystemPrompt);
 
-        // 2. Memory
+        // 2. Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md)
+        String bootstrap = loadBootstrapFiles();
+        if (!bootstrap.isEmpty()) {
+            parts.add(bootstrap);
+        }
+
+        // 3. Memory
         String memoryContext = memoryStore.getMemoryContext();
         if (!memoryContext.isEmpty()) {
             parts.add("# Memory\n\n" + memoryContext);
         }
 
-        // 3. Active Skills (always=true skills with full content)
+        // 4. Active Skills (always=true skills with full content)
         List<String> alwaysSkills = skillsLoader.getAlwaysSkills();
         if (!alwaysSkills.isEmpty()) {
             String alwaysContent = skillsLoader.loadSkillsForContext(alwaysSkills);
@@ -66,16 +82,41 @@ public class ContextBuilder {
             }
         }
 
-        // 4. Skills Summary (XML format listing all available skills)
+        // 5. Skills Summary (XML format listing all available skills)
         String skillsSummary = skillsLoader.buildSkillsSummary();
         if (!skillsSummary.isEmpty()) {
             parts.add("# Skills\n\n" +
-                    "The following skills extend your capabilities. Skills marked with available=\"false\" " +
-                    "need dependencies installed first.\n\n" +
+                    "The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.\n" +
+                    "Skills with available=\"false\" need dependencies installed first.\n\n" +
                     skillsSummary);
         }
 
         return String.join("\n\n---\n\n", parts);
+    }
+
+    /**
+     * Load bootstrap files from workspace.
+     * Based on Nanobot's _load_bootstrap_files logic.
+     */
+    private String loadBootstrapFiles() {
+        List<String> parts = new ArrayList<>();
+
+        for (String filename : BOOTSTRAP_FILES) {
+            Path filePath = workspace.resolve(filename);
+            if (Files.exists(filePath)) {
+                try {
+                    String content = Files.readString(filePath);
+                    parts.add("## " + filename + "\n\n" + content);
+                    log.debug("Loaded bootstrap file: {}", filename);
+                } catch (Exception e) {
+                    log.warn("Failed to read bootstrap file {}: {}", filename, e.getMessage());
+                }
+            } else {
+                log.debug("Bootstrap file not found: {} (optional)", filename);
+            }
+        }
+
+        return String.join("\n\n", parts);
     }
 
     /**
@@ -220,85 +261,10 @@ public class ContextBuilder {
 
     /**
      * Get default system prompt for JMeter AI Agent.
-     * Based on Nanobot's identity section format.
+     * Uses the unified SystemPrompt utility for consistency.
      */
     private String getDefaultSystemPrompt() {
-        String workspacePath = workspace.toAbsolutePath().toString();
-        String os = System.getProperty("os.name");
-        String javaVersion = System.getProperty("java.version");
-        String runtime = os + ", Java " + javaVersion;
-
-        // Platform-specific policy
-        String platformPolicy;
-        if (os.toLowerCase().contains("win")) {
-            platformPolicy = """
-                    ## Platform Policy (Windows)
-                    - You are running on Windows. Do not assume GNU tools like `grep`, `sed`, or `awk` exist.
-                    - Prefer Windows-native commands or file tools when they are more reliable.
-                    """;
-        } else {
-            platformPolicy = """
-                    ## Platform Policy (POSIX)
-                    - You are running on a POSIX system. Prefer UTF-8 and standard shell tools.
-                    - Use file tools when they are simpler or more reliable than shell commands.
-                    """;
-        }
-
-        return String.format("""
-                # JMeter AI Assistant
-
-                You are an expert JMeter assistant embedded in the Feather Wand plugin.
-                Your primary role is to help users create, understand, optimize, and troubleshoot JMeter test plans.
-
-                ## Runtime
-                %s
-
-                ## Workspace
-                Your workspace is at: %s
-                - Long-term memory: %s/memory/MEMORY.md (write important facts here)
-                - History log: %s/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].
-                - Custom skills: %s/skills/{skill-name}/SKILL.md
-
-                %s
-                ## JMeter AI Guidelines
-                - State intent before tool calls, but NEVER predict or claim results before receiving them.
-                - Before modifying a file, read it first. Do not assume files or directories exist.
-                - After writing or editing a file, re-read it if accuracy matters.
-                - If a tool call fails, analyze the error before retrying with a different approach.
-                - Ask for clarification when the request is ambiguous.
-                - Focus responses on JMeter concepts and best practices.
-                - Provide concise, accurate information with practical, actionable advice.
-
-                ## Capabilities
-                - Provide detailed information about JMeter elements and their properties
-                - Suggest appropriate elements based on testing needs
-                - Explain best practices for performance testing
-                - Help troubleshoot and optimize test plans
-                - Generate script snippets in Groovy or Java
-                - Analyze test results and provide insights
-
-                ## Supported Elements
-                - Thread Groups (Standard)
-                - Samplers (HTTP, JDBC)
-                - Controllers (Logic, Transaction, Loop, If, While, Random)
-                - Config Elements (CSV Data Set, HTTP Request Defaults, Header Manager, Cookie Manager)
-                - Pre-Processors (JSR223, Regex User Parameters, User Parameters)
-                - Post-Processors (Regex Extractor, JSON Extractor, XPath Extractor, Boundary Extractor)
-                - Assertions (Response, JSON Path, Duration, Size, XPath, JSR223, MD5Hex)
-                - Timers (Constant, Uniform Random, Gaussian Random, Poisson Random, Constant Throughput)
-                - Listeners (View Results Tree, Aggregate Report, Summary Report, Backend Listener)
-
-                ## Programming Languages
-                - Groovy (default for JSR223 elements)
-                - Java
-                - Regular expressions for extractors and assertions
-
-                ## Response Format
-                - Use code blocks for scripts and commands
-                - Use bullet points for steps and options
-                - Use bold for element names and important concepts
-
-                Version: JMeter 5.6+
-                """, runtime, workspacePath, workspacePath, workspacePath, workspacePath, platformPolicy);
+        // Use the unified SystemPrompt with workspace information
+        return SystemPrompt.getDefaultWithWorkspace(workspace);
     }
 }

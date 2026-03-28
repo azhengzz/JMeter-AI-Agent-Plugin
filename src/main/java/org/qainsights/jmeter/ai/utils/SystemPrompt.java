@@ -3,24 +3,40 @@ package org.qainsights.jmeter.ai.utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Centralized System Prompt management for all AI providers.
  * <p>
  * Configuration priority (highest to lowest):
  * 1. Unified: jmeter.ai.system.prompt (applies to all providers)
- * 2. Built-in default (JMeter expert assistant)
+ * 2. Built-in default + workspace bootstrap files
  * <p>
  * Usage:
  * <pre>
- * String prompt = SystemPrompt.get();                          // Use unified config
+ * String prompt = SystemPrompt.get();                          // Use unified config + bootstrap files
  * String prompt = SystemPrompt.get("custom prompt");           // Direct override
  * String prompt = SystemPrompt.getWithWorkspace(workspace);    // With workspace info
  * </pre>
  */
 public class SystemPrompt {
     private static final Logger log = LoggerFactory.getLogger(SystemPrompt.class);
+
+    // Bootstrap files to load from workspace
+    private static final String[] BOOTSTRAP_FILES = {
+        "AGENTS.md",
+        "SOUL.md",
+        "USER.md",
+        "TOOLS.md"
+    };
+
+    // Default workspace path
+    private static final Path DEFAULT_WORKSPACE =
+        Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
 
     /**
      * The default JMeter system prompt used when no custom prompt is configured.
@@ -113,7 +129,6 @@ public class SystemPrompt {
 
         // Insert workspace section after Runtime
         String workspaceSection = String.format("""
-
                 ## Workspace
                 Your workspace is at: %s
                 - Long-term memory: %s/memory/MEMORY.md (write important facts here)
@@ -143,7 +158,7 @@ public class SystemPrompt {
      * <p>
      * Priority:
      * 1. jmeter.ai.system.prompt (unified for all providers)
-     * 2. Built-in default
+     * 2. Built-in default + workspace bootstrap files
      *
      * @return The system prompt to use
      */
@@ -155,9 +170,13 @@ public class SystemPrompt {
             return unifiedPrompt;
         }
 
-        // Use built-in default
-        log.debug("Using built-in default system prompt");
-        return DEFAULT_JMETER_SYSTEM_PROMPT;
+        // Initialize workspace and get full system prompt with bootstrap files
+        Path workspace = getWorkspacePath();
+        initializeWorkspace(workspace);
+
+        String fullPrompt = buildFullSystemPrompt(workspace);
+        log.debug("Using built-in default system prompt with bootstrap files (length: {})", fullPrompt.length());
+        return fullPrompt;
     }
 
     /**
@@ -189,5 +208,78 @@ public class SystemPrompt {
      */
     public static boolean isUnifiedConfigured() {
         return !AiConfig.getProperty(UNIFIED_PROMPT_KEY, "").isEmpty();
+    }
+
+    /**
+     * Get the workspace path from configuration.
+     *
+     * @return The workspace path
+     */
+    private static Path getWorkspacePath() {
+        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
+        if (configuredPath != null && !configuredPath.isEmpty()) {
+            return Path.of(configuredPath);
+        }
+        return DEFAULT_WORKSPACE;
+    }
+
+    /**
+     * Initialize workspace with template files if not already initialized.
+     *
+     * @param workspace The workspace path
+     */
+    private static void initializeWorkspace(Path workspace) {
+        if (!WorkspaceInitializer.isInitialized(workspace)) {
+            log.info("Initializing workspace: {}", workspace);
+            WorkspaceInitializer.initialize(workspace, true);
+        }
+    }
+
+    /**
+     * Build full system prompt with bootstrap files from workspace.
+     *
+     * @param workspace The workspace path
+     * @return The complete system prompt
+     */
+    private static String buildFullSystemPrompt(Path workspace) {
+        List<String> parts = new ArrayList<>();
+
+        // 1. Base identity with workspace info
+        parts.add(getDefaultWithWorkspace(workspace));
+
+        // 2. Load bootstrap files
+        String bootstrap = loadBootstrapFiles(workspace);
+        if (!bootstrap.isEmpty()) {
+            parts.add(bootstrap);
+        }
+
+        return String.join("\n\n---\n\n", parts);
+    }
+
+    /**
+     * Load bootstrap files from workspace.
+     *
+     * @param workspace The workspace path
+     * @return Combined content of all bootstrap files
+     */
+    private static String loadBootstrapFiles(Path workspace) {
+        List<String> parts = new ArrayList<>();
+
+        for (String filename : BOOTSTRAP_FILES) {
+            Path filePath = workspace.resolve(filename);
+            if (Files.exists(filePath)) {
+                try {
+                    String content = Files.readString(filePath);
+                    if (!content.trim().isEmpty()) {
+                        parts.add("## " + filename + "\n\n" + content);
+                        log.debug("Loaded bootstrap file: {}", filename);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to read bootstrap file {}: {}", filename, e.getMessage());
+                }
+            }
+        }
+
+        return String.join("\n\n", parts);
     }
 }

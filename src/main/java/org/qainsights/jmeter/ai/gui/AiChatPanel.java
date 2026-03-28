@@ -2,14 +2,12 @@ package org.qainsights.jmeter.ai.gui;
 
 import javax.swing.*;
 import javax.swing.text.*;
-import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 import org.qainsights.jmeter.ai.intellisense.InputBoxIntellisense;
 import org.qainsights.jmeter.ai.agent.AgentLoop;
@@ -22,24 +20,10 @@ import org.qainsights.jmeter.ai.service.ClaudeService;
 import com.openai.models.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 
-import org.apache.jmeter.control.TransactionController;
-import org.apache.jmeter.gui.GuiPackage;
-import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.qainsights.jmeter.ai.usage.UsageCommandHandler;
-import org.qainsights.jmeter.ai.utils.JMeterElementManager;
-import org.qainsights.jmeter.ai.utils.JMeterElementRequestHandler;
 import org.qainsights.jmeter.ai.utils.Models;
 import org.qainsights.jmeter.ai.utils.VersionUtils;
-import org.qainsights.jmeter.ai.optimizer.OptimizeRequestHandler;
-import org.qainsights.jmeter.ai.lint.LintCommandHandler;
-import org.qainsights.jmeter.ai.wrap.WrapCommandHandler;
-import org.qainsights.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.qainsights.jmeter.ai.service.OpenAiService;
 import org.qainsights.jmeter.ai.service.OllamaAiService;
-import org.qainsights.jmeter.ai.service.provider.AiServiceFactory;
 import org.qainsights.jmeter.ai.service.provider.ProviderRegistry;
 
 import com.anthropic.models.models.ModelInfo;
@@ -61,7 +45,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JTextArea messageField;
     private JButton sendButton;
     private JComboBox<String> modelSelector;
-    private List<String> conversationHistory;
     private TreeNavigationButtons treeNavigationButtons;
     private JPanel navigationPanel; // Added field for navigation panel
 
@@ -79,15 +62,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     // Component managers
     private final MessageProcessor messageProcessor;
     private final ElementSuggestionManager elementSuggestionManager;
-
-    // Track the last command type for undo/redo operations
-    private enum LastCommandType {
-        NONE,
-        LINT,
-        WRAP
-    }
-
-    private LastCommandType lastCommandType = LastCommandType.NONE;
 
     /**
      * Constructs a new AiChatPanel.
@@ -110,8 +84,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Register for UI refresh events (for zoom functionality)
         UIManager.addPropertyChangeListener(this);
-
-        conversationHistory = new ArrayList<>();
 
         // Set up the panel layout
         setLayout(new BorderLayout());
@@ -235,26 +207,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         actionMap.put("undoAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Perform undo based on the last command type
-                switch (lastCommandType) {
-                    case WRAP:
-                        undoLastWrap();
-                        break;
-                    case LINT:
-                        undoLastRename();
-                        break;
-                    default:
-                        // If no recent command, try to determine based on context
-                        GuiPackage guiPackage = GuiPackage.getInstance();
-                        if (guiPackage != null) {
-                            JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
-                            if (currentNode != null && currentNode.getTestElement() instanceof TransactionController) {
-                                undoLastWrap();
-                            } else {
-                                undoLastRename();
-                            }
-                        }
-                        break;
+                // Undo/Redo functionality is now handled by AgentLoop tools
+                // Use the agent's undo capability or type @undo in the chat
+                try {
+                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            "Undo is available through AgentLoop. Type 'undo' in the chat or use the appropriate tool.",
+                            Color.BLUE, false);
+                } catch (BadLocationException ex) {
+                    log.error("Error displaying message", ex);
                 }
             }
         });
@@ -264,42 +224,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         actionMap.put("redoAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Perform redo based on the last command type
-                switch (lastCommandType) {
-                    case WRAP:
-                        // Wrap operations don't support redo due to complexity of recreating
-                        // Transaction Controllers
-                        try {
-                            messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                    "Redo is not supported for wrap operations. Please use the @wrap command again if needed.",
-                                    Color.BLUE, false);
-                        } catch (BadLocationException ex) {
-                            log.error("Error displaying message", ex);
-                        }
-                        break;
-                    case LINT:
-                        redoLastUndo();
-                        break;
-                    default:
-                        // If no recent command, try to determine based on context
-                        GuiPackage guiPackage = GuiPackage.getInstance();
-                        if (guiPackage != null) {
-                            JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
-                            if (currentNode != null && currentNode.getTestElement() instanceof TransactionController) {
-                                // If a Transaction Controller is selected, inform user that redo is not
-                                // supported
-                                try {
-                                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                            "Redo is not supported for wrap operations. Please use the @wrap command again if needed.",
-                                            Color.BLUE, false);
-                                } catch (BadLocationException ex) {
-                                    log.error("Error displaying message", ex);
-                                }
-                            } else {
-                                redoLastUndo();
-                            }
-                        }
-                        break;
+                // Undo/Redo functionality is now handled by AgentLoop tools
+                // Use the agent's redo capability or type @redo in the chat
+                try {
+                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            "Redo is available through AgentLoop. Type 'redo' in the chat or use the appropriate tool.",
+                            Color.BLUE, false);
+                } catch (BadLocationException ex) {
+                    log.error("Error displaying message", ex);
                 }
             }
         });
@@ -736,7 +668,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
-     * Starts a new conversation by clearing the chat area and conversation history.
+     * Starts a new conversation by clearing the chat area and AgentLoop session.
      */
     private void startNewConversation() {
         log.info("Starting new conversation");
@@ -744,11 +676,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Clear the chat area
         chatArea.setText("");
 
-        // Clear the conversation history
-        conversationHistory.clear();
-
-        // Reset the last command type
-        lastCommandType = LastCommandType.NONE;
+        // Clear the AgentLoop session
+        if (agentLoop != null) {
+            agentLoop.getSessionManager().clearSession(CHAT_SESSION_KEY);
+        }
 
         // Display welcome message
         displayWelcomeMessage();
@@ -771,9 +702,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } catch (BadLocationException e) {
             log.error("Error appending user message to chat", e);
         }
-
-        // Add the user message to the conversation history
-        conversationHistory.add(message);
 
         // Clear the message field
         messageField.setText("");
@@ -802,12 +730,23 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
-        // Check if AgentLoop is available
+        // Ensure AgentLoop is initialized
         if (agentLoop == null) {
-            // AgentLoop not initialized, fall back to legacy handling
-            log.warn("AgentLoop not available, using legacy handling");
-            handleLegacyMessage(message);
-            return;
+            log.warn("AgentLoop not initialized, attempting to reinitialize");
+            initializeAgentLoop();
+            if (agentLoop == null) {
+                try {
+                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            "Agent Loop is not available. Please check your configuration.",
+                            Color.RED, false);
+                    removeLoadingIndicator();
+                    messageField.setEnabled(true);
+                    sendButton.setEnabled(true);
+                    return;
+                } catch (BadLocationException e) {
+                    log.error("Error displaying error message", e);
+                }
+            }
         }
 
         // Disable input while processing
@@ -822,106 +761,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 this::handleAgentResponse,
                 this::handleProgress
         ).execute();
-    }
-
-    /**
-     * Handle legacy messages when AgentLoop is not available.
-     */
-    private void handleLegacyMessage(String message) {
-        // Check for special commands
-        if (message.trim().startsWith("@this")) {
-            handleThisCommand();
-            return;
-        } else if (message.trim().startsWith("@optimize")) {
-            handleOptimizeCommand();
-            return;
-        } else if (message.trim().startsWith("@lint")) {
-            handleLintCommand(message);
-            return;
-        } else if (message.trim().startsWith("@wrap")) {
-            handleWrapCommand();
-            return;
-        } else if (message.trim().startsWith("@usage")) {
-            handleUsageCommand();
-            return;
-        }
-
-        log.info("Checking if message is an element request: '{}'", message);
-
-        // Disable input while processing
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        String elementResponse = JMeterElementRequestHandler.processElementRequest(message);
-
-        // Only process as an element request if it's a valid request
-        // This prevents general conversation from being interpreted as element requests
-        if (elementResponse != null && !elementResponse.contains("I couldn't understand what to do with")) {
-            log.info("Detected element request, response: '{}'",
-                    elementResponse.length() > 50 ? elementResponse.substring(0, 50) + "..." : elementResponse);
-
-            // Remove the loading indicator since we're about to display the response
-            removeLoadingIndicator();
-            processAiResponse(elementResponse);
-
-            // Re-enable input after processing
-            messageField.setEnabled(true);
-            sendButton.setEnabled(true);
-            messageField.requestFocusInWindow();
-
-            return;
-        }
-
-        log.info("Message not recognized as an element request, processing as regular AI request");
-
-        // Process the message in a background thread
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                return getAiResponse(message);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Get the AI response
-                    String response = get();
-
-                    // Process the AI response
-                    processAiResponse(response);
-
-                    // Add the AI response to the conversation history
-                    conversationHistory.add(response);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error getting AI response", e);
-
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while processing your request. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
     }
 
     /**
@@ -942,10 +781,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         } else {
             // Process the AI response
+            // Note: AgentLoop manages conversation history via SessionManager
             processAiResponse(response.getContent());
-
-            // Add to conversation history
-            conversationHistory.add(response.getContent());
         }
 
         // Re-enable input
@@ -970,293 +807,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 log.error("Error displaying progress", e);
             }
         });
-    }
-
-    /**
-     * Handles the @this command to get information about the currently selected
-     * element.
-     */
-    private void handleThisCommand() {
-        log.info("Processing @this command");
-
-        // Reset the last command type since this is not a lint or wrap command
-        lastCommandType = LastCommandType.NONE;
-
-        // Disable input while processing
-        messageField.setText("");
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        // Process the command in a background thread
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                String elementInfo = getCurrentElementInfo();
-                if (elementInfo == null) {
-                    return "No element is currently selected in the test plan. Please select an element and try again.";
-                }
-                return elementInfo;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Get the element info
-                    String info = get();
-
-                    // Process the response
-                    processAiResponse(info);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error getting element info", e);
-
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while getting element information. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Handles the @optimize command to get optimization suggestions for the test
-     * plan.
-     */
-    private void handleOptimizeCommand() {
-        log.info("Processing @optimize command");
-
-        // Reset the last command type since this is not a lint or wrap command
-        lastCommandType = LastCommandType.NONE;
-
-        // Disable input while processing
-        messageField.setText("");
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        // Process the command in a background thread
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                // Get optimization suggestions from OptimizeRequestHandler
-                // Use the appropriate AI service based on the selected model
-                String selectedModel = (String) modelSelector.getSelectedItem();
-                AiService serviceToUse;
-
-                if (selectedModel.startsWith("openai:")) {
-                    // Use OpenAI service
-                    serviceToUse = openAiService;
-                    log.info("Using OpenAI service for optimization");
-                } else {
-                    // Use Claude service
-                    serviceToUse = claudeService;
-                    log.info("Using Claude service for optimization");
-                }
-
-                return OptimizeRequestHandler.analyzeAndOptimizeSelectedElement(serviceToUse);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Get the optimization suggestions
-                    String suggestions = get();
-
-                    // Process the response
-                    processAiResponse(suggestions);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error getting optimization suggestions", e);
-
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while getting optimization suggestions. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Gets information about the currently selected element.
-     * 
-     * @return Information about the currently selected element, or null if no
-     *         element is selected
-     */
-    public String getCurrentElementInfo() {
-        try {
-            GuiPackage guiPackage = GuiPackage.getInstance();
-            if (guiPackage == null) {
-                log.warn("Cannot get element info: GuiPackage is null");
-                return null;
-            }
-
-            JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
-            if (currentNode == null) {
-                log.warn("No node is currently selected in the test plan");
-                return null;
-            }
-
-            // Get the test element
-            TestElement element = currentNode.getTestElement();
-            if (element == null) {
-                log.warn("Selected node does not have a test element");
-                return null;
-            }
-
-            // Build information about the element
-            StringBuilder info = new StringBuilder();
-            info.append("# ").append(currentNode.getName()).append(" (").append(element.getClass().getSimpleName())
-                    .append(")\n\n");
-
-            // Add description based on element type
-            String elementType = element.getClass().getSimpleName();
-            info.append(JMeterElementManager.getElementDescription(elementType)).append("\n\n");
-
-            // Add properties
-            info.append("## Properties\n\n");
-
-            // Get all property names
-            PropertyIterator propertyIterator = element.propertyIterator();
-            while (propertyIterator.hasNext()) {
-                JMeterProperty property = propertyIterator.next();
-                String propertyName = property.getName();
-                String propertyValue = property.getStringValue();
-
-                // Skip empty properties and internal JMeter properties
-                if (!propertyValue.isEmpty() && !propertyName.startsWith("TestElement.")
-                        && !propertyName.equals("guiclass")) {
-                    // Format the property name for better readability
-                    String formattedName = propertyName.replace(".", " ").replace("_", " ");
-                    formattedName = formattedName.substring(0, 1).toUpperCase() + formattedName.substring(1);
-
-                    info.append("- **").append(formattedName).append("**: ").append(propertyValue).append("\n");
-                }
-            }
-
-            // Add hierarchical information
-            info.append("\n## Location in Test Plan\n\n");
-
-            // Get parent node
-            TreeNode parent = currentNode.getParent();
-            if (parent instanceof JMeterTreeNode) {
-                JMeterTreeNode parentNode = (JMeterTreeNode) parent;
-                info.append("- Parent: **").append(parentNode.getName()).append("** (")
-                        .append(parentNode.getTestElement().getClass().getSimpleName()).append(")\n");
-            }
-
-            // Get child nodes
-            if (currentNode.getChildCount() > 0) {
-                info.append("- Children: ").append(currentNode.getChildCount()).append("\n");
-                for (int i = 0; i < currentNode.getChildCount(); i++) {
-                    JMeterTreeNode childNode = (JMeterTreeNode) currentNode.getChildAt(i);
-                    info.append("  - **").append(childNode.getName()).append("** (")
-                            .append(childNode.getTestElement().getClass().getSimpleName()).append(")\n");
-                }
-            } else {
-                info.append("- No children\n");
-            }
-
-            // Add suggestions for what can be added to this element
-            info.append("\n## Suggested Elements\n\n");
-            String[][] suggestions = getContextAwareSuggestions(currentNode.getStaticLabel());
-            if (suggestions.length > 0) {
-                info.append("You can add the following elements to this node:\n\n");
-                for (String[] suggestion : suggestions) {
-                    info.append("- ").append(suggestion[0]).append("\n");
-                }
-            } else {
-                info.append("No specific suggestions for this element type.\n");
-            }
-
-            return info.toString();
-        } catch (Exception e) {
-            log.error("Error getting current element info", e);
-            return "Error retrieving element information: " + e.getMessage();
-        }
-    }
-
-    /**
-     * Gets context-aware element suggestions based on the node type.
-     * 
-     * @param nodeType The type of node to get suggestions for
-     * @return An array of string arrays, each containing [displayName]
-     */
-    private String[][] getContextAwareSuggestions(String nodeType) {
-        // Convert to lowercase for case-insensitive comparison
-        String type = nodeType.toLowerCase();
-
-        // Return suggestions based on the node type
-        if (type.contains("test plan")) {
-            return new String[][] {
-                    { "Thread Group" },
-                    { "HTTP Cookie Manager" },
-                    { "HTTP Header Manager" }
-            };
-        } else if (type.contains("thread group")) {
-            return new String[][] {
-                    { "HTTP Request" },
-                    { "Loop Controller" },
-                    { "If Controller" }
-            };
-        } else if (type.contains("http request")) {
-            return new String[][] {
-                    { "Response Assertion" },
-                    { "JSON Extractor" },
-                    { "Constant Timer" }
-            };
-        } else if (type.contains("controller")) {
-            return new String[][] {
-                    { "HTTP Request" },
-                    { "Debug Sampler" },
-                    { "JSR223 Sampler" }
-            };
-        } else {
-            // Default suggestions
-            return new String[][] {
-                    { "Thread Group" },
-                    { "HTTP Request" },
-                    { "Response Assertion" }
-            };
-        }
     }
 
     /**
@@ -1338,391 +888,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 }
             });
         });
-    }
-
-    private void handleUsageCommand() {
-        log.info("Processing @usage command");
-        // Get the currently selected model from the dropdown
-        String selectedModel = (String) modelSelector.getSelectedItem();
-
-        messageField.setText("");
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        // Determine which service to use based on the model ID
-        AiService serviceToUse = null;
-        if (selectedModel != null && selectedModel.startsWith("openai:")) {
-            serviceToUse = openAiService;
-        }
-        if (selectedModel != null && selectedModel.startsWith("claude")) {
-            serviceToUse = claudeService;
-        }
-        AiService finalServiceToUse = serviceToUse;
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                UsageCommandHandler usageCommandHandler = new UsageCommandHandler();
-                return usageCommandHandler.processUsageCommand(finalServiceToUse);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    removeLoadingIndicator();
-                    processAiResponse(get());
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error processing usage command", e);
-                    removeLoadingIndicator();
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while processing the usage command. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Handles the @lint command to rename elements in the test plan.
-     * 
-     * @param message The message containing the @lint command
-     */
-    /**
-     * Handles the @wrap command to group HTTP request samplers under Transaction
-     * Controllers.
-     */
-    private void handleWrapCommand() {
-        log.info("Processing @wrap command");
-
-        // Set the last command type to WRAP
-        lastCommandType = LastCommandType.WRAP;
-
-        // Disable input while processing
-        messageField.setText("");
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        // Process the command in a background thread
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                WrapCommandHandler wrapCommandHandler = new WrapCommandHandler();
-                return wrapCommandHandler.processWrapCommand();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Get the wrap result
-                    String result = get();
-
-                    // Process the response
-                    processAiResponse(result);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error processing @wrap command", e);
-
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while processing the @wrap command. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Handles the @lint command to rename elements in the test plan.
-     * 
-     * @param message The message containing the @lint command
-     */
-    private void handleLintCommand(String message) {
-        log.info("Processing @lint command");
-
-        // Set the last command type to LINT
-        lastCommandType = LastCommandType.LINT;
-
-        try {
-            // Add user message to chat
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), message, getThemeColor("TextPane.foreground", Color.BLACK), true);
-        } catch (BadLocationException e) {
-            log.error("Error adding message to chat", e);
-        }
-
-        // Disable input while processing
-        messageField.setText("");
-        messageField.setEnabled(false);
-        sendButton.setEnabled(false);
-
-        // Process the command in a background thread
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                // Get the currently selected model
-                String selectedModel = (String) modelSelector.getSelectedItem();
-                if (selectedModel == null) {
-                    return "Please select a model first.";
-                }
-
-                // Determine which service to use based on the model ID
-                AiService serviceToUse;
-                if (selectedModel.startsWith("openai:")) {
-                    serviceToUse = openAiService;
-                } else {
-                    serviceToUse = claudeService;
-                }
-
-                // Use the LintCommandHandler to process the lint command
-                LintCommandHandler lintCommandHandler = new LintCommandHandler(serviceToUse);
-                return lintCommandHandler.processLintCommand(message);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Get the response
-                    String response = get();
-
-                    // Process the response
-                    processAiResponse(response);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error processing lint command", e);
-
-                    // Remove the loading indicator
-                    removeLoadingIndicator();
-
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Sorry, I encountered an error while processing your lint command. Please try again.",
-                                Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Gets an AI response for a message.
-     * 
-     * @param message The message to get a response for
-     * @return The AI response
-     */
-    private String getAiResponse(String message) {
-        log.info("Getting AI response for message: {}", message);
-
-        // Get the currently selected model from the dropdown
-        String selectedModel = (String) modelSelector.getSelectedItem();
-        if (selectedModel == null) {
-            log.warn("No model selected in dropdown, using default Anthropic model: {}",
-                    claudeService.getCurrentModel());
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
-        }
-
-        // Get the model ID
-        log.info("Using model from dropdown for message: {}", selectedModel);
-
-        // Parse the model ID to extract provider and model name
-        String modelName = selectedModel;
-        String provider = null;
-
-        if (selectedModel.contains(":")) {
-            String[] parts = selectedModel.split(":", 2);
-            provider = parts[0];
-            modelName = parts[1];
-        }
-
-        // Route to appropriate service based on provider
-        if ("openai".equals(provider)) {
-            log.info("Using OpenAI model: {}", modelName);
-            openAiService.setModel(modelName);
-            return openAiService.generateResponse(new ArrayList<>(conversationHistory));
-        } else if ("ollama".equals(provider)) {
-            log.info("Using Ollama model: {}", modelName);
-            ollamaService.setModel(modelName);
-            return ollamaService.generateResponse(new ArrayList<>(conversationHistory));
-        } else if ("deepseek".equals(provider) || "zhipu".equals(provider) ||
-                   "moonshot".equals(provider) || "minimax".equals(provider)) {
-            // Use AiServiceFactory for Chinese LLM providers
-            // Pass only the model name (without provider prefix) to the factory
-            log.info("Using {} provider with model: {}", provider, modelName);
-            AiService service = AiServiceFactory.createServiceByName(provider, modelName);
-            return service.generateResponse(new ArrayList<>(conversationHistory));
-        } else {
-            // Default to Anthropic (no provider prefix)
-            log.info("Using Anthropic model: {}", selectedModel);
-            claudeService.setModel(selectedModel);
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
-        }
-    }
-
-    /**
-     * Undoes the last rename operation performed by the ElementRenamer.
-     */
-    private void undoLastRename() {
-        // Create a SwingWorker to process the undo in the background
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                // Get the currently selected model
-                String selectedModel = (String) modelSelector.getSelectedItem();
-                if (selectedModel == null) {
-                    return "Please select a model first.";
-                }
-
-                // Determine which service to use based on the model ID
-                AiService serviceToUse;
-                if (selectedModel.startsWith("openai:")) {
-                    serviceToUse = openAiService;
-                } else {
-                    serviceToUse = claudeService;
-                }
-
-                // Create a LintCommandHandler and process the undo
-                LintCommandHandler lintHandler = new LintCommandHandler(serviceToUse);
-                return lintHandler.undoLastRename();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    String result = get();
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getThemeColor("TextPane.foreground", Color.BLACK),
-                                false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying undo result", ex);
-                    }
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error undoing rename operation", e);
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Error undoing rename operation: " + e.getMessage(), Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Redoes the last undone rename operation performed by the ElementRenamer.
-     */
-    private void redoLastUndo() {
-        // Create a SwingWorker to process the redo in the background
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                LintCommandHandler lintHandler = new LintCommandHandler(claudeService);
-                return lintHandler.redoLastUndo();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Get the result and display it
-                    String result = get();
-                    // Display the result in the chat area
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getThemeColor("TextPane.foreground", Color.BLACK),
-                                false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying redo result", ex);
-                    }
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error redoing rename operation", e);
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Error redoing rename operation: " + e.getMessage(), Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Undoes the last wrap operation performed by the WrapCommandHandler.
-     */
-    private void undoLastWrap() {
-        // Create a SwingWorker to process the undo in the background
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                // Get the WrapUndoRedoHandler instance and process the undo
-                return WrapUndoRedoHandler.getInstance().undoLastWrap();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    // Get the result and display it
-                    String result = get();
-                    // Display the result in the chat area
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getThemeColor("TextPane.foreground", Color.BLACK),
-                                false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying wrap undo result", ex);
-                    }
-                } catch (InterruptedException | ExecutionException e) {
-                    log.error("Error undoing wrap operation", e);
-                    // Display error message
-                    try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Error undoing wrap operation: " + e.getMessage(), Color.RED, false);
-                    } catch (BadLocationException ex) {
-                        log.error("Error displaying error message", ex);
-                    }
-                }
-            }
-        }.execute();
     }
 
     /**

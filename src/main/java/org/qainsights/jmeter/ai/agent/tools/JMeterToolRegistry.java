@@ -34,6 +34,7 @@ public class JMeterToolRegistry {
         if (aiService != null) {
             registry.register(new OptimizeJMeterElementTool(aiService));
             registry.register(new LintElementsTool(aiService));
+            registry.register(new UsageTool(aiService));
         }
 
         // Register tools without AI service dependency

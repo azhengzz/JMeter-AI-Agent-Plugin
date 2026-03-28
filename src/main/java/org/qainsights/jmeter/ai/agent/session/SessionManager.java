@@ -53,9 +53,14 @@ public class SessionManager {
     }
 
     private static Path getDefaultWorkspace() {
-        String path = AiConfig.getProperty("agent.memory.workspace.path",
-                System.getProperty("user.home") + "/.jmeter-ai/agent");
-        return Paths.get(path);
+        Path defaultWorkspace = Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
+        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
+        if (configuredPath != null && !configuredPath.isEmpty()) {
+            // Fix path separators: replace backslashes with forward slashes
+            String fixedPath = configuredPath.replace('\\', '/');
+            return Paths.get(fixedPath);
+        }
+        return defaultWorkspace;
     }
 
     private void ensureDirectories() {

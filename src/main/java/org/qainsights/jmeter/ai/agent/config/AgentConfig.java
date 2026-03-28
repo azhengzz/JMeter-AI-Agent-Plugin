@@ -1,9 +1,11 @@
 package org.qainsights.jmeter.ai.agent.config;
 
 import org.qainsights.jmeter.ai.utils.AiConfig;
+import org.qainsights.jmeter.ai.utils.WorkspaceInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -47,8 +49,27 @@ public class AgentConfig {
         // Memory Configuration
         this.memoryEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.memory.enabled", "true"));
         this.memoryConsolidationThreshold = Double.parseDouble(AiConfig.getProperty("agent.memory.consolidation.threshold", "0.5"));
-        this.workspacePath = Paths.get(AiConfig.getProperty("agent.memory.workspace.path",
-                System.getProperty("user.home") + "/.jmeter-ai/agent"));
+
+        // Workspace path configuration
+        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
+        if (configuredPath != null && !configuredPath.isEmpty()) {
+            // Fix path separators: replace backslashes with forward slashes for cross-platform compatibility
+            // This handles cases where config files use single backslashes on Windows
+            String fixedPath = configuredPath.replace('\\', '/');
+            log.debug("Original configuredPath: [{}]", configuredPath);
+            log.debug("Fixed configuredPath: [{}]", fixedPath);
+            this.workspacePath = Paths.get(fixedPath).toAbsolutePath().normalize();
+            log.debug("Resolved workspacePath from config: {}", this.workspacePath);
+        } else {
+            // Use default workspace path
+            String userHome = System.getProperty("user.home");
+            Path userHomePath = Paths.get(userHome).toAbsolutePath().normalize();
+            this.workspacePath = userHomePath.resolve(".jmeter-ai").resolve("agent").normalize();
+            log.debug("Using default workspacePath: {}", this.workspacePath);
+        }
+
+        // Initialize workspace with template files
+        initializeWorkspace();
 
         // Session Configuration
         this.sessionTimeout = Long.parseLong(AiConfig.getProperty("agent.session.timeout", "3600000"));
@@ -63,6 +84,16 @@ public class AgentConfig {
         this.toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
 
         logConfiguration();
+    }
+
+    /**
+     * Initialize workspace with template files if not already initialized.
+     */
+    private void initializeWorkspace() {
+        if (!WorkspaceInitializer.isInitialized(workspacePath)) {
+            log.info("Initializing workspace: {}", workspacePath);
+            WorkspaceInitializer.initialize(workspacePath);
+        }
     }
 
     private void logConfiguration() {
