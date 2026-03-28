@@ -137,3 +137,6 @@ PPA.md
 ollama-src
 *.txt
 settings.local.json
+
+.claude/
+.vscode/

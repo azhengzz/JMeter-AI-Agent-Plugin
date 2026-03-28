@@ -206,7 +206,7 @@ public class ChatUIManager {
                 
                 // Variable to store Anthropic models for reference
                 ModelListPage anthropicModels = null;
-                com.openai.models.ModelListPage openAiModels = null;
+                com.openai.models.models.ModelListPage openAiModels = null;
                 
                 try {
                     // Get Anthropic models
@@ -224,7 +224,7 @@ public class ChatUIManager {
                     openAiModels = Models.getOpenAiModels(openAiService.getClient());
                     if (openAiModels != null && openAiModels.data() != null) {
                         // Convert OpenAI models to Anthropic ModelInfo objects
-                        for (com.openai.models.Model openAiModel : openAiModels.data()) {
+                        for (com.openai.models.models.Model openAiModel : openAiModels.data()) {
                             // Only include GPT models and filter out specific model types
                             if (openAiModel.id().startsWith("gpt") && 
                                 !openAiModel.id().contains("audio") && 

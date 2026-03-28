@@ -4,8 +4,8 @@ import java.util.List;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.ChatCompletion;
-import com.openai.models.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,7 +109,19 @@ public class OpenAiService implements AiService {
             System.setProperty("OPENAI_LOG", loggingLevel);
             log.info("Enabled OpenAI client logging with level: {}", loggingLevel);
         }
-        this.client = new OpenAIOkHttpClient.Builder().apiKey(API_KEY).build();
+        
+        // Build the client with optional custom base URL
+        OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
+                .apiKey(API_KEY);
+
+        // Check if a custom base URL is configured
+        String baseUrl = AiConfig.getProperty("openai.api.base.url", "");
+        if (!baseUrl.isEmpty()) {
+            clientBuilder.baseUrl(baseUrl);
+            log.info("Using custom OpenAI API base URL: {}", baseUrl);
+        }
+
+        this.client = clientBuilder.build();
 
         // Set the client in the OpenAiUsage singleton for token usage tracking
         try {

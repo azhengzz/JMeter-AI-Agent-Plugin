@@ -10,7 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.Model;
+import com.openai.models.models.Model;
 
 import org.qainsights.jmeter.ai.service.OllamaAiService;
 
@@ -119,15 +119,15 @@ public class Models {
      * @param client OpenAI client
      * @return OpenAI ModelListPage
      */
-    public static com.openai.models.ModelListPage getOpenAiModels(OpenAIClient client) {
+    public static com.openai.models.models.ModelListPage getOpenAiModels(OpenAIClient client) {
         try {
             log.info("Fetching available models from OpenAI API");
             client = OpenAIOkHttpClient.builder()
                     .apiKey(AiConfig.getProperty("openai.api.key", "YOUR_API_KEY"))
-                    .build();            
+                    .build();
 
-            com.openai.models.ModelListPage models = client.models().list();
-            
+            com.openai.models.models.ModelListPage models = client.models().list();
+
             log.info("Successfully retrieved {} models from OpenAI API", models.data().size());
             for (Model model : models.data()) {
                 log.debug("Available OpenAI model: {}", model.id());
@@ -138,14 +138,14 @@ public class Models {
             return null;
         }
     }
-    
+
     /**
      * Get OpenAI model IDs as a List of Strings
      * @param client OpenAI client
      * @return List of model IDs
      */
     public static List<String> getOpenAiModelIds(OpenAIClient client) {
-        com.openai.models.ModelListPage models = getOpenAiModels(client);
+        com.openai.models.models.ModelListPage models = getOpenAiModels(client);
         if (models != null && models.data() != null) {
             // Return the list of GPT models only, excluding audio and TTS models
             return models.data().stream()
@@ -158,7 +158,7 @@ public class Models {
                     .filter(model -> !model.id().contains("transcribe")) // Exclude transcribe models
                     .filter(model -> !model.id().contains("realtime")) // Exclude realtime models
                     .filter(model -> !model.id().contains("instruct")) // Exclude instruct models
-                    .map(com.openai.models.Model::id)
+                    .map(com.openai.models.models.Model::id)
                     .collect(Collectors.toList());
         }
         return new ArrayList<>();

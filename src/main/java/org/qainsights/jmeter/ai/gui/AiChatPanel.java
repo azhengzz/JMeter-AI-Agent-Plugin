@@ -13,7 +13,7 @@ import java.util.concurrent.ExecutionException;
 
 import org.qainsights.jmeter.ai.intellisense.InputBoxIntellisense;
 
-import com.openai.models.Model;
+import com.openai.models.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 
 import org.apache.jmeter.control.TransactionController;
@@ -35,6 +35,8 @@ import org.qainsights.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.qainsights.jmeter.ai.service.OpenAiService;
 import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.service.OllamaAiService;
+import org.qainsights.jmeter.ai.service.provider.AiServiceFactory;
+import org.qainsights.jmeter.ai.service.provider.ProviderRegistry;
 
 import com.anthropic.models.models.ModelInfo;
 import com.anthropic.models.models.ModelListPage;
@@ -130,10 +132,35 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String selectedModel = (String) modelSelector.getSelectedItem();
             if (selectedModel != null) {
                 log.info("Model selected from dropdown: {}", selectedModel);
-                // Immediately set the model in the service
-                claudeService.setModel(selectedModel);
-                openAiService.setModel(selectedModel);
-                ollamaService.setModel(selectedModel);
+
+                // Parse the model ID to extract provider and model name
+                // Format: "provider:model" or just "model"
+                String modelName = selectedModel;
+                if (selectedModel.contains(":")) {
+                    String[] parts = selectedModel.split(":", 2);
+                    String provider = parts[0];
+                    modelName = parts[1];
+
+                    // Set the model in the appropriate service
+                    switch (provider) {
+                        case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                            // These will be handled by AiServiceFactory
+                            log.info("Using {} provider for model: {}", provider, modelName);
+                        }
+                        case "ollama" -> ollamaService.setModel(modelName);
+                        default -> {
+                            // For Anthropic (no prefix) and others
+                            claudeService.setModel(selectedModel);
+                            openAiService.setModel(selectedModel);
+                            ollamaService.setModel(selectedModel);
+                        }
+                    }
+                } else {
+                    // No provider prefix, set in all services
+                    claudeService.setModel(selectedModel);
+                    openAiService.setModel(selectedModel);
+                    ollamaService.setModel(selectedModel);
+                }
             }
         });
 
@@ -413,7 +440,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             protected List<String> doInBackground() {
                 // Get models from both services
                 List<String> allModels = new ArrayList<>();
-
+                // TODO 如果没有配置API KEY则不主动查询了
                 // Get Anthropic models
                 try {
                     ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
@@ -430,7 +457,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
                 // Add OpenAI models
                 try {
-                    com.openai.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
+                    com.openai.models.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
                     if (openAiModels != null && openAiModels.data() != null) {
                         // Convert OpenAI models to string IDs
                         for (Model openAiModel : openAiModels.data()) {
@@ -469,6 +496,29 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     }
                 } catch (Exception e) {
                     log.error("Error adding Ollama models: {}", e.getMessage(), e);
+                }
+
+                // Add Chinese LLM provider models
+                // Only add models for providers that have API keys configured
+                try {
+                    String[] chineseProviders = {"deepseek", "zhipu", "moonshot", "minimax"};
+
+                    for (String provider : chineseProviders) {
+                        // Check if API key is configured for this provider
+                        String apiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty(provider + ".api.key", "");
+                        if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY_HERE")) {
+                            List<String> models = ProviderRegistry.getModelsForProvider(provider);
+                            for (String model : models) {
+                                allModels.add(provider + ":" + model);
+                                log.debug("Added {} model: {}", provider, model);
+                            }
+                            log.info("Added {} {} models", models.size(), provider);
+                        } else {
+                            log.debug("Skipping {} models - API key not configured", provider);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Error adding Chinese LLM models: {}", e.getMessage(), e);
                 }
 
                 return allModels;
@@ -514,6 +564,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     /**
      * Displays a welcome message in the chat area.
      */
+    // TODO 调整欢迎语
     private void displayWelcomeMessage() {
         log.info("Displaying welcome message");
 
@@ -1289,22 +1340,35 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Get the model ID
         log.info("Using model from dropdown for message: {}", selectedModel);
 
-        if (selectedModel.startsWith("openai:")) {
-            // Extract the actual OpenAI model ID
-            String openAiModelId = selectedModel.substring(7); // Remove "openai:" prefix
-            log.info("Using OpenAI model: {}", openAiModelId);
+        // Parse the model ID to extract provider and model name
+        String modelName = selectedModel;
+        String provider = null;
 
-            openAiService.setModel(openAiModelId);
+        if (selectedModel.contains(":")) {
+            String[] parts = selectedModel.split(":", 2);
+            provider = parts[0];
+            modelName = parts[1];
+        }
+
+        // Route to appropriate service based on provider
+        if ("openai".equals(provider)) {
+            log.info("Using OpenAI model: {}", modelName);
+            openAiService.setModel(modelName);
             return openAiService.generateResponse(new ArrayList<>(conversationHistory));
-        } else if (selectedModel.startsWith("ollama:")) {
-            String ollamaModelId = selectedModel.substring(7); // Remove "ollama:" prefix
-            log.info("Using Ollama model: {}", ollamaModelId);
-
-            ollamaService.setModel(ollamaModelId);
+        } else if ("ollama".equals(provider)) {
+            log.info("Using Ollama model: {}", modelName);
+            ollamaService.setModel(modelName);
             return ollamaService.generateResponse(new ArrayList<>(conversationHistory));
+        } else if ("deepseek".equals(provider) || "zhipu".equals(provider) ||
+                   "moonshot".equals(provider) || "minimax".equals(provider)) {
+            // Use AiServiceFactory for Chinese LLM providers
+            // Pass only the model name (without provider prefix) to the factory
+            log.info("Using {} provider with model: {}", provider, modelName);
+            AiService service = AiServiceFactory.createServiceByName(provider, modelName);
+            return service.generateResponse(new ArrayList<>(conversationHistory));
         } else {
+            // Default to Anthropic (no provider prefix)
             log.info("Using Anthropic model: {}", selectedModel);
-
             claudeService.setModel(selectedModel);
             return claudeService.generateResponse(new ArrayList<>(conversationHistory));
         }

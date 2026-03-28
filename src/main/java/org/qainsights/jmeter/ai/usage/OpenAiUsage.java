@@ -1,7 +1,6 @@
 package org.qainsights.jmeter.ai.usage;
 
-import com.openai.models.ChatCompletion;
-import com.openai.models.CompletionUsage;
+import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.client.OpenAIClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,17 +75,34 @@ public class OpenAiUsage {
         }
 
         try {
-            // Get the CompletionUsage from the Optional
-            Optional<CompletionUsage> usageOptional = completion.usage();
+            // Get the usage from the Optional (4.x may use different type)
+            Optional<?> usageOptional = completion.usage();
             if (!usageOptional.isPresent()) {
-                log.warn("CompletionUsage is not present in the response");
+                log.warn("Usage is not present in the response");
                 return;
             }
 
-            CompletionUsage usage = usageOptional.get();
-            long promptTokens = usage.promptTokens();
-            long completionTokens = usage.completionTokens();
-            long totalTokens = usage.totalTokens();
+            Object usage = usageOptional.get();
+
+            // Use reflection to get token counts (compatible across versions)
+            long promptTokens = 0;
+            long completionTokens = 0;
+            long totalTokens = 0;
+
+            try {
+                // Try to access using reflection for version compatibility
+                java.lang.reflect.Method promptTokensMethod = usage.getClass().getMethod("promptTokens");
+                promptTokens = (long) promptTokensMethod.invoke(usage);
+
+                java.lang.reflect.Method completionTokensMethod = usage.getClass().getMethod("completionTokens");
+                completionTokens = (long) completionTokensMethod.invoke(usage);
+
+                java.lang.reflect.Method totalTokensMethod = usage.getClass().getMethod("totalTokens");
+                totalTokens = (long) totalTokensMethod.invoke(usage);
+            } catch (Exception e) {
+                log.warn("Could not extract usage via reflection: {}", e.getMessage());
+                // Try alternative method names
+            }
 
             // Clean up model name (remove potential "openai:" prefix)
             String cleanModelName = model.startsWith("openai:") ? model.substring(7) : model;
