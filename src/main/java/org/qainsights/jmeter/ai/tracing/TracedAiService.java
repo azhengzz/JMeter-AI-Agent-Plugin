@@ -8,6 +8,7 @@ import org.qainsights.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -195,12 +196,36 @@ public class TracedAiService implements AiService {
 
     // Helper methods
 
-    private List<Map<String, String>> formatMessages(List<Message> messages) {
+    private List<Map<String, Object>> formatMessages(List<Message> messages) {
         return messages.stream()
                 .map(m -> {
-                    Map<String, String> msg = new HashMap<>();
+                    Map<String, Object> msg = new HashMap<>();
                     msg.put("role", m.getRole().name());
                     msg.put("content", m.getContent() != null ? m.getContent() : "");
+
+                    // Add tool_calls for assistant messages (Nanobot-style format)
+                    if (m.hasToolCalls()) {
+                        List<Map<String, Object>> toolCalls = new ArrayList<>();
+                        for (org.qainsights.jmeter.ai.agent.model.ToolCall tc : m.getToolCalls()) {
+                            Map<String, Object> toolCall = new HashMap<>();
+                            toolCall.put("id", tc.getId());
+                            toolCall.put("type", "function");
+
+                            Map<String, Object> function = new HashMap<>();
+                            function.put("name", tc.getName());
+                            function.put("arguments", convertArgumentsToJson(tc.getArguments()));
+                            toolCall.put("function", function);
+
+                            toolCalls.add(toolCall);
+                        }
+                        msg.put("tool_calls", toolCalls);
+                    }
+
+                    // Add tool_call_id for tool result messages
+                    if (m.getRole() == Message.Role.TOOL && m.getToolCallId() != null) {
+                        msg.put("tool_call_id", m.getToolCallId());
+                    }
+
                     return msg;
                 })
                 .collect(Collectors.toList());
@@ -219,6 +244,23 @@ public class TracedAiService implements AiService {
                     return tool;
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Convert ToolCall arguments to JSON string.
+     * Nanobot format: arguments as JSON string
+     */
+    private String convertArgumentsToJson(Map<String, Object> arguments) {
+        if (arguments == null || arguments.isEmpty()) {
+            return "{}";
+        }
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            return mapper.writeValueAsString(arguments);
+        } catch (Exception e) {
+            log.warn("Failed to convert tool arguments to JSON: {}", e.getMessage());
+            return "{}";
+        }
     }
 
     /**
