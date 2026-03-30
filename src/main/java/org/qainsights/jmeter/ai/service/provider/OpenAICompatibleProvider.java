@@ -1,13 +1,21 @@
 package org.qainsights.jmeter.ai.service.provider;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
+import com.openai.models.FunctionDefinition;
+import com.openai.models.FunctionParameters;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.Message;
+import org.qainsights.jmeter.ai.agent.model.ToolCall;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.utils.AiConfig;
@@ -121,15 +129,16 @@ public class OpenAICompatibleProvider implements AiService {
      */
     private String makeSdkRequest(List<String> conversation, String model) {
         String effectiveModel = model != null ? model : currentModelId;
-        Map<String, Object> params = buildChatParams(effectiveModel);
+        String modelName = stripProviderPrefix(effectiveModel);
+        Map<String, Object> params = buildChatParams(modelName);
 
-        log.info("Generating response for {} with model: {}", providerName, effectiveModel);
+        log.info("Generating response for {} with model: {}", providerName, modelName);
 
         // Create parameters builder
         ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
                 .maxCompletionTokens((Long) params.getOrDefault("max_tokens", 4096L))
                 .temperature((Double) params.getOrDefault("temperature", 0.7))
-                .model(effectiveModel);
+                .model(modelName);
 
         // Add system prompt
         if (!systemPromptInitialized) {
@@ -170,10 +179,12 @@ public class OpenAICompatibleProvider implements AiService {
                 return "Error: No API key configured for " + providerName;
             }
 
+            String modelName = stripProviderPrefix(model);
+
             // Build the request body
             ObjectMapper mapper = new ObjectMapper();
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", model);
+            requestBody.put("model", modelName);
             requestBody.put("temperature", temperature);
             requestBody.put("max_tokens", maxTokens);
 
@@ -202,7 +213,7 @@ public class OpenAICompatibleProvider implements AiService {
             requestBody.put("messages", messages);
 
             String jsonBody = mapper.writeValueAsString(requestBody);
-            log.info("Raw HTTP request to {} with model: {}, body length: {}", baseUrl, model, jsonBody.length());
+            log.info("Raw HTTP request to {} with model: {}, body length: {}", baseUrl, modelName, jsonBody.length());
 
             // Create HTTP client
             HttpClient httpClient = HttpClient.newHttpClient();
@@ -264,34 +275,203 @@ public class OpenAICompatibleProvider implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
-        // TODO: Implement full tool calling support with openai-java SDK
-        // For now, convert to simple text-based response
-        log.info("Tool calling requested for {} - using fallback to text generation", providerName);
-        List<String> conversation = convertToStringList(messages);
-        String response = generateResponse(conversation);
-        return LLMResponse.text(response);
+        log.info("Generating response with tools for {}: {} tools provided", providerName, tools != null ? tools.size() : 0);
+
+        String modelName = stripProviderPrefix(currentModelId);
+
+        try {
+            // 使用 SDK 的 Builder 构建 request
+            ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
+                    .model(modelName)
+                    .maxCompletionTokens(maxTokens)
+                    .temperature((double) temperature);
+
+            // 添加系统提示词
+            boolean systemPromptAdded = false;
+            for (Message msg : messages) {
+                if (msg.getRole() == Message.Role.SYSTEM && msg.getContent() != null && !msg.getContent().isEmpty()) {
+                    paramsBuilder.addSystemMessage(msg.getContent());
+                    systemPromptAdded = true;
+                }
+            }
+
+            // 如果没有系统提示词，添加默认系统提示词
+            if (!systemPromptAdded && !systemPromptInitialized && systemPrompt != null && !systemPrompt.isEmpty()) {
+                paramsBuilder.addSystemMessage(systemPrompt);
+                systemPromptInitialized = true;
+            }
+
+            // 转换消息格式
+            for (Message msg : messages) {
+                switch (msg.getRole()) {
+                    case SYSTEM -> {
+                        // Already handled above, skip
+                        continue;
+                    }
+                    case USER -> {
+                        if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                            paramsBuilder.addUserMessage(msg.getContent());
+                        }
+                        break;
+                    }
+                    case ASSISTANT -> {
+                        if (msg.hasToolCalls()) {
+                            // Build assistant message with tool calls
+                            ChatCompletionAssistantMessageParam.Builder assistantBuilder =
+                                    ChatCompletionAssistantMessageParam.builder();
+
+                            // Set content if present
+                            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                                assistantBuilder.content(msg.getContent());
+                            }
+
+                            // Add tool calls
+                            for (ToolCall tc : msg.getToolCalls()) {
+                                ChatCompletionMessageFunctionToolCall toolCall =
+                                        ChatCompletionMessageFunctionToolCall.builder()
+                                                .id(tc.getId())
+                                                .function(
+                                                        com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall.Function
+                                                                .builder()
+                                                                .name(tc.getName())
+                                                                .arguments(new ObjectMapper().writeValueAsString(tc.getArguments()))
+                                                                .build()
+                                                )
+                                                .build();
+                                assistantBuilder.addToolCall(toolCall);
+                            }
+
+                            paramsBuilder.addMessage(assistantBuilder.build());
+                        } else {
+                            // Regular assistant message
+                            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                                paramsBuilder.addAssistantMessage(msg.getContent());
+                            }
+                        }
+                        break;
+                    }
+                    case TOOL -> {
+                        // Tool result message
+                        ChatCompletionToolMessageParam toolMessage =
+                                ChatCompletionToolMessageParam.builder()
+                                        .toolCallId(msg.getToolCallId())
+                                        .content(msg.getContent() != null ? msg.getContent() : "")
+                                        .build();
+                        paramsBuilder.addMessage(toolMessage);
+                        break;
+                    }
+                }
+            }
+
+            // 添加 tools - 使用 SDK 的 addFunctionTool 方法
+            if (tools != null && !tools.isEmpty()) {
+                for (ToolDefinition tool : tools) {
+                    // Build FunctionParameters from the Map
+                    FunctionParameters.Builder functionParamsBuilder = FunctionParameters.builder();
+                    if (tool.getParameters() != null) {
+                        Map<String, Object> paramMap = tool.getParameters();
+                        for (Map.Entry<String, Object> entry : paramMap.entrySet()) {
+                            functionParamsBuilder.putAdditionalProperty(entry.getKey(),
+                                    convertToJsonValue(entry.getValue()));
+                        }
+                    }
+
+                    // Build FunctionDefinition
+                    FunctionDefinition functionDef = FunctionDefinition.builder()
+                            .name(tool.getName())
+                            .description(tool.getDescription() != null ? tool.getDescription() : "")
+                            .parameters(functionParamsBuilder.build())
+                            .build();
+
+                    // Add the tool using SDK method
+                    paramsBuilder.addFunctionTool(functionDef);
+                }
+            }
+
+            // 构建并发送请求
+            ChatCompletionCreateParams params = paramsBuilder.build();
+            log.info("Sending request to {} with {} tools", providerName, tools != null ? tools.size() : 0);
+
+            ChatCompletion chatCompletion = client.chat().completions().create(params);
+            log.info("Received response from {}", providerName);
+
+            // 解析响应
+            if (chatCompletion.choices().isEmpty()) {
+                return LLMResponse.error("No response from API");
+            }
+
+            ChatCompletion.Choice choice = chatCompletion.choices().get(0);
+            String content = choice.message().content().orElse(null);
+            String finishReason = choice.finishReason() != null ? choice.finishReason().toString() : "unknown";
+
+            // 提取 tool calls
+            List<ToolCall> toolCalls = new ArrayList<>();
+            var toolCallsOpt = choice.message().toolCalls();
+            if (toolCallsOpt.isPresent() && !toolCallsOpt.get().isEmpty()) {
+                for (var toolCall : toolCallsOpt.get()) {
+                    // toolCall.function() returns Optional<ChatCompletionMessageFunctionToolCall>
+                    var functionToolCallOpt = toolCall.function();
+                    if (functionToolCallOpt.isPresent()) {
+                        var functionToolCall = functionToolCallOpt.get();
+                        // functionToolCall.function() returns the Function object
+                        var function = functionToolCall.function();
+                        try {
+                            Map<String, Object> arguments = new ObjectMapper().readValue(
+                                    function.arguments(),
+                                    new TypeReference<Map<String, Object>>() {}
+                            );
+                            // Get ID from the functionToolCall
+                            toolCalls.add(new ToolCall(functionToolCall.id(), function.name(), arguments));
+                        } catch (JsonProcessingException e) {
+                            log.error("Failed to parse tool arguments for {}", function.name(), e);
+                        }
+                    }
+                }
+            }
+
+            // 构建响应
+            LLMResponse.Builder responseBuilder = LLMResponse.builder()
+                    .content(content)
+                    .finishReason(finishReason);
+
+            if (!toolCalls.isEmpty()) {
+                responseBuilder.toolCalls(toolCalls);
+            }
+
+            return responseBuilder.build();
+
+        } catch (Exception e) {
+            log.error("Error in generateResponseWithTools for {}", providerName, e);
+            return LLMResponse.error("Error calling LLM: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Convert a Java object to a JsonValue for the OpenAI SDK.
+     * Simply delegates to JsonValue.from() which handles all conversions.
+     */
+    private com.openai.core.JsonValue convertToJsonValue(Object value) {
+        return com.openai.core.JsonValue.from(value);
     }
 
     @Override
     public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
-        // TODO: Implement forced tool calling
-        log.info("Forced tool calling requested for {} - using fallback to text generation", providerName);
-        List<String> conversation = convertToStringList(messages);
-        String response = generateResponse(conversation);
-        return LLMResponse.text(response);
+        log.info("Forced tool calling requested for {}: {}", providerName, forcedToolName);
+        // TODO: Implement forced tool choice
+        // For now, just use normal tool calling
+        return generateResponseWithTools(messages, tools);
     }
 
     @Override
     public boolean supportsToolCalling() {
         // Most OpenAI-compatible providers support tool calling
-        // TODO: Return true once implemented
-        return false;
+        return true;
     }
 
     @Override
     public boolean supportsForcedToolChoice() {
-        // TODO: Return true for providers that support it
-        return false;
+        // Most providers support forced tool choice
+        return true;
     }
 
     @Override
@@ -344,6 +524,20 @@ public class OpenAICompatibleProvider implements AiService {
         }
 
         return params;
+    }
+
+    /**
+     * Strip the provider prefix from a model ID.
+     * e.g., "minimax:MiniMax-M2.7" -> "MiniMax-M2.7"
+     */
+    private String stripProviderPrefix(String modelId) {
+        if (modelId != null && modelId.contains(":")) {
+            String[] parts = modelId.split(":", 2);
+            if (parts.length == 2) {
+                return parts[1];
+            }
+        }
+        return modelId;
     }
 
     private List<String> limitConversation(List<String> conversation) {

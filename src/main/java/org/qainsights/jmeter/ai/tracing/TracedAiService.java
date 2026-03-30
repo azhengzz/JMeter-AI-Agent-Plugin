@@ -212,6 +212,10 @@ public class TracedAiService implements AiService {
                     Map<String, Object> tool = new HashMap<>();
                     tool.put("name", t.getName());
                     tool.put("description", t.getDescription());
+                    // Include parameters schema for better debugging
+                    if (t.getParameters() != null) {
+                        tool.put("parameters", t.getParameters());
+                    }
                     return tool;
                 })
                 .collect(Collectors.toList());

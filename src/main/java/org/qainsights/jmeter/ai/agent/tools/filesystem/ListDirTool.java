@@ -8,8 +8,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -19,14 +21,14 @@ import java.util.stream.Stream;
 public class ListDirTool extends AbstractFsTool {
     private static final Logger log = LoggerFactory.getLogger(ListDirTool.class);
 
-    // Common noise directories to ignore
-    private static final List<String> NOISE_DIRECTORIES = List.of(
-        "node_modules", ".git", ".svn", ".hg", ".idea", ".vscode",
-        "__pycache__", "*.pyc", ".pytest_cache", ".mypy_cache",
-        "target", "build", "dist", "out", ".gradle",
-        ".venv", "venv", "env", ".env", "virtualenv",
-        ".DS_Store", "Thumbs.db", ".cache"
+    // Nanobot's _IGNORE_DIRS set
+    private static final Set<String> IGNORE_DIRS = Set.of(
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+        "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
+        ".ruff_cache", ".coverage", "htmlcov"
     );
+
+    private static final int DEFAULT_MAX_ENTRIES = 200;
 
     @Override
     public String getName() {
@@ -36,9 +38,8 @@ public class ListDirTool extends AbstractFsTool {
     @Override
     public String getDescription() {
         return "List the contents of a directory. " +
-                "Supports recursive listing with depth control. " +
-                "Automatically filters out common noise directories (node_modules, .git, etc.). " +
-                "Shows file sizes and types for easy navigation.";
+                "Set recursive=true to explore nested structure. " +
+                "Common noise directories (.git, node_modules, __pycache__, etc.) are auto-ignored.";
     }
 
     @Override
@@ -47,17 +48,18 @@ public class ListDirTool extends AbstractFsTool {
                 {
                     "type": "object",
                     "properties": {
-                        "dir_path": {
+                        "path": {
                             "type": "string",
-                            "description": "The path to the directory to list (relative or absolute, defaults to current directory)"
+                            "description": "The directory path to list (relative or absolute, defaults to current directory)"
                         },
                         "recursive": {
                             "type": "boolean",
-                            "description": "Whether to list recursively (default: false)"
+                            "description": "Recursively list all files (default: false)"
                         },
-                        "depth": {
+                        "max_entries": {
                             "type": "number",
-                            "description": "Maximum recursion depth (default: 3, use 0 for unlimited)"
+                            "description": "Maximum entries to return (default: 200)",
+                            "minimum": 1
                         }
                     },
                     "required": []
@@ -72,9 +74,9 @@ public class ListDirTool extends AbstractFsTool {
         }
 
         try {
-            String dirPath = getStringParameter(parameters, "dir_path", ".");
+            String dirPath = getStringParameter(parameters, "path", ".");
             boolean recursive = getBooleanParameter(parameters, "recursive", false);
-            int depth = getIntParameter(parameters, "depth", 3);
+            int maxEntries = getIntParameter(parameters, "max_entries", DEFAULT_MAX_ENTRIES);
 
             // Validate and resolve path
             Path path = validateAndResolvePath(dirPath);
@@ -86,11 +88,11 @@ public class ListDirTool extends AbstractFsTool {
 
             // Check if it's a directory
             if (!Files.isDirectory(path)) {
-                return ToolResult.error("Path is not a directory: " + path);
+                return ToolResult.error("Not a directory: " + path);
             }
 
             // List directory contents
-            return listDirectory(path, recursive, depth);
+            return listDirectory(path, recursive, maxEntries);
 
         } catch (IllegalArgumentException e) {
             log.warn("Invalid parameter for list_dir: {}", e.getMessage());
@@ -103,167 +105,90 @@ public class ListDirTool extends AbstractFsTool {
 
     /**
      * List directory contents with optional recursion.
+     * Nanobot-style: checks ignore dirs in path parts, not just directory name.
      */
-    private ToolResult listDirectory(Path path, boolean recursive, int maxDepth) throws IOException {
-        StringBuilder result = new StringBuilder();
-        result.append("Directory: ").append(path).append("\n");
+    private ToolResult listDirectory(Path path, boolean recursive, int maxEntries) throws IOException {
+        List<String> items = new ArrayList<>();
+        int total = 0;
 
         if (recursive) {
-            result.append("Mode: recursive (max depth: ").append(maxDepth).append(")\n");
-        } else {
-            result.append("Mode: non-recursive\n");
-        }
-        result.append("\n");
-
-        List<DirEntry> entries = new ArrayList<>();
-
-        if (recursive) {
-            // Recursive listing
-            listDirectoryRecursive(path, entries, "", 0, maxDepth);
-        } else {
-            // Non-recursive listing
-            try (Stream<Path> stream = Files.list(path)) {
-                stream.forEach(p -> {
-                    if (!isNoiseDirectory(p)) {
-                        entries.add(new DirEntry(p, "", false));
-                    }
-                });
+            // Nanobot: for item in sorted(dp.rglob("*")):
+            // Java doesn't have rglob, use Files.walk() instead
+            List<Path> allPaths = new ArrayList<>();
+            try (var stream = Files.walk(path)) {
+                stream.filter(p -> !p.equals(path))
+                    .forEach(allPaths::add);
             }
-        }
 
-        // Build result string
-        if (entries.isEmpty()) {
-            result.append("(empty directory)");
-        } else {
-            // Sort entries: directories first, then files
-            entries.sort((a, b) -> {
-                if (a.isDirectory != b.isDirectory) {
-                    return a.isDirectory ? -1 : 1;
-                }
-                return a.path.getFileName().toString().compareToIgnoreCase(
-                    b.path.getFileName().toString());
-            });
+            // Sort paths alphabetically
+            allPaths.sort((a, b) -> a.toString().compareToIgnoreCase(b.toString()));
 
-            for (DirEntry entry : entries) {
-                result.append(entry.format());
-            }
-        }
-
-        // Add summary
-        result.append("\nSummary: ");
-        result.append(entries.stream().filter(e -> e.isDirectory).count()).append(" directories, ");
-        result.append(entries.stream().filter(e -> !e.isDirectory).count()).append(" files");
-
-        return ToolResult.success(result.toString());
-    }
-
-    /**
-     * Recursively list directory contents.
-     */
-    private void listDirectoryRecursive(Path path, List<DirEntry> entries, String prefix,
-                                        int currentDepth, int maxDepth) throws IOException {
-        if (maxDepth > 0 && currentDepth >= maxDepth) {
-            return;
-        }
-
-        try (Stream<Path> stream = Files.list(path)) {
-            List<Path> children = stream.toList();
-            children.sort((a, b) -> {
-                // Sort: directories first, then alphabetically
-                boolean aIsDir = Files.isDirectory(a);
-                boolean bIsDir = Files.isDirectory(b);
-                if (aIsDir != bIsDir) {
-                    return aIsDir ? -1 : 1;
-                }
-                return a.getFileName().toString().compareToIgnoreCase(
-                    b.getFileName().toString());
-            });
-
-            int index = 0;
-            for (Path child : children) {
-                if (isNoiseDirectory(child)) {
+            for (Path item : allPaths) {
+                // Nanobot: if any(p in self._IGNORE_DIRS for p in item.parts):
+                if (isInIgnoreDirs(item)) {
                     continue;
                 }
+                total++;
+                if (items.size() < maxEntries) {
+                    // Nanobot: rel = item.relative_to(dp)
+                    Path rel = path.relativize(item);
+                    // Nanobot: items.append(f"{rel}/" if item.is_dir() else str(rel))
+                    if (Files.isDirectory(item)) {
+                        items.add(rel.toString() + "/");
+                    } else {
+                        items.add(rel.toString());
+                    }
+                }
+            }
+        } else {
+            // Nanobot: for item in sorted(dp.iterdir()):
+            List<Path> sortedPaths = new ArrayList<>();
+            try (Stream<Path> stream = Files.list(path)) {
+                stream.forEach(sortedPaths::add);
+            }
+            sortedPaths.sort((a, b) -> a.getFileName().toString().compareToIgnoreCase(b.getFileName().toString()));
 
-                boolean isLast = ++index == children.size();
-                String connector = isLast ? "+-- " : "+-- ";
-                String childPrefix = prefix + (isLast ? "    " : "|   ");
-
-                entries.add(new DirEntry(child, prefix + connector, true));
-
-                if (Files.isDirectory(child)) {
-                    listDirectoryRecursive(child, entries, childPrefix, currentDepth + 1, maxDepth);
+            for (Path item : sortedPaths) {
+                // Nanobot: if item.name in self._IGNORE_DIRS:
+                if (IGNORE_DIRS.contains(item.getFileName().toString())) {
+                    continue;
+                }
+                total++;
+                if (items.size() < maxEntries) {
+                    // Nanobot: pfx = "📁 " if item.is_dir() else "📄 "
+                    String pfx = Files.isDirectory(item) ? "📁 " : "📄 ";
+                    items.add(pfx + item.getFileName().toString());
                 }
             }
         }
+
+        // Build result
+        if (items.isEmpty() && total == 0) {
+            return ToolResult.success("Directory " + path + " is empty");
+        }
+
+        String result = String.join("\n", items);
+
+        if (total > maxEntries) {
+            result += "\n\n(truncated, showing first " + maxEntries + " of " + total + " entries)";
+        }
+
+        return ToolResult.success(result);
     }
 
     /**
-     * Check if a path is a noise directory that should be ignored.
+     * Check if a path should be ignored based on Nanobot's algorithm.
+     * Nanobot: if any(p in self._IGNORE_DIRS for p in item.parts)
+     * This checks each part of the path, not just the final directory name.
      */
-    private boolean isNoiseDirectory(Path path) {
-        if (!Files.isDirectory(path)) {
-            return false;
-        }
-
-        String name = path.getFileName().toString();
-        return NOISE_DIRECTORIES.contains(name) || name.startsWith(".");
-    }
-
-    /**
-     * Directory entry for formatting.
-     */
-    private static class DirEntry {
-        final Path path;
-        final String prefix;
-        final boolean showTree;
-        final boolean isDirectory;
-        final long size;
-
-        DirEntry(Path path, String prefix, boolean showTree) {
-            this.path = path;
-            this.prefix = prefix;
-            this.showTree = showTree;
-            this.isDirectory = Files.isDirectory(path);
-            this.size = isDirectory ? 0 : getFileSize(path);
-        }
-
-        private static long getFileSize(Path path) {
-            try {
-                return Files.size(path);
-            } catch (IOException e) {
-                return -1;
+    private boolean isInIgnoreDirs(Path path) {
+        // Check each part of the path
+        for (int i = 0; i < path.getNameCount(); i++) {
+            String part = path.getName(i).toString();
+            if (IGNORE_DIRS.contains(part)) {
+                return true;
             }
         }
-
-        String format() {
-            StringBuilder sb = new StringBuilder();
-            sb.append(prefix);
-
-            String name = path.getFileName().toString();
-            if (isDirectory) {
-                sb.append("[DIR]  ").append(name);
-            } else {
-                sb.append("[FILE] ").append(name);
-                if (size >= 0) {
-                    sb.append(" (").append(formatSize(size)).append(")");
-                }
-            }
-            sb.append("\n");
-
-            return sb.toString();
-        }
-
-        private String formatSize(long bytes) {
-            if (bytes < 1024) {
-                return bytes + " B";
-            } else if (bytes < 1024 * 1024) {
-                return String.format("%.1f KB", bytes / 1024.0);
-            } else if (bytes < 1024 * 1024 * 1024) {
-                return String.format("%.1f MB", bytes / (1024.0 * 1024));
-            } else {
-                return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
-            }
-        }
+        return false;
     }
 }

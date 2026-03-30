@@ -40,9 +40,10 @@ public class LintElementsTool extends AbstractTool {
                 "\"properties\": {" +
                 "  \"action\": {" +
                 "    \"type\": \"string\", " +
-                "    \"description\": \"Action to perform: 'rename' (default) to rename elements, or provide custom instructions\"" +
+                "    \"description\": \"Action to perform: 'rename' (default) to rename elements with meaningful names, or provide custom instructions\"" +
                 "  }" +
-                "}" +
+                "}, " +
+                "\"required\": []" +
                 "}";
     }
 

@@ -10,7 +10,6 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
-import org.qainsights.jmeter.ai.agent.model.ToolCall;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.SystemPrompt;

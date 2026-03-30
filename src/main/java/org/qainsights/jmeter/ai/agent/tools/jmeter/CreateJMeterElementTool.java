@@ -35,7 +35,7 @@ public class CreateJMeterElementTool extends AbstractTool {
                 "\"properties\": {" +
                 "  \"elementType\": {" +
                 "    \"type\": \"string\", " +
-                "    \"description\": \"Type of element to create (e.g., 'HTTPSamplerProxy', 'ThreadGroup', 'LoopController', 'ConstantTimer')\"" +
+                "    \"description\": \"Type of element to create (e.g., 'HTTPSamplerProxy', 'ThreadGroup', 'LoopController', 'ConstantTimer', 'DurationAssertion', 'ResponseAssertion', 'Summariser', 'ViewResultsTree')\"" +
                 "  }, " +
                 "  \"elementName\": {" +
                 "    \"type\": \"string\", " +

@@ -32,7 +32,11 @@ public class UsageTool extends AbstractTool {
 
     @Override
     public String getParameterSchema() {
-        return "{\"type\": \"object\", \"properties\": {}}";
+        return "{" +
+                "\"type\": \"object\", " +
+                "\"properties\": {}, " +
+                "\"required\": []" +
+                "}";
     }
 
     @Override

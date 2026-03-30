@@ -5,21 +5,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * Tool to edit files with intelligent text matching.
  * Based on Nanobot's EditFileTool implementation.
  *
- * Supports three matching modes:
- * 1. Exact match - matches the old_string exactly
- * 2. Whitespace-normalized - ignores differences in whitespace
- * 3. Sliding window - tries to find the best match in a sliding window
+ * Features:
+ * - Exact match replacement
+ * - Whitespace-normalized matching (ignores differences in whitespace)
+ * - Sliding window fuzzy matching
+ * - CRLF line ending preservation
+ * - Multiple occurrence warning
  */
 public class EditFileTool extends AbstractFsTool {
     private static final Logger log = LoggerFactory.getLogger(EditFileTool.class);
@@ -31,11 +33,9 @@ public class EditFileTool extends AbstractFsTool {
 
     @Override
     public String getDescription() {
-        return "Edit a file by replacing text. " +
-                "Finds the old_string in the file and replaces it with new_string. " +
-                "Supports intelligent matching including whitespace-normalized matching " +
-                "and sliding window matching for fuzzy matches. " +
-                "Returns a summary of changes made including line numbers.";
+        return "Edit a file by replacing old_text with new_text. " +
+                "Supports minor whitespace/line-ending differences. " +
+                "Set replace_all=true to replace every occurrence.";
     }
 
     @Override
@@ -46,23 +46,22 @@ public class EditFileTool extends AbstractFsTool {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "The path to the file to edit (relative or absolute)"
+                            "description": "The file path to edit (relative or absolute)"
                         },
-                        "old_string": {
+                        "old_text": {
                             "type": "string",
-                            "description": "The text to search for and replace"
+                            "description": "The text to find and replace"
                         },
-                        "new_string": {
+                        "new_text": {
                             "type": "string",
-                            "description": "The new text to replace the old_string with"
+                            "description": "The text to replace with"
                         },
-                        "match_mode": {
-                            "type": "string",
-                            "enum": ["exact", "normalized", "sliding"],
-                            "description": "Matching mode: exact (default), normalized (ignores whitespace), sliding (fuzzy match)"
+                        "replace_all": {
+                            "type": "boolean",
+                            "description": "Replace all occurrences (default: false)"
                         }
                     },
-                    "required": ["file_path", "old_string", "new_string"]
+                    "required": ["file_path", "old_text", "new_text"]
                 }
                 """;
     }
@@ -74,10 +73,10 @@ public class EditFileTool extends AbstractFsTool {
         }
 
         try {
-            String filePath = getRequiredParameter(parameters, "file_path").toString();
-            String oldString = getRequiredParameter(parameters, "old_string").toString();
-            String newString = getRequiredParameter(parameters, "new_string").toString();
-            String matchMode = getParameter(parameters, "match_mode", "exact");
+            String filePath = getRequiredParameter(parameters, "file_path");
+            String oldText = getRequiredParameter(parameters, "old_text");
+            String newText = getRequiredParameter(parameters, "new_text");
+            boolean replaceAll = getBooleanParameter(parameters, "replace_all", false);
 
             // Validate and resolve path
             Path path = validateAndResolvePath(filePath);
@@ -92,24 +91,51 @@ public class EditFileTool extends AbstractFsTool {
                 return ToolResult.error("Path is a directory, not a file: " + path);
             }
 
-            // Read file content
-            String content = Files.readString(path);
+            // Read file as bytes to detect line endings (Nanobot-style)
+            byte[] raw = Files.readAllBytes(path);
+            boolean usesCrlf = containsCrlf(raw);
 
-            // Perform the edit based on match mode
-            EditResult result = performEdit(content, oldString, newString, matchMode);
+            // Decode with CRLF normalization
+            String content = new String(raw, StandardCharsets.UTF_8).replace("\r\n", "\n");
 
-            if (!result.found) {
-                return ToolResult.error(
-                    "Could not find the old_string in the file. " +
-                    "The text to replace was not found. Make sure the old_string matches exactly.");
+            // Normalize old_text and new_text to LF for comparison
+            String normalizedOldText = oldText.replace("\r\n", "\n");
+            String normalizedNewText = newText.replace("\r\n", "\n");
+
+            // Find match using Nanobot's algorithm
+            MatchResult matchResult = findMatch(content, normalizedOldText);
+
+            if (matchResult.match == null) {
+                return ToolResult.error(buildNotFoundMessage(normalizedOldText, content, path.toString()));
             }
 
-            // Write the modified content back
-            Files.writeString(path, result.modifiedContent);
+            // Check for multiple occurrences if replace_all is false
+            if (matchResult.count > 1 && !replaceAll) {
+                return ToolResult.error(
+                    "Warning: old_text appears " + matchResult.count + " times. " +
+                    "Provide more context to make it unique, or set replace_all=true."
+                );
+            }
 
-            log.info("Edited file: {}, replacements: {}", path, result.replacements);
+            // Apply replacement
+            String newContent;
+            if (replaceAll) {
+                newContent = content.replace(matchResult.match, normalizedNewText);
+            } else {
+                newContent = replaceFirst(content, matchResult.match, normalizedNewText);
+            }
 
-            return ToolResult.success(buildSuccessMessage(path, result));
+            // Restore original line endings if needed
+            if (usesCrlf) {
+                newContent = newContent.replace("\n", "\r\n");
+            }
+
+            // Write back to file
+            Files.write(path, newContent.getBytes(StandardCharsets.UTF_8));
+
+            log.info("Edited file: {}, replacements: {}", path, replaceAll ? matchResult.count : 1);
+
+            return ToolResult.success("Successfully edited " + path);
 
         } catch (IllegalArgumentException e) {
             log.warn("Invalid parameter for edit_file: {}", e.getMessage());
@@ -121,196 +147,85 @@ public class EditFileTool extends AbstractFsTool {
     }
 
     /**
-     * Perform the edit operation based on match mode.
+     * Check if byte array contains CRLF line endings.
+     * Nanobot: uses_crlf = b"\r\n" in raw
      */
-    private EditResult performEdit(String content, String oldString, String newString, String matchMode) {
-        EditResult result = new EditResult();
-
-        switch (matchMode.toLowerCase()) {
-            case "normalized":
-                result = performNormalizedEdit(content, oldString, newString);
-                break;
-            case "sliding":
-                result = performSlidingEdit(content, oldString, newString);
-                break;
-            case "exact":
-            default:
-                result = performExactEdit(content, oldString, newString);
-                break;
+    private boolean containsCrlf(byte[] raw) {
+        for (int i = 0; i < raw.length - 1; i++) {
+            if (raw[i] == '\r' && raw[i + 1] == '\n') {
+                return true;
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
-     * Perform exact string replacement.
+     * Find match using Nanobot's algorithm.
+     * 1. Try exact match first
+     * 2. Then try line-trimmed sliding window match
      */
-    private EditResult performExactEdit(String content, String oldString, String newString) {
-        EditResult result = new EditResult();
-
-        if (!content.contains(oldString)) {
-            result.found = false;
-            return result;
+    private MatchResult findMatch(String content, String oldText) {
+        // First try exact match
+        if (content.contains(oldText)) {
+            int count = countOccurrences(content, oldText);
+            return new MatchResult(oldText, count);
         }
 
-        result.modifiedContent = content.replace(oldString, newString);
-        result.found = true;
-        result.replacements = countOccurrences(content, oldString);
-        result.matchMode = "exact";
-
-        return result;
-    }
-
-    /**
-     * Perform whitespace-normalized replacement.
-     */
-    private EditResult performNormalizedEdit(String content, String oldString, String newString) {
-        EditResult result = new EditResult();
-
-        // Normalize whitespace in both content and old string
-        String normalizedContent = normalizeWhitespace(content);
-        String normalizedOld = normalizeWhitespace(oldString);
-
-        if (!normalizedContent.contains(normalizedOld)) {
-            result.found = false;
-            return result;
+        // Try line-trimmed sliding window (Nanobot's _find_match function)
+        String[] oldLines = oldText.split("\n");
+        if (oldLines.length == 0) {
+            return new MatchResult(null, 0);
         }
 
-        // Find all matches with line numbers
-        List<MatchInfo> matches = findNormalizedMatches(content, oldString);
-
-        if (matches.isEmpty()) {
-            result.found = false;
-            return result;
+        // Strip whitespace from each line
+        List<String> strippedOld = new ArrayList<>();
+        for (String line : oldLines) {
+            strippedOld.add(line.strip());
         }
 
-        // Apply replacements (in reverse order to preserve line numbers)
-        String modified = content;
-        for (int i = matches.size() - 1; i >= 0; i--) {
-            MatchInfo match = matches.get(i);
-            modified = match.original.substring(0, match.start) +
-                       newString +
-                       match.original.substring(match.end);
-        }
-
-        result.modifiedContent = modified;
-        result.found = true;
-        result.replacements = matches.size();
-        result.matchLines = matches.stream().map(m -> m.lineNumber).toList();
-        result.matchMode = "normalized";
-
-        return result;
-    }
-
-    /**
-     * Perform sliding window fuzzy matching.
-     */
-    private EditResult performSlidingEdit(String content, String oldString, String newString) {
-        EditResult result = new EditResult();
-
-        // Split into lines
-        String[] lines = content.split("\n");
-        String[] oldLines = oldString.split("\n");
-
-        // Find best match using sliding window
-        MatchInfo bestMatch = findBestSlidingMatch(lines, oldLines);
-
-        if (bestMatch == null) {
-            result.found = false;
-            return result;
-        }
-
-        // Apply the replacement
-        StringBuilder modified = new StringBuilder();
-        for (int i = 0; i < bestMatch.start; i++) {
-            modified.append(lines[i]).append("\n");
-        }
-        modified.append(newString).append("\n");
-        for (int i = bestMatch.end; i < lines.length; i++) {
-            modified.append(lines[i]).append("\n");
-        }
-
-        result.modifiedContent = modified.toString();
-        result.found = true;
-        result.replacements = 1;
-        result.matchLines = List.of(bestMatch.lineNumber);
-        result.matchMode = "sliding";
-
-        return result;
-    }
-
-    /**
-     * Find matches using normalized whitespace comparison.
-     */
-    private List<MatchInfo> findNormalizedMatches(String content, String oldString) {
-        List<MatchInfo> matches = new ArrayList<>();
         String[] contentLines = content.split("\n");
-        String[] oldLines = oldString.split("\n");
+        List<String> candidates = new ArrayList<>();
 
-        // Try to find the old string in the content
-        for (int i = 0; i <= contentLines.length - oldLines.length; i++) {
-            boolean match = true;
-            for (int j = 0; j < oldLines.length; j++) {
-                String normalizedContentLine = normalizeWhitespace(contentLines[i + j]);
-                String normalizedOldLine = normalizeWhitespace(oldLines[j]);
-                if (!normalizedContentLine.equals(normalizedOldLine)) {
-                    match = false;
-                    break;
-                }
+        // Sliding window search
+        for (int i = 0; i <= contentLines.length - strippedOld.size(); i++) {
+            // Build window from content lines
+            List<String> window = new ArrayList<>();
+            for (int j = 0; j < strippedOld.size(); j++) {
+                window.add(contentLines[i + j].strip());
             }
 
-            if (match) {
-                // Calculate start and end positions
-                int startPos = 0;
-                for (int k = 0; k < i; k++) {
-                    startPos += contentLines[k].length() + 1; // +1 for newline
+            // Compare with stripped old text
+            if (window.equals(strippedOld)) {
+                // Reconstruct the matched fragment from original content
+                StringBuilder matchedFragment = new StringBuilder();
+                for (int j = 0; j < strippedOld.size(); j++) {
+                    if (j > 0) matchedFragment.append("\n");
+                    matchedFragment.append(contentLines[i + j]);
                 }
-                int endPos = startPos;
-                for (int k = i; k < i + oldLines.length; k++) {
-                    endPos += contentLines[k].length() + 1;
-                }
-
-                matches.add(new MatchInfo(startPos, endPos, i + 1, content));
+                candidates.add(matchedFragment.toString());
             }
         }
 
-        return matches;
-    }
-
-    /**
-     * Find the best sliding window match.
-     */
-    private MatchInfo findBestSlidingMatch(String[] contentLines, String[] oldLines) {
-        MatchInfo bestMatch = null;
-        int bestScore = 0;
-
-        for (int i = 0; i <= contentLines.length - oldLines.length; i++) {
-            int score = 0;
-            for (int j = 0; j < oldLines.length; j++) {
-                String normalizedContent = normalizeWhitespace(contentLines[i + j]);
-                String normalizedOld = normalizeWhitespace(oldLines[j]);
-                if (normalizedContent.equals(normalizedOld)) {
-                    score++;
-                } else if (normalizedContent.contains(normalizedOld) || normalizedOld.contains(normalizedContent)) {
-                    score += 0.5;
-                }
-            }
-
-            // Require at least 50% match
-            if (score >= oldLines.length * 0.5 && score > bestScore) {
-                bestScore = score;
-                bestMatch = new MatchInfo(i, i + oldLines.length, i + 1, null);
-            }
+        if (candidates.isEmpty()) {
+            return new MatchResult(null, 0);
         }
 
-        return bestMatch;
+        // Return the first candidate with count
+        String match = candidates.get(0);
+        int count = candidates.size();
+        return new MatchResult(match, count);
     }
 
     /**
-     * Normalize whitespace by collapsing multiple spaces/tabs into single space.
+     * Replace only the first occurrence.
      */
-    private String normalizeWhitespace(String text) {
-        return text.replaceAll("\\s+", " ").trim();
+    private String replaceFirst(String content, String target, String replacement) {
+        int index = content.indexOf(target);
+        if (index == -1) {
+            return content;
+        }
+        return content.substring(0, index) + replacement +
+               content.substring(index + target.length());
     }
 
     /**
@@ -327,24 +242,64 @@ public class EditFileTool extends AbstractFsTool {
     }
 
     /**
-     * Build success message with details.
+     * Build "not found" error message with best match suggestion.
+     * Based on Nanobot's _not_found_msg method.
      */
-    private String buildSuccessMessage(Path path, EditResult result) {
-        StringBuilder message = new StringBuilder();
-        message.append("Successfully edited file: ").append(path).append("\n");
-        message.append("Mode: ").append(result.matchMode).append("\n");
-        message.append("Replacements: ").append(result.replacements).append("\n");
+    private String buildNotFoundMessage(String oldText, String content, String path) {
+        String[] oldLines = oldText.split("\n", -1);
+        String[] contentLines = content.split("\n", -1);
+        int window = oldLines.length;
 
-        if (result.matchLines != null && !result.matchLines.isEmpty()) {
-            message.append("Modified lines: ");
-            for (int i = 0; i < result.matchLines.size(); i++) {
-                if (i > 0) message.append(", ");
-                message.append(result.matchLines.get(i));
+        // Find best match using simple similarity ratio
+        float bestRatio = 0.0f;
+        int bestStart = 0;
+
+        for (int i = 0; i < Math.max(1, contentLines.length - window + 1); i++) {
+            float ratio = calculateSimilarity(oldLines,
+                    java.util.Arrays.copyOfRange(contentLines, i, Math.min(i + window, contentLines.length)));
+            if (ratio > bestRatio) {
+                bestRatio = ratio;
+                bestStart = i;
             }
-            message.append("\n");
         }
 
-        return message.toString();
+        if (bestRatio > 0.5f) {
+            // Build simple diff-like message
+            StringBuilder sb = new StringBuilder();
+            sb.append("Error: old_text not found in ").append(path).append(".\n");
+            sb.append("Best match (").append((int)(bestRatio * 100)).append("% similar) at line ")
+              .append(bestStart + 1).append(":\n");
+            sb.append("\nExpected (old_text):\n");
+            for (String line : oldLines) {
+                sb.append("  ").append(line).append("\n");
+            }
+            sb.append("\nActual (at line ").append(bestStart + 1).append("):\n");
+            int endLine = Math.min(bestStart + window, contentLines.length);
+            for (int i = bestStart; i < endLine; i++) {
+                sb.append("  ").append(contentLines[i]).append("\n");
+            }
+            return sb.toString();
+        }
+
+        return "Error: old_text not found in " + path + ". No similar text found. Verify the file content.";
+    }
+
+    /**
+     * Calculate similarity ratio between two string arrays.
+     */
+    private float calculateSimilarity(String[] a, String[] b) {
+        if (a.length != b.length) {
+            return 0.0f;
+        }
+
+        int matches = 0;
+        for (int i = 0; i < a.length; i++) {
+            if (a[i].strip().equals(b[i].strip())) {
+                matches++;
+            }
+        }
+
+        return (float) matches / a.length;
     }
 
     /**
@@ -359,37 +314,15 @@ public class EditFileTool extends AbstractFsTool {
     }
 
     /**
-     * Get parameter with default value.
+     * Result of match operation.
      */
-    private String getParameter(Map<String, Object> parameters, String key, String defaultValue) {
-        return getStringParameter(parameters, key, defaultValue);
-    }
+    private static class MatchResult {
+        final String match;
+        final int count;
 
-    /**
-     * Result of edit operation.
-     */
-    private static class EditResult {
-        String modifiedContent;
-        boolean found;
-        int replacements;
-        List<Integer> matchLines;
-        String matchMode;
-    }
-
-    /**
-     * Match information.
-     */
-    private static class MatchInfo {
-        final int start;
-        final int end;
-        final int lineNumber;
-        final String original;
-
-        MatchInfo(int start, int end, int lineNumber, String original) {
-            this.start = start;
-            this.end = end;
-            this.lineNumber = lineNumber;
-            this.original = original;
+        MatchResult(String match, int count) {
+            this.match = match;
+            this.count = count;
         }
     }
 }

@@ -321,33 +321,51 @@ public class AgentRunner {
 
     /**
      * Call the LLM with the current messages.
+     * Uses tool calling if supported by the AI service.
      */
     private LLMResponse callLLM(List<Message> messages) {
         try {
-            // Convert messages to format expected by AI service
-            List<String> conversation = new ArrayList<>();
-            for (Message msg : messages) {
-                if (msg.getRole() == Message.Role.SYSTEM) {
-                    continue; // System prompt is handled by the service
+            // Check if the service supports tool calling
+            if (aiService.supportsToolCalling()) {
+                log.debug("Using tool calling enabled LLM service");
+
+                // Get tool definitions from the tool registry
+                List<org.qainsights.jmeter.ai.agent.model.ToolDefinition> tools =
+                    toolRegistry.getToolDefinitionObjects();
+
+                log.debug("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
+
+                // Call the service with full messages and tools
+                return aiService.generateResponseWithTools(messages, tools);
+            } else {
+                // Fall back to simple text-based response
+                log.debug("Using simple text-based LLM service (no tool calling support)");
+
+                // Convert messages to format expected by AI service
+                List<String> conversation = new ArrayList<>();
+                for (Message msg : messages) {
+                    if (msg.getRole() == Message.Role.SYSTEM) {
+                        continue; // System prompt is handled by the service
+                    }
+                    if (msg.getRole() == Message.Role.TOOL) {
+                        continue; // Skip tool results for now
+                    }
+                    if (msg.getContent() != null) {
+                        conversation.add(msg.getContent());
+                    }
                 }
-                if (msg.getRole() == Message.Role.TOOL) {
-                    continue; // Skip tool results for now
+
+                String response = aiService.generateResponse(conversation);
+
+                // Check if the response is an error message from the AI service
+                // OpenAiService returns errors as "Error: ..." strings
+                if (response != null && response.startsWith("Error:")) {
+                    log.warn("AI service returned an error response: {}", response);
+                    return LLMResponse.error(response.substring(7)); // Remove "Error: " prefix
                 }
-                if (msg.getContent() != null) {
-                    conversation.add(msg.getContent());
-                }
+
+                return LLMResponse.text(response);
             }
-
-            String response = aiService.generateResponse(conversation);
-
-            // Check if the response is an error message from the AI service
-            // OpenAiService returns errors as "Error: ..." strings
-            if (response != null && response.startsWith("Error:")) {
-                log.warn("AI service returned an error response: {}", response);
-                return LLMResponse.error(response.substring(7)); // Remove "Error: " prefix
-            }
-
-            return LLMResponse.text(response);
 
         } catch (Exception e) {
             log.error("Error calling LLM", e);

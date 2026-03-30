@@ -25,6 +25,8 @@ import org.qainsights.jmeter.ai.utils.VersionUtils;
 import org.qainsights.jmeter.ai.service.OpenAiService;
 import org.qainsights.jmeter.ai.service.OllamaAiService;
 import org.qainsights.jmeter.ai.service.provider.ProviderRegistry;
+import org.qainsights.jmeter.ai.service.provider.AiServiceFactory;
+import org.qainsights.jmeter.ai.tracing.TracedAiService;
 
 import com.anthropic.models.models.ModelInfo;
 import com.anthropic.models.models.ModelListPage;
@@ -538,8 +540,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             // During construction, modelSelector may not be initialized yet
             AiService aiService;
             if (modelSelector == null) {
-                // Use default service during construction
-                aiService = claudeService;
+                // Use default service during construction - wrap with LangSmith tracing
+                aiService = TracedAiService.wrap(claudeService);
                 currentAiService = claudeService;
             } else {
                 aiService = getAiServiceForCurrentModel();
@@ -560,23 +562,52 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     /**
      * Get the appropriate AiService based on the current model selection.
      * NOTE: This method does NOT modify currentAiService to avoid side effects.
+     * Uses AiServiceFactory to ensure LangSmith tracing is applied.
      */
     private AiService getAiServiceForCurrentModel() {
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            return claudeService;
+            // For default case, use TracedAiService.wrap() for ClaudeService
+            return TracedAiService.wrap(claudeService);
         }
 
-        // Extract provider from model ID (format: "provider:model" or just "model")
-        String[] parts = selectedModel.split(":", 2);
-        String provider = parts.length == 2 ? parts[0] : "";
+        // Use AiServiceFactory to create the service
+        // This will automatically wrap with LangSmith tracing if enabled
+        AiService service = AiServiceFactory.createService(selectedModel);
 
-        // Select service based on provider (without setting currentAiService)
-        return switch (provider) {
-            case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> openAiService;
-            case "ollama" -> ollamaService;
-            default -> claudeService; // Default to Claude for Anthropic models or no prefix
-        };
+        // Also update the raw service instance for model loading
+        updateRawServiceForModel(selectedModel);
+
+        return service;
+    }
+
+    /**
+     * Update the raw service instance for model loading purposes.
+     * This ensures the cached service instances (claudeService, openAiService, etc.)
+     * have the correct model set for model loading operations.
+     */
+    private void updateRawServiceForModel(String modelId) {
+        if (modelId == null) return;
+
+        if (modelId.contains(":")) {
+            String[] parts = modelId.split(":", 2);
+            String provider = parts[0];
+
+            switch (provider) {
+                case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                    openAiService.setModel(modelId);
+                }
+                case "ollama" -> {
+                    ollamaService.setModel(modelId);
+                }
+                default -> {
+                    claudeService.setModel(modelId);
+                }
+            }
+        } else {
+            // No provider prefix, default to Claude
+            claudeService.setModel(modelId);
+        }
     }
 
     /**

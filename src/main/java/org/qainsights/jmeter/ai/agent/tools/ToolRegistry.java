@@ -117,6 +117,20 @@ public class ToolRegistry {
     }
 
     /**
+     * Get all tool definitions as ToolDefinition objects.
+     * Used for passing to AI services that support tool calling.
+     */
+    public List<org.qainsights.jmeter.ai.agent.model.ToolDefinition> getToolDefinitionObjects() {
+        return tools.values().stream()
+                .map(tool -> org.qainsights.jmeter.ai.agent.model.ToolDefinition.builder()
+                        .name(tool.getName())
+                        .description(tool.getDescription())
+                        .parameters(parseJsonSchema(tool.getParameterSchema()))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Get all tool definitions in Anthropic format
      */
     public List<Map<String, Object>> getAnthropicToolDefinitions() {
@@ -418,16 +432,22 @@ public class ToolRegistry {
 
     /**
      * Parse JSON Schema string to Map
-     * Simple implementation - in production use a proper JSON parser
+     * Uses Jackson ObjectMapper for proper JSON parsing.
      */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseJsonSchema(String schema) {
         if (schema == null || schema.isEmpty()) {
             return Map.of("type", "object", "properties", Map.of());
         }
-        // For now, return a basic schema
-        // TODO: Use Jackson or Gson for proper JSON parsing
-        return Map.of("type", "object", "properties", Map.of());
+
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper =
+                    new com.fasterxml.jackson.databind.ObjectMapper();
+            return mapper.readValue(schema, Map.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse JSON schema for tool, using default: {}", e.getMessage());
+            return Map.of("type", "object", "properties", Map.of());
+        }
     }
 
     /**

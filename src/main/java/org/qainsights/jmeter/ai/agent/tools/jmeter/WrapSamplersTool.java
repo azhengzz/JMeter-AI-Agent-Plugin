@@ -38,9 +38,10 @@ public class WrapSamplersTool extends AbstractTool {
                 "\"properties\": {" +
                 "  \"transactionName\": {" +
                 "    \"type\": \"string\", " +
-                "    \"description\": \"Optional name for the Transaction Controller (if not specified, uses auto-generated name)\"" +
+                "    \"description\": \"Optional name for the Transaction Controller (if not specified, uses auto-generated name based on first request name)\"" +
                 "  }" +
-                "}" +
+                "}, " +
+                "\"required\": []" +
                 "}";
     }
 
