@@ -22,6 +22,7 @@ public class ToolEvent {
     private final long durationMs;
     private final LocalDateTime timestamp;
     private final Map<String, Object> metadata;
+    private final Map<String, Object> arguments;
 
     private ToolEvent(Builder builder) {
         this.toolName = builder.toolName;
@@ -30,6 +31,7 @@ public class ToolEvent {
         this.durationMs = builder.durationMs;
         this.timestamp = builder.timestamp != null ? builder.timestamp : LocalDateTime.now();
         this.metadata = builder.metadata != null ? builder.metadata : new HashMap<>();
+        this.arguments = builder.arguments != null ? builder.arguments : Map.of();
     }
 
     public String getToolName() { return toolName; }
@@ -38,6 +40,7 @@ public class ToolEvent {
     public long getDurationMs() { return durationMs; }
     public LocalDateTime getTimestamp() { return timestamp; }
     public Map<String, Object> getMetadata() { return metadata; }
+    public Map<String, Object> getArguments() { return arguments; }
 
     public boolean isSuccess() { return status == Status.OK; }
     public boolean isError() { return status == Status.ERROR || status == Status.TIMEOUT; }
@@ -72,6 +75,7 @@ public class ToolEvent {
         private long durationMs;
         private LocalDateTime timestamp;
         private Map<String, Object> metadata;
+        private Map<String, Object> arguments;
 
         public Builder toolName(String toolName) {
             this.toolName = toolName;
@@ -111,6 +115,11 @@ public class ToolEvent {
             return this;
         }
 
+        public Builder arguments(Map<String, Object> arguments) {
+            this.arguments = arguments;
+            return this;
+        }
+
         public ToolEvent build() {
             return new ToolEvent(this);
         }
@@ -129,6 +138,19 @@ public class ToolEvent {
     }
 
     /**
+     * Create a success event with arguments
+     */
+    public static ToolEvent success(String toolName, String detail, long durationMs, Map<String, Object> arguments) {
+        return builder()
+                .toolName(toolName)
+                .status(Status.OK)
+                .detail(detail)
+                .durationMs(durationMs)
+                .arguments(arguments)
+                .build();
+    }
+
+    /**
      * Create an error event
      */
     public static ToolEvent error(String toolName, String errorDetail, long durationMs) {
@@ -137,6 +159,19 @@ public class ToolEvent {
                 .status(Status.ERROR)
                 .detail(errorDetail)
                 .durationMs(durationMs)
+                .build();
+    }
+
+    /**
+     * Create an error event with arguments
+     */
+    public static ToolEvent error(String toolName, String errorDetail, long durationMs, Map<String, Object> arguments) {
+        return builder()
+                .toolName(toolName)
+                .status(Status.ERROR)
+                .detail(errorDetail)
+                .durationMs(durationMs)
+                .arguments(arguments)
                 .build();
     }
 
@@ -153,6 +188,19 @@ public class ToolEvent {
     }
 
     /**
+     * Create a timeout event with arguments
+     */
+    public static ToolEvent timeout(String toolName, long durationMs, Map<String, Object> arguments) {
+        return builder()
+                .toolName(toolName)
+                .status(Status.TIMEOUT)
+                .detail("Tool execution timed out")
+                .durationMs(durationMs)
+                .arguments(arguments)
+                .build();
+    }
+
+    /**
      * Create a not found event
      */
     public static ToolEvent notFound(String toolName) {
@@ -161,6 +209,19 @@ public class ToolEvent {
                 .status(Status.NOT_FOUND)
                 .detail("Tool not found")
                 .durationMs(0)
+                .build();
+    }
+
+    /**
+     * Create a not found event with arguments
+     */
+    public static ToolEvent notFound(String toolName, Map<String, Object> arguments) {
+        return builder()
+                .toolName(toolName)
+                .status(Status.NOT_FOUND)
+                .detail("Tool not found")
+                .durationMs(0)
+                .arguments(arguments)
                 .build();
     }
 }

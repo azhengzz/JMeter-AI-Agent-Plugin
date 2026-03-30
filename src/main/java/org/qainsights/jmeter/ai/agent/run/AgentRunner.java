@@ -316,6 +316,7 @@ public class AgentRunner {
             .startTime(startTime)
             .endTime(Instant.now())
             .session(session)
+            .toolEvents(context.getToolEvents())
             .build();
     }
 

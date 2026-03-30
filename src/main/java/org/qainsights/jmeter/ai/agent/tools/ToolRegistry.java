@@ -160,7 +160,7 @@ public class ToolRegistry {
             long duration = System.currentTimeMillis() - startTime;
             return new ToolExecutionResult(
                 ToolResult.error(error),
-                ToolEvent.notFound(name)
+                ToolEvent.notFound(name, parameters)
             );
         }
 
@@ -172,12 +172,18 @@ public class ToolRegistry {
             ToolEvent event;
             if (result.isSuccess()) {
                 String detail = truncateDetail(result.getResult());
-                event = ToolEvent.success(name, detail, duration);
-            } else {
-                event = ToolEvent.error(name, result.getError(), duration);
-            }
+                event = ToolEvent.success(name, detail, duration, parameters);
 
-            log.debug("Tool {} executed in {}ms with status {}", name, duration, event.getStatus());
+                // Log tool call with arguments and result
+                log.info("Tool {} executed in {}ms | Args: {} | Result: {}",
+                    name, duration, formatArgumentsForLog(parameters), detail);
+            } else {
+                event = ToolEvent.error(name, result.getError(), duration, parameters);
+
+                // Log tool call error with arguments
+                log.error("Tool {} failed in {}ms | Args: {} | Error: {}",
+                    name, duration, formatArgumentsForLog(parameters), result.getError());
+            }
 
             return new ToolExecutionResult(result, event);
         } catch (Exception e) {
@@ -186,20 +192,46 @@ public class ToolRegistry {
             log.error(error, e);
             return new ToolExecutionResult(
                 ToolResult.error(error),
-                ToolEvent.error(name, error, duration)
+                ToolEvent.error(name, error, duration, parameters)
             );
         }
     }
 
     /**
-     * Truncate detail for logging
+     * Truncate detail for logging.
+     * Uses ai.chat.tool.result.max.length configuration (shared with chat UI).
      */
     private String truncateDetail(String detail) {
         if (detail == null) return "";
         detail = detail.replace("\n", " ").trim();
         if (detail.isEmpty()) return "(empty)";
-        if (detail.length() > 120) return detail.substring(0, 120) + "...";
+
+        // Read from configuration (shared with chat UI)
+        int maxDetailLength = Integer.parseInt(
+            org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+
+        if (detail.length() > maxDetailLength) return detail.substring(0, maxDetailLength) + "...";
         return detail;
+    }
+
+    /**
+     * Format arguments map for logging.
+     * Uses ai.chat.tool.result.max.length configuration (shared with chat UI).
+     */
+    private String formatArgumentsForLog(Map<String, Object> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return "{}";
+        }
+
+        // Read from configuration (shared with chat UI)
+        int maxDetailLength = Integer.parseInt(
+            org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+
+        String argsStr = parameters.toString();
+        if (argsStr.length() > maxDetailLength) {
+            return argsStr.substring(0, maxDetailLength) + "... (truncated)";
+        }
+        return argsStr;
     }
 
     /**
@@ -252,12 +284,12 @@ public class ToolRegistry {
                         log.warn("Tool execution timed out after {}ms: {}", finalTimeout, name);
                         return new ToolExecutionResult(
                             ToolResult.error("Tool execution timed out after " + finalTimeout + "ms"),
-                            ToolEvent.timeout(name, finalTimeout)
+                            ToolEvent.timeout(name, finalTimeout, parameters)
                         );
                     }
                     return new ToolExecutionResult(
                         ToolResult.error("Tool execution failed: " + ex.getMessage()),
-                        ToolEvent.error(name, "Tool execution failed: " + ex.getMessage(), 0)
+                        ToolEvent.error(name, "Tool execution failed: " + ex.getMessage(), 0, parameters)
                     );
                 });
     }

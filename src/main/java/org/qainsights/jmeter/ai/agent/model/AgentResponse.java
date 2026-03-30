@@ -13,6 +13,7 @@ public class AgentResponse {
     private final int iterationCount;
     private final boolean success;
     private final String errorMessage;
+    private final List<ToolEvent> toolEvents;
 
     private AgentResponse(Builder builder) {
         this.content = builder.content;
@@ -20,6 +21,7 @@ public class AgentResponse {
         this.iterationCount = builder.iterationCount;
         this.success = builder.success;
         this.errorMessage = builder.errorMessage;
+        this.toolEvents = builder.toolEvents != null ? builder.toolEvents : Collections.emptyList();
     }
 
     public String getContent() {
@@ -42,6 +44,10 @@ public class AgentResponse {
         return errorMessage;
     }
 
+    public List<ToolEvent> getToolEvents() {
+        return toolEvents;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -52,6 +58,7 @@ public class AgentResponse {
         private int iterationCount;
         private boolean success = true;
         private String errorMessage;
+        private List<ToolEvent> toolEvents;
 
         public Builder content(String content) {
             this.content = content;
@@ -79,6 +86,11 @@ public class AgentResponse {
             return this;
         }
 
+        public Builder toolEvents(List<ToolEvent> toolEvents) {
+            this.toolEvents = toolEvents;
+            return this;
+        }
+
         public AgentResponse build() {
             return new AgentResponse(this);
         }
@@ -101,6 +113,18 @@ public class AgentResponse {
                 .content(content)
                 .toolsUsed(toolsUsed)
                 .iterationCount(iterationCount)
+                .build();
+    }
+
+    /**
+     * Create a successful response with tools used and tool events
+     */
+    public static AgentResponse success(String content, List<String> toolsUsed, int iterationCount, List<ToolEvent> toolEvents) {
+        return builder()
+                .content(content)
+                .toolsUsed(toolsUsed)
+                .iterationCount(iterationCount)
+                .toolEvents(toolEvents)
                 .build();
     }
 
