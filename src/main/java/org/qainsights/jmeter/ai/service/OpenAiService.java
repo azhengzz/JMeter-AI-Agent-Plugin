@@ -622,11 +622,21 @@ public class OpenAiService implements AiService {
             }
 
             // 解析响应
-            if (chatCompletion.choices().isEmpty()) {
-                return LLMResponse.error("No response from API");
+            // 检查 choices 是否为 null 或空
+            var choices = chatCompletion.choices();
+            if (choices == null || choices.isEmpty()) {
+                log.warn("API returned null or empty choices");
+                try {
+                    String rawResponse = chatCompletion.toString();
+                    log.error("Raw API response: {}", rawResponse);
+                    return LLMResponse.error("API returned null or empty choices. Response: " + rawResponse.substring(0, Math.min(200, rawResponse.length())));
+                } catch (Exception e) {
+                    log.error("Failed to read raw response", e);
+                    return LLMResponse.error("API returned null or empty choices. Check API status and configuration.");
+                }
             }
 
-            ChatCompletion.Choice choice = chatCompletion.choices().get(0);
+            ChatCompletion.Choice choice = choices.get(0);
             String content = choice.message().content().orElse(null);
             String finishReason = choice.finishReason() != null ? choice.finishReason().toString() : "unknown";
 
