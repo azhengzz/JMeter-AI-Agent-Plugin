@@ -29,11 +29,13 @@ public class GetJMeterElementTool extends AbstractTool {
 
     @Override
     public String getParameterSchema() {
-        return "{" +
-                "\"type\": \"object\", " +
-                "\"properties\": {}, " +
-                "\"required\": []" +
-                "}";
+        return """
+                {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+                """;
     }
 
     @Override

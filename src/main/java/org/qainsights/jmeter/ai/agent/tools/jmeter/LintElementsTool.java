@@ -35,16 +35,18 @@ public class LintElementsTool extends AbstractTool {
 
     @Override
     public String getParameterSchema() {
-        return "{" +
-                "\"type\": \"object\", " +
-                "\"properties\": {" +
-                "  \"action\": {" +
-                "    \"type\": \"string\", " +
-                "    \"description\": \"Action to perform: 'rename' (default) to rename elements with meaningful names, or provide custom instructions\"" +
-                "  }" +
-                "}, " +
-                "\"required\": []" +
-                "}";
+        return """
+                {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "description": "Action to perform: 'rename' (default) to rename elements with meaningful names, or provide custom instructions"
+                        }
+                    },
+                    "required": []
+                }
+                """;
     }
 
     @Override

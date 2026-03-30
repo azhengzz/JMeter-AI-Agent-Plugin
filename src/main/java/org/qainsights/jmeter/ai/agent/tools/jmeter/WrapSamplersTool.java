@@ -33,16 +33,18 @@ public class WrapSamplersTool extends AbstractTool {
 
     @Override
     public String getParameterSchema() {
-        return "{" +
-                "\"type\": \"object\", " +
-                "\"properties\": {" +
-                "  \"transactionName\": {" +
-                "    \"type\": \"string\", " +
-                "    \"description\": \"Optional name for the Transaction Controller (if not specified, uses auto-generated name based on first request name)\"" +
-                "  }" +
-                "}, " +
-                "\"required\": []" +
-                "}";
+        return """
+                {
+                    "type": "object",
+                    "properties": {
+                        "transactionName": {
+                            "type": "string",
+                            "description": "Optional name for the Transaction Controller (if not specified, uses auto-generated name based on first request name)"
+                        }
+                    },
+                    "required": []
+                }
+                """;
     }
 
     @Override

@@ -18,14 +18,24 @@ import javax.swing.tree.TreePath;
 public class JMeterElementManager {
     private static final Logger log = LoggerFactory.getLogger(JMeterElementManager.class);
 
-    // Class to hold model and GUI class names
-    private static class ElementClassInfo {
-        String modelClassName;
-        String guiClassName;
+    /**
+     * Class to hold model and GUI class names for JMeter elements.
+     */
+    public static class ElementClassInfo {
+        private final String modelClassName;
+        private final String guiClassName;
 
-        ElementClassInfo(String modelClassName, String guiClassName) {
+        public ElementClassInfo(String modelClassName, String guiClassName) {
             this.modelClassName = modelClassName;
             this.guiClassName = guiClassName;
+        }
+
+        public String getModelClassName() {
+            return modelClassName;
+        }
+
+        public String getGuiClassName() {
+            return guiClassName;
         }
     }
 
@@ -385,12 +395,12 @@ public class JMeterElementManager {
 
     /**
      * A generic method to create a test element using its class and GUI class
-     * 
+     *
      * @param elementClass The class of the test element
      * @param guiClass     The GUI class of the test element
      * @return The created test element
      */
-    private static <T extends TestElement> T createTestElement(Class<T> elementClass,
+    public static <T extends TestElement> T createTestElement(Class<T> elementClass,
             Class<? extends JMeterGUIComponent> guiClass) {
         try {
             log.info("Creating test element of class: {} with GUI class: {}", elementClass.getName(),
@@ -421,8 +431,46 @@ public class JMeterElementManager {
     }
 
     /**
+     * Create a new test element of the specified type.
+     *
+     * @param elementType The normalized element type
+     * @param elementName The name for the element
+     * @return The created test element, or null if creation failed
+     */
+    public static TestElement createElement(String elementType, String elementName) {
+        log.info("Creating element of type: {} with name: {}", elementType, elementName);
+
+        // Get the class info for the element type
+        ElementClassInfo classInfo = getElementClassInfo(elementType);
+        if (classInfo == null) {
+            log.error("Could not find class info for element type: {}", elementType);
+            return null;
+        }
+
+        try {
+            Class<?> elementClass = Class.forName(classInfo.getModelClassName());
+            Class<? extends JMeterGUIComponent> guiClass =
+                    Class.forName(classInfo.getGuiClassName()).asSubclass(JMeterGUIComponent.class);
+
+            TestElement element = createTestElement(elementClass.asSubclass(TestElement.class), guiClass);
+
+            // Set a name for the element
+            if (elementName != null && !elementName.isEmpty()) {
+                element.setName(elementName);
+            }
+
+            log.info("Successfully created element: {}", element.getClass().getSimpleName());
+            return element;
+
+        } catch (Exception e) {
+            log.error("Failed to create test element of type: {}", elementType, e);
+            return null;
+        }
+    }
+
+    /**
      * Adds a JMeter element to the currently selected node in the test plan.
-     * 
+     *
      * @param elementType The type of element to add (case-insensitive, spaces
      *                    ignored)
      * @param elementName The name to give the new element (optional, will use
@@ -716,7 +764,7 @@ public class JMeterElementManager {
 
     /**
      * Checks if the given element type is supported.
-     * 
+     *
      * @param elementType The element type to check
      * @return true if the element type is supported, false otherwise
      */
@@ -726,8 +774,18 @@ public class JMeterElementManager {
     }
 
     /**
+     * Get the class info for an element type.
+     *
+     * @param elementType The normalized element type
+     * @return The ElementClassInfo, or null if not found
+     */
+    public static ElementClassInfo getElementClassInfo(String elementType) {
+        return ELEMENT_CLASS_MAP.get(elementType);
+    }
+
+    /**
      * Gets a list of all supported element types.
-     * 
+     *
      * @return A string containing all supported element types
      */
     public static String getSupportedElementTypes() {
@@ -808,9 +866,76 @@ public class JMeterElementManager {
     }
 
     /**
+     * Checks if a node is compatible with the given element based on JMeter's hierarchy rules.
+     *
+     * @param currentNode The current JMeter tree node
+     * @param element     The element to be added
+     * @return true if the node is compatible, false otherwise
+     */
+    public static boolean isNodeCompatible(JMeterTreeNode currentNode, TestElement element) {
+        String nodeType = currentNode.getTestElement().getClass().getSimpleName();
+        String nodeGuiClass = currentNode.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
+        String elementType = element.getClass().getSimpleName();
+
+        log.info("Checking compatibility: Node type: {}, Node GUI class: {}, Element type: {}",
+                nodeType, nodeGuiClass, elementType);
+
+        // Determine the category of the current node
+        boolean isTestPlan = nodeType.equals("TestPlan") || nodeGuiClass.contains("TestPlanGui");
+        boolean isThreadGroup = nodeType.equals("ThreadGroup") || nodeGuiClass.contains("ThreadGroupGui");
+        boolean isController = nodeType.contains("Controller") || nodeGuiClass.contains("ControllerPanel")
+                || nodeGuiClass.contains("ControllerGui");
+        boolean isSampler = nodeType.contains("Sampler") || nodeGuiClass.contains("SamplerGui");
+        boolean isTimer = nodeType.contains("Timer") || nodeGuiClass.contains("TimerGui");
+        boolean isPreProcessor = nodeType.contains("PreProcessor") || nodeGuiClass.contains("PreProcessorGui");
+        boolean isPostProcessor = nodeType.contains("PostProcessor") || nodeGuiClass.contains("PostProcessorGui");
+        boolean isConfigElement = nodeType.contains("Config") || nodeGuiClass.contains("ConfigGui");
+        boolean isListener = nodeType.contains("Listener") || nodeGuiClass.contains("ListenerGui")
+                || nodeGuiClass.contains("Visualizer");
+        boolean isAssertion = nodeType.contains("Assertion") || nodeGuiClass.contains("AssertionGui");
+
+        // Determine the category of the element being added
+        boolean isAddingTestPlan = elementType.equals("TestPlan");
+        boolean isAddingThreadGroup = elementType.equals("ThreadGroup");
+        boolean isAddingController = elementType.contains("Controller");
+        boolean isAddingSampler = elementType.contains("Sampler") || elementType.contains("Request");
+        boolean isAddingTimer = elementType.contains("Timer");
+        boolean isAddingPreProcessor = elementType.contains("PreProcessor");
+        boolean isAddingPostProcessor = elementType.contains("PostProcessor") || elementType.contains("Extractor");
+        boolean isAddingConfigElement = elementType.contains("Config") || elementType.contains("Manager")
+                || elementType.contains("DataSet");
+        boolean isAddingListener = elementType.contains("Listener") || elementType.contains("Visualizer")
+                || elementType.contains("Report") || elementType.contains("Tree") || elementType.contains("Table")
+                || elementType.contains("Graph");
+        boolean isAddingAssertion = elementType.contains("Assertion");
+
+        // Apply JMeter hierarchy rules
+        if (isTestPlan) {
+            return true;
+        } else if (isThreadGroup) {
+            if (isAddingThreadGroup) {
+                log.error("Cannot add a Thread Group to another Thread Group");
+                return false;
+            }
+            return !isAddingTestPlan;
+        } else if (isSampler) {
+            return isAddingAssertion || isAddingTimer || isAddingPreProcessor || isAddingPostProcessor
+                    || isAddingConfigElement || isAddingListener;
+        } else if (isController) {
+            return !isAddingTestPlan && !isAddingThreadGroup;
+        } else if (isTimer || isPreProcessor || isPostProcessor || isConfigElement || isListener || isAssertion) {
+            log.info("Node type does not support adding any elements underneath it");
+            return false;
+        }
+
+        log.info("Could not determine compatibility for node type: {} and element type: {}", nodeType, elementType);
+        return false;
+    }
+
+    /**
      * Checks if a node is compatible with the given element type based on JMeter's
      * hierarchy rules.
-     * 
+     *
      * @param currentNode The current JMeter tree node
      * @param elementType The type of element to add
      * @return true if the node is compatible, false otherwise
