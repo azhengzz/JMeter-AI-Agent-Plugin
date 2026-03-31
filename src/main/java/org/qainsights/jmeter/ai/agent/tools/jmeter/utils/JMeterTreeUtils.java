@@ -312,6 +312,31 @@ public class JMeterTreeUtils {
     }
 
     /**
+     * Find a node in the tree by its instance ID (identityHashCode).
+     *
+     * @param rootNode   The root node to search from
+     * @param instanceId The instance ID to search for
+     * @return The matching node, or null if not found
+     */
+    public static JMeterTreeNode findNodeByInstanceId(JMeterTreeNode rootNode, int instanceId) {
+        if (rootNode == null) {
+            return null;
+        }
+        if (System.identityHashCode(rootNode) == instanceId) {
+            return rootNode;
+        }
+        int childCount = rootNode.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            JMeterTreeNode child = (JMeterTreeNode) rootNode.getChildAt(i);
+            JMeterTreeNode found = findNodeByInstanceId(child, instanceId);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Truncate string to max length.
      *
      * @param str The string to truncate

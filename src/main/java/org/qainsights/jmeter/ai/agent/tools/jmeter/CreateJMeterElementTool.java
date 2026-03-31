@@ -5,10 +5,12 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
+import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.swing.tree.TreePath;
 import java.util.Map;
 
 /**
@@ -44,9 +46,9 @@ public class CreateJMeterElementTool extends AbstractTool {
                             "type": "string",
                             "description": "Name for the new element"
                         },
-                        "parentPath": {
-                            "type": "string",
-                            "description": "Optional path to parent node where to add the element (if not specified, adds to currently selected node)"
+                        "parentId": {
+                            "type": "integer",
+                            "description": "Optional instanceId of the parent node where to add the element. Use get_test_plan_tree or find_element to get instanceId. If not specified, adds to currently selected node."
                         },
                         "properties": {
                             "type": "object",
@@ -63,7 +65,7 @@ public class CreateJMeterElementTool extends AbstractTool {
     protected ToolResult executeInternal(Map<String, Object> parameters) {
         String elementType = getStringParameter(parameters, "elementType", null);
         String elementName = getStringParameter(parameters, "elementName", null);
-        String parentPath = getStringParameter(parameters, "parentPath", null);
+        Integer parentId = getIntParameter(parameters, "parentId", -1);
 
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) parameters.get("properties");
@@ -92,16 +94,18 @@ public class CreateJMeterElementTool extends AbstractTool {
 
             // Determine the parent node where to add the element
             JMeterTreeNode parentNode;
-            if (parentPath != null && !parentPath.isEmpty()) {
-                // Find and use the parent node by path
-                parentNode = findNodeByPath(parentPath);
+            if (parentId != null && parentId > 0) {
+                // Find parent node by instanceId
+                JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
+                parentNode = JMeterTreeUtils.findNodeByInstanceId(rootNode, parentId);
                 if (parentNode == null) {
-                    return ToolResult.error("Could not find parent node with path: " + parentPath);
+                    return ToolResult.error("Could not find parent node with instanceId: " + parentId +
+                            ". The node may have been removed. Use get_test_plan_tree to get current instanceIds.");
                 }
                 // Select the parent node for visual feedback
                 guiPackage.getTreeListener().getJTree()
-                        .setSelectionPath(new javax.swing.tree.TreePath(parentNode.getPath()));
-                log.info("Selected parent node by path: {}", parentPath);
+                        .setSelectionPath(new TreePath(parentNode.getPath()));
+                log.info("Selected parent node by instanceId: {}, name: {}", parentId, parentNode.getName());
             } else {
                 // Use the currently selected node
                 parentNode = guiPackage.getTreeListener().getCurrentNode();
@@ -129,9 +133,9 @@ public class CreateJMeterElementTool extends AbstractTool {
             log.info("Successfully added element to the tree model");
 
             // Restore original selection if we changed it
-            if (parentPath != null && !parentPath.isEmpty() && originalSelectedNode != null) {
+            if (parentId != null && parentId > 0 && originalSelectedNode != null) {
                 guiPackage.getTreeListener().getJTree()
-                        .setSelectionPath(new javax.swing.tree.TreePath(originalSelectedNode.getPath()));
+                        .setSelectionPath(new TreePath(originalSelectedNode.getPath()));
                 log.info("Restored original selection");
             }
 
@@ -260,100 +264,6 @@ public class CreateJMeterElementTool extends AbstractTool {
                 log.warn("Failed to set property: {} = {}", propName, propValue, e);
             }
         }
-    }
-
-    /**
-     * Find a JMeter tree node by its path.
-     * The path can be in format "Test Plan > Thread Group > Controller" or "Test Plan/Thread Group/Controller"
-     *
-     * @param path The path to search for
-     * @return The found node, or null if not found
-     */
-    private JMeterTreeNode findNodeByPath(String path) {
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return null;
-        }
-
-        // Normalize the path (replace > and / with consistent separator)
-        String normalizedPath = path.trim().replaceAll("[>/]", ">");
-        String[] pathParts = normalizedPath.split(">");
-
-        for (int i = 0; i < pathParts.length; i++) {
-            pathParts[i] = pathParts[i].trim();
-        }
-
-        log.info("Searching for node with path parts: {}", java.util.Arrays.toString(pathParts));
-
-        // Start from root
-        JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
-        if (root == null) {
-            return null;
-        }
-
-        return searchNode(root, pathParts, 0);
-    }
-
-    /**
-     * Recursively search for a node matching the path.
-     *
-     * @param currentNode The current node to search from
-     * @param pathParts    The path parts to match
-     * @param currentIndex  The current index in path parts
-     * @return The found node, or null if not found
-     */
-    private JMeterTreeNode searchNode(JMeterTreeNode currentNode, String[] pathParts, int currentIndex) {
-        if (currentIndex >= pathParts.length) {
-            return currentNode;
-        }
-
-        String targetName = pathParts[currentIndex];
-        log.debug("Searching for '{}' at index {}, current node: {}", targetName, currentIndex, currentNode.getName());
-
-        // Check if current node matches
-        if (currentIndex == 0 && !targetName.equalsIgnoreCase(currentNode.getName())) {
-            // Root doesn't match, try searching from children
-            return searchInChildren(currentNode, pathParts, 0);
-        }
-
-        if (targetName.equalsIgnoreCase(currentNode.getName())) {
-            // Current node matches, move to next part
-            for (int i = 0; i < currentNode.getChildCount(); i++) {
-                JMeterTreeNode child = (JMeterTreeNode) currentNode.getChildAt(i);
-                JMeterTreeNode result = searchNode(child, pathParts, currentIndex + 1);
-                if (result != null) {
-                    return result;
-                }
-            }
-            // If we're at the last part and current node matches, return it
-            if (currentIndex == pathParts.length - 1) {
-                return currentNode;
-            }
-        } else {
-            // Current node doesn't match, search in children
-            return searchInChildren(currentNode, pathParts, currentIndex);
-        }
-
-        return null;
-    }
-
-    /**
-     * Search in children nodes for the matching path.
-     *
-     * @param currentNode The parent node
-     * @param pathParts    The path parts to match
-     * @param currentIndex  The current index in path parts
-     * @return The found node, or null if not found
-     */
-    private JMeterTreeNode searchInChildren(JMeterTreeNode currentNode, String[] pathParts, int currentIndex) {
-        for (int i = 0; i < currentNode.getChildCount(); i++) {
-            JMeterTreeNode child = (JMeterTreeNode) currentNode.getChildAt(i);
-            JMeterTreeNode result = searchNode(child, pathParts, currentIndex);
-            if (result != null) {
-                return result;
-            }
-        }
-        return null;
     }
 
     /**
