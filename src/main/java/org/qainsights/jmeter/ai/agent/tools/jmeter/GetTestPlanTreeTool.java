@@ -61,12 +61,25 @@ public class GetTestPlanTreeTool extends AbstractTool {
         int maxDepth = getIntParameter(parameters, "maxDepth", 0);
 
         try {
-            JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
-            if (root == null) {
+            JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
+            if (rootNode == null) {
                 return ToolResult.error("Test plan root is not available");
             }
 
-            Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(root, includeProperties, maxDepth, 0);
+            // Skip the virtual root node and start from the actual test plan
+            // JMeter's tree model has a virtual root (usually named "Test Plan" or "Root")
+            // The actual test plan is the first child of this virtual root
+            JMeterTreeNode actualRoot = rootNode;
+            if (rootNode.getChildCount() == 1) {
+                JMeterTreeNode firstChild = (JMeterTreeNode) rootNode.getChildAt(0);
+                // Check if this is the actual test plan (has a TestElement)
+                if (firstChild.getTestElement() != null) {
+                    actualRoot = firstChild;
+                    log.debug("Skipping virtual root node, using actual test plan: {}", firstChild.getName());
+                }
+            }
+
+            Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(actualRoot, includeProperties, maxDepth, 0);
             String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
             return ToolResult.success(json);
         } catch (JsonProcessingException e) {

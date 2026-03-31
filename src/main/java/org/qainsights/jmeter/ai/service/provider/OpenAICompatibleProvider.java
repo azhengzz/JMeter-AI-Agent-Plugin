@@ -397,20 +397,28 @@ public class OpenAICompatibleProvider implements AiService {
                     providerName, chatCompletion.getClass().getName());
 
             // 解析响应
-            // 检查 choices 是否为 null 或空
-            var choices = chatCompletion.choices();
-            log.debug("Choices field value: {}, is null: {}", choices, choices == null);
-            if (choices == null || choices.isEmpty()) {
-                log.warn("API returned null or empty choices for {}", providerName);
+            // 检查 choices 是否为 null 或空 - 需要捕获异常因为 openai-java SDK 的 choices() 方法在字段为 null 时会抛出异常
+            List<ChatCompletion.Choice> choices;
+            try {
+                choices = chatCompletion.choices();
+            } catch (com.openai.errors.OpenAIInvalidDataException e) {
+                log.error("API returned null choices field for {}. This usually indicates an API error or invalid response.", providerName, e);
                 // 尝试读取原始响应以获取更多信息
                 try {
                     String rawResponse = chatCompletion.toString();
                     log.error("Raw API response from {}: {}", providerName, rawResponse);
-                    return LLMResponse.error("API returned null or empty choices. Response: " + rawResponse.substring(0, Math.min(200, rawResponse.length())));
-                } catch (Exception e) {
-                    log.error("Failed to read raw response", e);
-                    return LLMResponse.error("API returned null or empty choices. Check API status and configuration.");
+                    return LLMResponse.error("API returned invalid response (null choices). Response: " +
+                            rawResponse.substring(0, Math.min(200, rawResponse.length())) +
+                            ". Check API key, quota, or service status.");
+                } catch (Exception ex) {
+                    log.error("Failed to read raw response", ex);
+                    return LLMResponse.error("API returned invalid response (null choices). Check API key, quota, or service status.");
                 }
+            }
+
+            if (choices.isEmpty()) {
+                log.warn("API returned empty choices for {}", providerName);
+                return LLMResponse.error("API returned empty choices. Check API status and configuration.");
             }
 
             ChatCompletion.Choice choice = choices.get(0);

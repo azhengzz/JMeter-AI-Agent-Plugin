@@ -62,7 +62,8 @@ public class JMeterTreeUtils {
         TestElement element = node.getTestElement();
         if (element != null) {
             data.put("elementType", element.getClass().getSimpleName());
-            data.put("elementId", element.hashCode());
+            // elementId 每次组件参数值变更后，element.hashCode() 会发生改变
+            // data.put("elementId", element.hashCode());
             data.put("name", element.getName());
 
             // Properties

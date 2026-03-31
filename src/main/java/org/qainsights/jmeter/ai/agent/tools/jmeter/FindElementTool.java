@@ -75,9 +75,22 @@ public class FindElementTool extends AbstractTool {
             return ToolResult.error("JMeter GUI is not available");
         }
 
-        JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
-        if (root == null) {
+        JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
+        if (rootNode == null) {
             return ToolResult.error("Test plan root is not available");
+        }
+
+        // Skip the virtual root node and start from the actual test plan
+        // JMeter's tree model has a virtual root (usually named "Test Plan" or "Root")
+        // The actual test plan is the first child of this virtual root
+        JMeterTreeNode searchRoot = rootNode;
+        if (rootNode.getChildCount() == 1) {
+            JMeterTreeNode firstChild = (JMeterTreeNode) rootNode.getChildAt(0);
+            // Check if this is the actual test plan (has a TestElement)
+            if (firstChild.getTestElement() != null) {
+                searchRoot = firstChild;
+                log.debug("Skipping virtual root node for search, using actual test plan: {}", firstChild.getName());
+            }
         }
 
         String searchBy = getStringParameter(parameters, "searchBy", "");
@@ -94,13 +107,13 @@ public class FindElementTool extends AbstractTool {
         try {
             switch (searchBy) {
                 case "name":
-                    return findByName(root, query, exactMatch, includeProperties, maxDepth);
+                    return findByName(searchRoot, query, exactMatch, includeProperties, maxDepth);
 
                 case "type":
-                    return findByType(root, query, includeProperties, maxDepth, returnAll);
+                    return findByType(searchRoot, query, includeProperties, maxDepth, returnAll);
 
                 case "path":
-                    return findByPath(root, query, includeProperties, maxDepth);
+                    return findByPath(searchRoot, query, includeProperties, maxDepth);
 
                 default:
                     return ToolResult.error("Invalid searchBy value: " + searchBy +
