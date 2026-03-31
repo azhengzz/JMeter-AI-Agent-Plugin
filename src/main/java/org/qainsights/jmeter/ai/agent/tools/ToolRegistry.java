@@ -181,7 +181,7 @@ public class ToolRegistry {
                 event = ToolEvent.error(name, result.getError(), duration, parameters);
 
                 // Log tool call error with arguments
-                log.error("Tool {} failed in {}ms | Args: {} | Error: {}",
+                log.warn("Tool {} failed in {}ms | Args: {} | Error: {}",
                     name, duration, formatArgumentsForLog(parameters), result.getError());
             }
 

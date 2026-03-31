@@ -4,16 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
+import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 
-import javax.swing.tree.TreePath;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,8 +16,6 @@ import java.util.Map;
  */
 public class GetTestPlanTreeTool extends AbstractTool {
 
-    private static final int MAX_PROPERTIES = 500;
-    private static final int MAX_STRING_LENGTH = 2000;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Override
@@ -74,7 +66,7 @@ public class GetTestPlanTreeTool extends AbstractTool {
                 return ToolResult.error("Test plan root is not available");
             }
 
-            Map<String, Object> treeData = buildTreeData(root, includeProperties, maxDepth, 0);
+            Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(root, includeProperties, maxDepth, 0);
             String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
             return ToolResult.success(json);
         } catch (JsonProcessingException e) {
@@ -84,124 +76,5 @@ public class GetTestPlanTreeTool extends AbstractTool {
             log.error("Error building test plan tree", e);
             return ToolResult.error("Failed to build test plan tree: " + e.getMessage());
         }
-    }
-
-    /**
-     * Build data structure representation of the tree starting from the given node.
-     */
-    private Map<String, Object> buildTreeData(JMeterTreeNode node, boolean includeProperties,
-                                               int maxDepth, int currentDepth) {
-        Map<String, Object> data = new LinkedHashMap<>();
-
-        // Node basic info
-        data.put("instanceId", System.identityHashCode(node));
-        data.put("depth", currentDepth);
-
-        TestElement element = node.getTestElement();
-        if (element != null) {
-            data.put("elementType", element.getClass().getSimpleName());
-            data.put("elementId", element.hashCode());
-            data.put("name", element.getName());
-
-            // Properties
-            if (includeProperties) {
-                data.put("properties", buildPropertiesData(element));
-            }
-        } else {
-            data.put("elementType", "null");
-            data.put("name", node.getName());
-        }
-
-        // Path from root
-        data.put("path", getNodePath(node));
-
-        // Children
-        int childCount = node.getChildCount();
-        data.put("childCount", childCount);
-
-        if (childCount > 0 && (maxDepth == 0 || currentDepth < maxDepth)) {
-            List<Map<String, Object>> childrenList = new ArrayList<>(childCount);
-            for (int i = 0; i < childCount; i++) {
-                JMeterTreeNode child = (JMeterTreeNode) node.getChildAt(i);
-                childrenList.add(buildTreeData(child, includeProperties, maxDepth, currentDepth + 1));
-            }
-            data.put("children", childrenList);
-        } else if (childCount > 0) {
-            // Depth limited
-            data.put("childrenLimited", true);
-        }
-
-        return data;
-    }
-
-    /**
-     * Build data structure for element properties.
-     */
-    private Map<String, String> buildPropertiesData(TestElement element) {
-        Map<String, String> props = new LinkedHashMap<>();
-        PropertyIterator propIterator = element.propertyIterator();
-        int count = 0;
-
-        while (propIterator.hasNext() && count < MAX_PROPERTIES) {
-            JMeterProperty prop = propIterator.next();
-            String propName = prop.getName();
-
-            // Skip internal TestElement properties
-            if (!propName.startsWith("TestElement.")) {
-                String propValue = prop.getStringValue();
-                if (propValue != null && !propValue.isEmpty()) {
-                    props.put(propName, truncate(propValue, MAX_STRING_LENGTH));
-                    count++;
-                }
-            }
-        }
-
-        if (count >= MAX_PROPERTIES && propIterator.hasNext()) {
-            props.put("...", MAX_PROPERTIES + "+ properties");
-        }
-
-        return props;
-    }
-
-    /**
-     * Get the full path of a node from root.
-     */
-    private String getNodePath(JMeterTreeNode node) {
-        TreePath treePath = new TreePath(node.getPath());
-        StringBuilder path = new StringBuilder();
-        Object[] pathArray = treePath.getPath();
-
-        for (int i = 0; i < pathArray.length; i++) {
-            if (i > 0) {
-                path.append(" > ");
-            }
-            Object pathComponent = pathArray[i];
-            if (pathComponent instanceof JMeterTreeNode) {
-                JMeterTreeNode treeNode = (JMeterTreeNode) pathComponent;
-                TestElement elem = treeNode.getTestElement();
-                if (elem != null && elem.getName() != null) {
-                    path.append(elem.getName());
-                } else {
-                    path.append(treeNode.getName());
-                }
-            } else {
-                path.append(pathComponent.toString());
-            }
-        }
-
-        return path.toString();
-    }
-
-    /**
-     * Truncate string to max length.
-     */
-    private String truncate(String str, int max) {
-        if (str == null) {
-            return null;
-        }
-        if (str.length() <= max) {
-            return str;
-        }
-        return str.substring(0, max) + "...";
     }
 }
