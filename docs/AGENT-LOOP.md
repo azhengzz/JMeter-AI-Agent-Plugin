@@ -42,7 +42,7 @@ The Agent Loop implements a Message -> LLM -> Tools -> Response -> Message cycle
 - `JMeterToolRegistry`: JMeter-specific tools
 
 #### Available JMeter Tools
-- `get_jmeter_element`: Get info about selected element
+- `get_selected_element`: Get info about selected element in JSON format (same structure as find_element)
 - `optimize_jmeter_element`: Analyze and optimize element
 - `create_jmeter_element`: Create new JMeter element
 - `lint_jmeter_elements`: Rename elements for better organization
@@ -214,7 +214,7 @@ org.qainsights.jmeter.ai.agent/
     ├── ValidationResult.java   # Parameter validation result
     └── junit/
         ├── CreateJMeterElementTool.java
-        ├── GetJMeterElementTool.java
+        ├── GetSelectedElementTool.java
         ├── LintElementsTool.java
         ├── OptimizeJMeterElementTool.java
         └── WrapSamplersTool.java

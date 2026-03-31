@@ -27,7 +27,7 @@ public class JMeterToolRegistry {
      */
     public static void registerDefaultTools(ToolRegistry registry, AiService aiService) {
         // Register core JMeter tools
-        registry.register(new GetJMeterElementTool());
+        registry.register(new GetSelectedElementTool());
         registry.register(new GetTestPlanTreeTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
@@ -91,7 +91,7 @@ public class JMeterToolRegistry {
      * @param registry The tool registry to register tools with
      */
     public static void registerBasicTools(ToolRegistry registry) {
-        registry.register(new GetJMeterElementTool());
+        registry.register(new GetSelectedElementTool());
         registry.register(new GetTestPlanTreeTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
