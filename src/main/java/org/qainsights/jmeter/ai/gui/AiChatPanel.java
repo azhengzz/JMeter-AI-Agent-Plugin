@@ -908,7 +908,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 doc.insertString(doc.getLength(), toolLine + "\n", toolStyle);
 
                 // Display arguments if present
-                if (event.getArguments() != null && !event.getArguments().isEmpty()) {
+                if (event.getArguments() != null) {
                     SimpleAttributeSet argStyle = new SimpleAttributeSet();
                     StyleConstants.setForeground(argStyle, new Color(70, 130, 180)); // Steel blue
                     StyleConstants.setItalic(argStyle, true);
