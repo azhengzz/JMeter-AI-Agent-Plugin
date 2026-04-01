@@ -7,26 +7,33 @@ Information about you to help personalize JMeter AI assistance.
 - **Name**: (your name)
 - **Role**: (e.g., Performance Engineer, QA Engineer, Developer)
 - **Experience Level**: (Beginner/Intermediate/Advanced)
-
-## Testing Environment
-
-- **Application Under Test**: (describe your application)
-- **Typical User Scenarios**: (list common user flows)
-- **Performance Requirements**: (response times, throughput, etc.)
+- **Language**: (preferred language)
 
 ## Preferences
 
-### Response Style
+### Communication Style
+
+- [ ] Casual
+- [ ] Professional
+- [ ] Technical
+
+### Response Length
 
 - [ ] Brief and concise
 - [ ] Detailed explanations
-- [ ] Include code examples
+- [ ] Adaptive based on question
 
-### JMeter Preferences
+### Technical Level
 
-- **Default Thread Group Settings**: (users, ramp-up, duration)
-- **Preferred Samplers**: (HTTP, JDBC, etc.)
-- **Common Assertions**: (response code, duration, etc.)
+- [ ] Beginner
+- [ ] Intermediate
+- [ ] Expert
+
+## Work Context
+
+- **Primary Role**: (your role, e.g., developer, researcher)
+- **Main Projects**: (what you're working on)
+- **Tools You Use**: (IDEs, languages, frameworks)
 
 ## Topics of Interest
 

@@ -55,7 +55,7 @@ public class ContextBuilder {
      * Build system prompt from identity, bootstrap files, memory, and skills.
      * Based on Nanobot's build_system_prompt logic.
      */
-    public String buildSystemPrompt(List<String> activeSkills) {
+    public String buildSystemPrompt() {
         List<String> parts = new ArrayList<>();
 
         // 1. Identity (from SystemPrompt or custom base prompt)
@@ -154,7 +154,8 @@ public class ContextBuilder {
         String mergedUserContent = runtimeContext + "\n\n" + currentMessage;
 
         // Build system prompt
-        String systemPrompt = buildSystemPromptWithTools(tools);
+        // String systemPrompt = buildSystemPromptWithTools(tools);
+        String systemPrompt = buildSystemPrompt();
 
         // Add system message
         messages.add(Message.system(systemPrompt));
@@ -198,28 +199,32 @@ public class ContextBuilder {
         return messages;
     }
 
-    /**
-     * Build system prompt with tool descriptions
-     */
-    private String buildSystemPromptWithTools(List<Map<String, Object>> tools) {
-        StringBuilder prompt = new StringBuilder(buildSystemPrompt(null));
+    // /**
+    //  * Build system prompt with tool descriptions
+    //  */
+    // @SuppressWarnings("unchecked")
+    // private String buildSystemPromptWithTools(List<Map<String, Object>> tools) {
+    //     StringBuilder prompt = new StringBuilder(buildSystemPrompt(null));
 
-        if (tools != null && !tools.isEmpty()) {
-            prompt.append("\n\n## Available Tools\n\n");
-            prompt.append("You have access to the following tools. Call them when needed:\n\n");
+    //     if (tools != null && !tools.isEmpty()) {
+    //         prompt.append("\n\n## Available Tools\n\n");
+    //         prompt.append("You have access to the following tools. Call them when needed:\n\n");
 
-            for (Map<String, Object> tool : tools) {
-                String name = tool.containsKey("name") ? tool.get("name").toString() : "";
-                String description = tool.containsKey("description") ? tool.get("description").toString() : "";
-                prompt.append("- **").append(name).append("**: ")
-                        .append(description).append("\n");
-            }
+    //         for (Map<String, Object> tool : tools) {
+    //             Map<String, Object> function = tool.containsKey("function") ? (Map<String, Object>) tool.get("function") : null;
+    //             if (function != null) {
+    //                 String name = function.getOrDefault("name", "").toString();
+    //                 String description = function.getOrDefault("description", "").toString();
+    //                 prompt.append("- **").append(name).append("**: ")
+    //                     .append(description).append("\n");
+    //             }
+    //         }
 
-            prompt.append("\nWhen you need to use a tool, respond with a tool call in the appropriate format.");
-        }
+    //         prompt.append("\nWhen you need to use a tool, respond with a tool call in the appropriate format.");
+    //     }
 
-        return prompt.toString();
-    }
+    //     return prompt.toString();
+    // }
 
     /**
      * Build runtime metadata block for injection before the user message.

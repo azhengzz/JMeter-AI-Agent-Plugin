@@ -1,20 +1,24 @@
 # Long-term Memory
 
-This file stores important information that should persist across conversations.
+This file stores important information that should persist across sessions.
 
-## User Preferences
+## User Information
 
--
--
+(Important facts about the user)
+
+## Preferences
+
+(User preferences learned over time)
 
 ## Project Context
 
--
--
+(Information about ongoing projects)
 
-## Common Issues & Solutions
+## Important Notes
 
--
--
+(Things to remember)
+
+---
 
 *Edit this file to store important facts for JMeter AI to remember.*
+*This file is automatically updated by JMeter AI when important information should be remembered.*
