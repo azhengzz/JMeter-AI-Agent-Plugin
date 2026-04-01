@@ -1,14 +1,32 @@
 package org.qainsights.jmeter.ai.utils;
 
+import org.apache.jmeter.assertions.Assertion;
+import org.apache.jmeter.config.ConfigElement;
+import org.apache.jmeter.control.Controller;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
-import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.JMeterGUIComponent;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.timers.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.Map;
+import java.util.Set;
 import javax.swing.tree.TreePath;
 
 /**
@@ -17,6 +35,117 @@ import javax.swing.tree.TreePath;
  */
 public class JMeterElementManager {
     private static final Logger log = LoggerFactory.getLogger(JMeterElementManager.class);
+
+    /**
+     * JMeter component types for compatibility checking.
+     */
+    private enum ComponentType {
+        TEST_PLAN("TestPlan"),
+        THREAD_GROUP("ThreadGroup"),
+        CONTROLLER("Controller"),
+        FRAGMENT("Fragment"),
+        SAMPLER("Sampler"),
+        TIMER("Timer"),
+        ASSERTION("Assertion"),
+        PRE_PROCESSOR("PreProcessor"),
+        POST_PROCESSOR("PostProcessor"),
+        CONFIG_ELEMENT("ConfigElement"),
+        LISTENER("Listener"),
+        NON_TEST_ELEMENT("NonTestElement");
+
+        private final String name;
+
+        ComponentType(String name) {
+            this.name = name;
+        }
+
+        public String getName() {
+            return name;
+        }
+    }
+
+    /**
+     * JMeter compatibility matrix: defines which child component types each parent
+     * type can contain.
+     */
+    private static final Map<ComponentType, Set<ComponentType>> COMPATIBILITY_MATRIX = new HashMap<>();
+
+    static {
+        // TestPlan can contain: ThreadGroups, Controllers, Fragments, ConfigElements,
+        // Timers, Listeners, Assertions, Pre/Post Processors, Non-Test Elements
+        COMPATIBILITY_MATRIX.put(ComponentType.TEST_PLAN, new HashSet<>(Arrays.asList(
+                ComponentType.THREAD_GROUP,
+                ComponentType.CONTROLLER,
+                ComponentType.FRAGMENT,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.TIMER,
+                ComponentType.LISTENER,
+                ComponentType.ASSERTION,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR,
+                ComponentType.NON_TEST_ELEMENT)));
+
+        // ThreadGroup can contain: Samplers, Controllers, Fragments, ConfigElements,
+        // Timers, Listeners, Assertions, Pre/Post Processors
+        COMPATIBILITY_MATRIX.put(ComponentType.THREAD_GROUP, new HashSet<>(Arrays.asList(
+                ComponentType.SAMPLER,
+                ComponentType.CONTROLLER,
+                ComponentType.FRAGMENT,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.TIMER,
+                ComponentType.LISTENER,
+                ComponentType.ASSERTION,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR)));
+
+        // Controller can contain: Samplers, Controllers, Fragments, ConfigElements,
+        // Timers, Listeners, Assertions, Pre/Post Processors
+        COMPATIBILITY_MATRIX.put(ComponentType.CONTROLLER, new HashSet<>(Arrays.asList(
+                ComponentType.SAMPLER,
+                ComponentType.CONTROLLER,
+                ComponentType.FRAGMENT,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.TIMER,
+                ComponentType.LISTENER,
+                ComponentType.ASSERTION,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR)));
+
+        // Fragment (Test Fragment) can contain: Samplers, Controllers, Fragments,
+        // ConfigElements, Timers, Listeners, Assertions, Pre/Post Processors
+        COMPATIBILITY_MATRIX.put(ComponentType.FRAGMENT, new HashSet<>(Arrays.asList(
+                ComponentType.SAMPLER,
+                ComponentType.CONTROLLER,
+                ComponentType.FRAGMENT,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.TIMER,
+                ComponentType.LISTENER,
+                ComponentType.ASSERTION,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR)));
+
+        // Sampler can contain: ConfigElements, Timers, Listeners, Assertions, Pre/Post
+        // Processors
+        COMPATIBILITY_MATRIX.put(ComponentType.SAMPLER, new HashSet<>(Arrays.asList(
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.TIMER,
+                ComponentType.LISTENER,
+                ComponentType.ASSERTION,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR)));
+
+        // Timers, Assertions, Pre/Post Processors, ConfigElements, Listeners,
+        // NonTestElements cannot contain child elements
+        COMPATIBILITY_MATRIX.put(ComponentType.TIMER, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.ASSERTION, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.PRE_PROCESSOR, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.POST_PROCESSOR, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.CONFIG_ELEMENT, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.LISTENER, Collections.emptySet());
+        COMPATIBILITY_MATRIX.put(ComponentType.NON_TEST_ELEMENT, Collections.emptySet()); // HTTP(S) Test Script
+                                                                                          // Recorder
+                                                                                          // 组件在Gui上还可以添加组件（暂不处理）
+    }
 
     /**
      * Class to hold model and GUI class names for JMeter elements.
@@ -47,11 +176,11 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("httpsampler",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-        
+
         ELEMENT_CLASS_MAP.put("httptestsample",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-        
+
         ELEMENT_CLASS_MAP.put("httprequest",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
@@ -616,13 +745,13 @@ public class JMeterElementManager {
             testPlan.setName("Test Plan");
             testPlan.setProperty(TestElement.TEST_CLASS, org.apache.jmeter.testelement.TestPlan.class.getName());
             testPlan.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.control.gui.TestPlanGui.class.getName());
-            
+
             // Create a root node with the test plan
             JMeterTreeNode root = new JMeterTreeNode(testPlan, null);
-            
+
             // Add the root node to the tree model
             guiPackage.getTreeModel().setRoot(root);
-            
+
             log.info("Created a new test plan");
             return true;
         } catch (Exception e) {
@@ -866,170 +995,447 @@ public class JMeterElementManager {
     }
 
     /**
-     * Checks if a node is compatible with the given element based on JMeter's hierarchy rules.
+     * Infers the component type from a TestElement using inheritance/interface
+     * checks.
+     * This is more accurate than string-based inference.
      *
-     * @param currentNode The current JMeter tree node
-     * @param element     The element to be added
+     * @param element the TestElement to analyze
+     * @return the inferred ComponentType, or null if unable to determine
+     */
+    private static ComponentType inferComponentType(TestElement element) {
+        if (element == null) {
+            return null;
+        }
+
+        Class<?> clazz = element.getClass();
+
+        // Check using JMeter interfaces and inheritance
+        // Check in order of specificity (more specific types first)
+
+        // TestPlan - specific class check
+        if (TestPlan.class.isAssignableFrom(clazz)) {
+            return ComponentType.TEST_PLAN;
+        }
+
+        // ThreadGroup - extends AbstractThreadGroup
+        if (AbstractThreadGroup.class.isAssignableFrom(clazz)) {
+            return ComponentType.THREAD_GROUP;
+        }
+
+        // Sampler - implements Sampler interface
+        if (Sampler.class.isAssignableFrom(clazz)) {
+            return ComponentType.SAMPLER;
+        }
+
+        // Test Fragment - specific class (extends Controller, so **check before generic
+        // Controller**)
+        if (TestFragmentController.class.isAssignableFrom(clazz)) {
+            return ComponentType.FRAGMENT;
+        }
+
+        // Controller - implements Controller interface
+        if (Controller.class.isAssignableFrom(clazz)) {
+            return ComponentType.CONTROLLER;
+        }
+
+        // Timer - implements Timer interface
+        if (Timer.class.isAssignableFrom(clazz)) {
+            return ComponentType.TIMER;
+        }
+
+        // Assertion - implements Assertion interface
+        if (Assertion.class.isAssignableFrom(clazz)) {
+            return ComponentType.ASSERTION;
+        }
+
+        // PreProcessor - implements PreProcessor interface
+        if (PreProcessor.class.isAssignableFrom(clazz)) {
+            return ComponentType.PRE_PROCESSOR;
+        }
+
+        // PostProcessor - implements PostProcessor interface
+        if (PostProcessor.class.isAssignableFrom(clazz)) {
+            return ComponentType.POST_PROCESSOR;
+        }
+
+        // ConfigElement - implements ConfigElement interface
+        if (ConfigElement.class.isAssignableFrom(clazz)) {
+            return ComponentType.CONFIG_ELEMENT;
+        }
+
+        // Non-Test Elements - check specific classes (exact match for accuracy)
+        String simpleName = clazz.getSimpleName();
+        if ("ProxyControl".equals(simpleName) || "HttpMirrorServer".equals(simpleName)) {
+            return ComponentType.NON_TEST_ELEMENT;
+        }
+        // TODO Property Display 没有匹配上
+
+        // Listener - no common interface, use class name patterns
+        if ("ResultCollector".equals(simpleName) || "BackendListener".equals(simpleName)
+                || "Summariser".equals(simpleName)
+                || "JSR223Listener".equals(simpleName) || "MailerResultCollector".equals(simpleName)
+                || "ResultSaver".equals(simpleName)
+                || "BeanShellListener".equals(simpleName)) {
+            return ComponentType.LISTENER;
+        }
+
+        // Fallback to string-based inference
+        return inferComponentType(simpleName);
+    }
+
+    /**
+     * Infers the component type from a class name or GUI class name.
+     *
+     * @param className the class name to analyze
+     * @return the inferred ComponentType, or null if unable to determine
+     */
+    private static ComponentType inferComponentType(String className) {
+        if (className == null) {
+            return null;
+        }
+
+        // Check for exact matches first
+        if (className.contains("TestPlan")) {
+            return ComponentType.TEST_PLAN;
+        }
+        if (className.contains("ThreadGroup")) {
+            return ComponentType.THREAD_GROUP;
+        }
+        // Check for Test Fragment before generic Controller (since
+        // TestFragmentController also contains "Controller")
+        if (className.contains("Fragment") || className.contains("TestFragment")) {
+            return ComponentType.FRAGMENT;
+        }
+        if (className.contains("Sampler") || className.contains("Request")) {
+            return ComponentType.SAMPLER;
+        }
+        if (className.contains("Controller") && !className.contains("ControllerGui")) {
+            return ComponentType.CONTROLLER;
+        }
+        if (className.contains("Timer")) {
+            return ComponentType.TIMER;
+        }
+        if (className.contains("Assertion")) {
+            return ComponentType.ASSERTION;
+        }
+        if (className.contains("PreProcessor") || className.contains("PreProcessor")) {
+            return ComponentType.PRE_PROCESSOR;
+        }
+        if (className.contains("PostProcessor") || className.contains("Extractor")) {
+            return ComponentType.POST_PROCESSOR;
+        }
+
+        // Check for Config elements
+        if (className.contains("Config") || className.contains("Manager") ||
+                className.contains("DataSet") || className.contains("Cache")) {
+            return ComponentType.CONFIG_ELEMENT;
+        }
+
+        // Check for Listeners/Visualizers
+        if (className.contains("Listener") || className.contains("Visualizer") ||
+                className.contains("Report") || className.contains("Tree") ||
+                className.contains("Table") || className.contains("Graph")) {
+            return ComponentType.LISTENER;
+        }
+
+        // Check GUI classes
+        // Check for Fragment GUI before generic Controller GUI
+        if (className.contains("FragmentGui") || className.contains("TestFragment")) {
+            return ComponentType.FRAGMENT;
+        }
+        if (className.contains("ControllerGui") || className.contains("ControllerPanel")) {
+            return ComponentType.CONTROLLER;
+        }
+        if (className.contains("SamplerGui")) {
+            return ComponentType.SAMPLER;
+        }
+        if (className.contains("TimerGui")) {
+            return ComponentType.TIMER;
+        }
+        if (className.contains("AssertionGui")) {
+            return ComponentType.ASSERTION;
+        }
+        if (className.contains("PreProcessorGui")) {
+            return ComponentType.PRE_PROCESSOR;
+        }
+        if (className.contains("PostProcessorGui")) {
+            return ComponentType.POST_PROCESSOR;
+        }
+        if (className.contains("ConfigGui")) {
+            return ComponentType.CONFIG_ELEMENT;
+        }
+        if (className.contains("ListenerGui")) {
+            return ComponentType.LISTENER;
+        }
+
+        // Check for Non-Test Elements (Proxy, Mirror Server, etc.)
+        if (className.contains("ProxyControl") || className.contains("ProxyGui") ||
+                className.contains("MirrorServer") || className.contains("MirrorGui") ||
+                className.contains("PropertyDisplay") || className.contains("PropertyDisplayGui")) {
+            return ComponentType.NON_TEST_ELEMENT;
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks if a child component can be added to a parent component using
+     * ComponentType comparison.
+     *
+     * @param parentType the parent component type
+     * @param childType  the child component type
+     * @return true if compatible, false otherwise
+     */
+    private static boolean isCompatibleUsingComponentTypes(ComponentType parentType, ComponentType childType) {
+        log.info("--- Checking component types compatibility ---");
+        log.info("Parent type: {}", parentType);
+        log.info("Child type: {}", childType);
+
+        Set<ComponentType> supportedChildTypes = COMPATIBILITY_MATRIX.get(parentType);
+        if (supportedChildTypes == null || supportedChildTypes.isEmpty()) {
+            log.info("Parent type {} cannot contain any child elements", parentType);
+            return false;
+        }
+        log.info("Parent supported child types: {}", supportedChildTypes);
+
+        // Check if child type is supported by parent
+        boolean compatible = supportedChildTypes.contains(childType);
+        log.info("Compatibility result: {}", compatible ? "COMPATIBLE" : "INCOMPATIBLE");
+        return compatible;
+    }
+
+    /**
+     * Checks if a node is compatible with the given element based on JMeter's
+     * hierarchy rules.
+     *
+     * @param parentNode   The current JMeter tree node
+     * @param childElement The element to be added
      * @return true if the node is compatible, false otherwise
      */
-    public static boolean isNodeCompatible(JMeterTreeNode currentNode, TestElement element) {
-        String nodeType = currentNode.getTestElement().getClass().getSimpleName();
-        String nodeGuiClass = currentNode.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
-        String elementType = element.getClass().getSimpleName();
+    public static boolean isNodeCompatible(JMeterTreeNode parentNode, TestElement childElement) {
+        String parentNodeGuiClass = parentNode.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
+        String childElementGuiClass = childElement.getPropertyAsString(TestElement.GUI_CLASS);
 
-        log.info("Checking compatibility: Node type: {}, Node GUI class: {}, Element type: {}",
-                nodeType, nodeGuiClass, elementType);
+        log.info("========== Compatibility Check Start ==========");
+        log.info("Parent element: {} (type: {}, GUI: {})",
+                parentNode.getTestElement().getName(),
+                parentNode.getTestElement().getClass().getSimpleName(),
+                parentNodeGuiClass);
+        log.info("Child element: {} (type: {}, GUI: {})",
+                childElement.getName(),
+                childElement.getClass().getSimpleName(),
+                childElementGuiClass);
 
-        // Determine the category of the current node
-        boolean isTestPlan = nodeType.equals("TestPlan") || nodeGuiClass.contains("TestPlanGui");
-        boolean isThreadGroup = nodeType.equals("ThreadGroup") || nodeGuiClass.contains("ThreadGroupGui");
-        boolean isController = nodeType.contains("Controller") || nodeGuiClass.contains("ControllerPanel")
-                || nodeGuiClass.contains("ControllerGui");
-        boolean isSampler = nodeType.contains("Sampler") || nodeGuiClass.contains("SamplerGui");
-        boolean isTimer = nodeType.contains("Timer") || nodeGuiClass.contains("TimerGui");
-        boolean isPreProcessor = nodeType.contains("PreProcessor") || nodeGuiClass.contains("PreProcessorGui");
-        boolean isPostProcessor = nodeType.contains("PostProcessor") || nodeGuiClass.contains("PostProcessorGui");
-        boolean isConfigElement = nodeType.contains("Config") || nodeGuiClass.contains("ConfigGui");
-        boolean isListener = nodeType.contains("Listener") || nodeGuiClass.contains("ListenerGui")
-                || nodeGuiClass.contains("Visualizer");
-        boolean isAssertion = nodeType.contains("Assertion") || nodeGuiClass.contains("AssertionGui");
-
-        // Determine the category of the element being added
-        boolean isAddingTestPlan = elementType.equals("TestPlan");
-        boolean isAddingThreadGroup = elementType.equals("ThreadGroup");
-        boolean isAddingController = elementType.contains("Controller");
-        boolean isAddingSampler = elementType.contains("Sampler") || elementType.contains("Request");
-        boolean isAddingTimer = elementType.contains("Timer");
-        boolean isAddingPreProcessor = elementType.contains("PreProcessor");
-        boolean isAddingPostProcessor = elementType.contains("PostProcessor") || elementType.contains("Extractor");
-        boolean isAddingConfigElement = elementType.contains("Config") || elementType.contains("Manager")
-                || elementType.contains("DataSet");
-        boolean isAddingListener = elementType.contains("Listener") || elementType.contains("Visualizer")
-                || elementType.contains("Report") || elementType.contains("Tree") || elementType.contains("Table")
-                || elementType.contains("Graph");
-        boolean isAddingAssertion = elementType.contains("Assertion");
-
-        // Apply JMeter hierarchy rules
-        if (isTestPlan) {
-            return true;
-        } else if (isThreadGroup) {
-            if (isAddingThreadGroup) {
-                log.error("Cannot add a Thread Group to another Thread Group");
-                return false;
+        // Infer parent component type using inheritance-based check (preferred)
+        ComponentType parentType = inferComponentType(parentNode.getTestElement());
+        if (parentType == null) {
+            log.info("Parent type not found via TestElement, trying class name...");
+            // Fallback to string-based inference
+            String nodeType = parentNode.getTestElement().getClass().getSimpleName();
+            parentType = inferComponentType(nodeType);
+            if (parentType == null) {
+                log.info("Parent type not found via class name, trying GUI class...");
+                parentType = inferComponentType(parentNodeGuiClass);
             }
-            return !isAddingTestPlan;
-        } else if (isSampler) {
-            return isAddingAssertion || isAddingTimer || isAddingPreProcessor || isAddingPostProcessor
-                    || isAddingConfigElement || isAddingListener;
-        } else if (isController) {
-            return !isAddingTestPlan && !isAddingThreadGroup;
-        } else if (isTimer || isPreProcessor || isPostProcessor || isConfigElement || isListener || isAssertion) {
-            log.info("Node type does not support adding any elements underneath it");
+        }
+
+        if (parentType == null) {
+            log.warn("Could not determine parent component type - returning INCOMPATIBLE");
+            log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");
             return false;
         }
 
-        log.info("Could not determine compatibility for node type: {} and element type: {}", nodeType, elementType);
-        return false;
+        log.info("Inferred parent type: {}", parentType);
+
+        // Infer child component type
+        ComponentType childType = inferComponentType(childElement);
+        if (childType == null) {
+            log.warn("Could not determine child component type - returning INCOMPATIBLE");
+            log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");
+            return false;
+        }
+
+        log.info("Inferred child type: {}", childType);
+
+        // Check compatibility using component types
+        boolean compatible = isCompatibleUsingComponentTypes(parentType, childType);
+        log.info("Compatibility result: {}", compatible ? "COMPATIBLE" : "INCOMPATIBLE");
+        log.info("========== Compatibility Check End ==========");
+        return compatible;
     }
 
     /**
      * Checks if a node is compatible with the given element type based on JMeter's
      * hierarchy rules.
      *
-     * @param currentNode The current JMeter tree node
-     * @param elementType The type of element to add
+     * @param parentNode       The current JMeter tree node
+     * @param childElementType The type of element to add
      * @return true if the node is compatible, false otherwise
      */
-    private static boolean isNodeCompatible(JMeterTreeNode currentNode, String elementType) {
-        String nodeType = currentNode.getTestElement().getClass().getSimpleName();
-        String nodeGuiClass = currentNode.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
+    private static boolean isNodeCompatible(JMeterTreeNode parentNode, String childElementType) {
+        String parentNodeType = parentNode.getTestElement().getClass().getSimpleName();
+        String parentNodeGuiClass = parentNode.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
 
-        log.info("Checking compatibility: Node type: {}, Node GUI class: {}, Element type: {}",
-                nodeType, nodeGuiClass, elementType);
+        log.info("========== Compatibility Check Start (String) ==========");
+        log.info("Parent element: {} (type: {}, GUI: {})",
+                parentNode.getTestElement().getName(), parentNodeType, parentNodeGuiClass);
+        log.info("Requested child element type: {}", childElementType);
 
         // Normalize element type for validation
-        String normalizedType = normalizeElementType(elementType);
+        String normalizedType = normalizeElementType(childElementType);
         log.info("Normalized element type: {}", normalizedType);
 
-        // Determine the category of the current node
-        boolean isTestPlan = nodeType.equals("TestPlan") || nodeGuiClass.contains("TestPlanGui");
-        boolean isThreadGroup = nodeType.equals("ThreadGroup") || nodeGuiClass.contains("ThreadGroupGui");
-        boolean isController = nodeType.contains("Controller") || nodeGuiClass.contains("ControllerPanel")
-                || nodeGuiClass.contains("ControllerGui");
-        boolean isSampler = nodeType.contains("Sampler") || nodeGuiClass.contains("SamplerGui");
-        boolean isTimer = nodeType.contains("Timer") || nodeGuiClass.contains("TimerGui");
-        boolean isPreProcessor = nodeType.contains("PreProcessor") || nodeGuiClass.contains("PreProcessorGui");
-        boolean isPostProcessor = nodeType.contains("PostProcessor") || nodeGuiClass.contains("PostProcessorGui");
-        boolean isConfigElement = nodeType.contains("Config") || nodeGuiClass.contains("ConfigGui");
-        boolean isListener = nodeType.contains("Listener") || nodeGuiClass.contains("ListenerGui")
-                || nodeGuiClass.contains("Visualizer");
-        boolean isAssertion = nodeType.contains("Assertion") || nodeGuiClass.contains("AssertionGui");
-
-        log.info(
-                "Node categories: TestPlan={}, ThreadGroup={}, Controller={}, Sampler={}, Timer={}, PreProcessor={}, PostProcessor={}, ConfigElement={}, Listener={}, Assertion={}",
-                isTestPlan, isThreadGroup, isController, isSampler, isTimer, isPreProcessor, isPostProcessor,
-                isConfigElement, isListener, isAssertion);
-
-        // Determine the category of the element being added
-        boolean isAddingTestPlan = normalizedType.equals("testplan");
-        boolean isAddingThreadGroup = normalizedType.equals("threadgroup");
-        boolean isAddingController = normalizedType.contains("controller");
-        boolean isAddingSampler = normalizedType.contains("sampler") || normalizedType.contains("request");
-        boolean isAddingTimer = normalizedType.contains("timer");
-        boolean isAddingPreProcessor = normalizedType.contains("preprocessor");
-        boolean isAddingPostProcessor = normalizedType.contains("postprocessor")
-                || normalizedType.contains("extractor");
-        boolean isAddingConfigElement = normalizedType.contains("config") || normalizedType.contains("manager")
-                || normalizedType.contains("dataset");
-        boolean isAddingListener = normalizedType.contains("listener") || normalizedType.contains("visualizer")
-                || normalizedType.contains("report") || normalizedType.contains("tree")
-                || normalizedType.contains("table")
-                || normalizedType.contains("graph") || normalizedType.contains("assertion")
-                || normalizedType.contains("assertion");
-        boolean isAddingAssertion = normalizedType.contains("assertion") || normalizedType.equals("responseassert");
-
-        log.info(
-                "Element categories: TestPlan={}, ThreadGroup={}, Controller={}, Sampler={}, Timer={}, PreProcessor={}, PostProcessor={}, ConfigElement={}, Listener={}, Assertion={}",
-                isAddingTestPlan, isAddingThreadGroup, isAddingController, isAddingSampler, isAddingTimer,
-                isAddingPreProcessor, isAddingPostProcessor, isAddingConfigElement, isAddingListener,
-                isAddingAssertion);
-
-        // Apply JMeter hierarchy rules
-        if (isTestPlan) {
-            // Test plan can have all types of elements
-            return true;
-        } else if (isThreadGroup) {
-            // Thread group can have all types of elements, except test plan and another
-            // thread group
-            if (isAddingThreadGroup) {
-                log.error("Cannot add a Thread Group to another Thread Group");
-                return false;
-            }
-            return !isAddingTestPlan;
-        } else if (isSampler) {
-            // Samplers can have only assertions, timer, Pre and post processors, config
-            // element, listener
-            return isAddingAssertion || isAddingTimer || isAddingPreProcessor || isAddingPostProcessor
-                    || isAddingConfigElement || isAddingListener;
-        } else if (isController) {
-            // Controllers can have all types of elements except test plan and thread group
-            return !isAddingTestPlan && !isAddingThreadGroup;
-        } else if (isTimer || isPreProcessor || isPostProcessor || isConfigElement || isListener || isAssertion) {
-            // Timers, Pre processors, post processors, config elements, listeners cannot
-            // have any element underneath them
-            log.info("Node type does not support adding any elements underneath it");
+        // Get child element's GUI class name
+        ElementClassInfo classInfo = ELEMENT_CLASS_MAP.get(normalizedType);
+        if (classInfo == null) {
+            log.warn("Could not find class info for element type: {} - returning INCOMPATIBLE", normalizedType);
+            log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");
             return false;
         }
 
-        // Default case - if we can't determine the node type or element type, be
-        // conservative and return false
-        log.info("Could not determine compatibility for node type: {} and element type: {}", nodeType, normalizedType);
-        return false;
+        String childGuiClass = classInfo.getGuiClassName();
+        log.info("Child GUI class: {}", childGuiClass);
+
+        // Infer parent component type
+        ComponentType parentType = inferComponentType(parentNodeType);
+        if (parentType == null) {
+            log.info("Parent type not found via class name, trying GUI class...");
+            parentType = inferComponentType(parentNodeGuiClass);
+        }
+
+        if (parentType == null) {
+            log.warn("Could not determine parent component type - returning INCOMPATIBLE");
+            log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");
+            return false;
+        }
+
+        log.info("Inferred parent type: {}", parentType);
+
+        // Infer child component type from GUI class name
+        ComponentType childType = inferComponentType(childGuiClass);
+        if (childType == null) {
+            log.warn("Could not determine child component type - returning INCOMPATIBLE");
+            log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");
+            return false;
+        }
+
+        log.info("Inferred child type: {}", childType);
+
+        // Check compatibility using component types
+        boolean compatible = isCompatibleUsingComponentTypes(parentType, childType);
+        log.info("Compatibility result: {}", compatible ? "COMPATIBLE" : "INCOMPATIBLE");
+        log.info("========== Compatibility Check End (String) ==========");
+        return compatible;
+    }
+
+    /**
+     * Gets a user-friendly description of what parent node types a child element
+     * can be added to.
+     *
+     * @param element The child element
+     * @return A description of supported parent node types, or null if unable to
+     *         determine
+     */
+    public static String getSupportedParentTypesDescription(TestElement element) {
+        if (element == null) {
+            return null;
+        }
+
+        // Infer child component type
+        ComponentType childType = inferComponentType(element);
+        if (childType == null) {
+            return null;
+        }
+
+        // Find which parent types support this child type
+        List<String> supportedParentTypes = new ArrayList<>();
+        for (Map.Entry<ComponentType, Set<ComponentType>> entry : COMPATIBILITY_MATRIX.entrySet()) {
+            ComponentType parentType = entry.getKey();
+            Set<ComponentType> supportedChildTypes = entry.getValue();
+
+            if (supportedChildTypes.contains(childType)) {
+                supportedParentTypes.add(parentType.getName());
+            }
+        }
+
+        if (supportedParentTypes.isEmpty()) {
+            return "This element cannot be added to any parent node.";
+        }
+
+        // Build user-friendly description
+        StringBuilder sb = new StringBuilder();
+        sb.append("This element can only be added to: ");
+        sb.append(String.join(", ", supportedParentTypes));
+        sb.append(".");
+
+        return sb.toString();
+    }
+
+    /**
+     * Gets a user-friendly description of what child element types a node can
+     * contain.
+     *
+     * @param node The JMeter tree node
+     * @return A description of supported child element types, or null if unable to
+     *         determine
+     */
+    public static String getSupportedChildTypesDescription(JMeterTreeNode node) {
+        if (node == null || node.getTestElement() == null) {
+            return null;
+        }
+
+        // Infer parent component type
+        ComponentType parentType = inferComponentType(node.getTestElement());
+        if (parentType == null) {
+            // Fallback to string-based inference
+            String nodeType = node.getTestElement().getClass().getSimpleName();
+            parentType = inferComponentType(nodeType);
+            if (parentType == null) {
+                String parentNodeGuiClass = node.getTestElement().getPropertyAsString(TestElement.GUI_CLASS);
+                parentType = inferComponentType(parentNodeGuiClass);
+            }
+        }
+
+        if (parentType == null) {
+            return null;
+        }
+
+        // Get supported child types
+        Set<ComponentType> supportedChildTypes = COMPATIBILITY_MATRIX.get(parentType);
+        if (supportedChildTypes == null || supportedChildTypes.isEmpty()) {
+            return "This element cannot contain any child elements.";
+        }
+
+        // Convert component types to user-friendly descriptions
+        StringBuilder sb = new StringBuilder();
+        sb.append("This element can contain: ");
+
+        List<String> descriptions = new ArrayList<>();
+        for (ComponentType childType : supportedChildTypes) {
+            descriptions.add(getComponentTypeDescription(childType));
+        }
+        sb.append(String.join(", ", descriptions));
+        sb.append(".");
+
+        return sb.toString();
+    }
+
+    /**
+     * Gets a user-friendly description for a ComponentType.
+     *
+     * @param componentType The component type
+     * @return A user-friendly description
+     */
+    private static String getComponentTypeDescription(ComponentType componentType) {
+        if (componentType == null) {
+            return "Unknown";
+        }
+        return componentType.getName();
     }
 
     /**
      * Gets a user-friendly description for a JMeter element type.
-     * 
+     *
      * @param elementType The element type (class name)
      * @return A user-friendly description of the element
      */
@@ -1037,7 +1443,7 @@ public class JMeterElementManager {
         if (elementType == null) {
             return "Unknown element type";
         }
-        
+
         // Map common element types to descriptions
         switch (elementType.toLowerCase()) {
             case "httpsamplerproxy":

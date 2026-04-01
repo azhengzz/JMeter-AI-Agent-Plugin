@@ -123,9 +123,23 @@ public class CreateJMeterElementTool extends AbstractTool {
 
             // Check compatibility
             if (!JMeterElementManager.isNodeCompatible(parentNode, newElement)) {
-                return ToolResult.error("Cannot add element of type '" + elementType +
-                        "' to the parent node of type '" + parentNode.getTestElement().getClass().getSimpleName() +
-                        "'. The node type is not compatible.");
+                String parentTypeName = parentNode.getTestElement().getClass().getSimpleName();
+                String parentNodeSupportedTypes = JMeterElementManager.getSupportedChildTypesDescription(parentNode);
+                String childElementSupportedParents = JMeterElementManager.getSupportedParentTypesDescription(newElement);
+
+                StringBuilder errorMsg = new StringBuilder();
+                errorMsg.append("Cannot add element of type '").append(elementType)
+                        .append("' to the parent node '").append(parentNode.getTestElement().getName())
+                        .append("' (type: ").append(parentTypeName).append("').\n\n");
+                errorMsg.append("**Compatibility Rule Violation**\n\n");
+                errorMsg.append("1. Current parent node constraints:\n   ");
+                errorMsg.append(parentNodeSupportedTypes != null ? parentNodeSupportedTypes : "Unable to determine.");
+                errorMsg.append("\n\n");
+                errorMsg.append("2. Child element requirements:\n   ");
+                errorMsg.append(childElementSupportedParents != null ? childElementSupportedParents : "Unable to determine.");
+                errorMsg.append("\n\n**Solution**: Try adding this element to a compatible parent node type listed above.");
+
+                return ToolResult.error(errorMsg.toString());
             }
 
             // Add the element to the test plan
