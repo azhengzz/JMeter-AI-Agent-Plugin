@@ -65,16 +65,8 @@ public class AgentLoopFactory {
         MemoryConsolidator consolidator = new MemoryConsolidator(memoryStore, aiService);
         SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
 
-        // Get system prompt from AI service if available
-        String systemPrompt = "";
-        if (aiService instanceof ClaudeService) {
-            // Could extract system prompt from ClaudeService if needed
-            systemPrompt = ""; // Will use default from ContextBuilder
-        }
-
         ContextBuilder contextBuilder = new ContextBuilder(
                 memoryStore,
-                systemPrompt,
                 config.getWorkspacePath()
         );
 

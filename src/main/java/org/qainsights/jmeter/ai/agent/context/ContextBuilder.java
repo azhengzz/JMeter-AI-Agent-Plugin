@@ -35,13 +35,11 @@ public class ContextBuilder {
     };
 
     private final MemoryStore memoryStore;
-    private final String baseSystemPrompt;
     private final SkillsLoader skillsLoader;
     private final Path workspace;
 
-    public ContextBuilder(MemoryStore memoryStore, String baseSystemPrompt, Path workspace) {
+    public ContextBuilder(MemoryStore memoryStore, Path workspace) {
         this.memoryStore = memoryStore;
-        this.baseSystemPrompt = baseSystemPrompt != null ? baseSystemPrompt : getDefaultSystemPrompt();
         this.workspace = workspace;
         this.skillsLoader = new SkillsLoader(workspace);
 
@@ -58,8 +56,8 @@ public class ContextBuilder {
     public String buildSystemPrompt() {
         List<String> parts = new ArrayList<>();
 
-        // 1. Identity (from SystemPrompt or custom base prompt)
-        parts.add(baseSystemPrompt);
+        // 1. Identity (default system prompt)
+        parts.add(getDefaultSystemPrompt());
 
         // 2. Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md)
         String bootstrap = loadBootstrapFiles();
