@@ -143,7 +143,16 @@ public class CreateJMeterElementTool extends AbstractTool {
             }
 
             // Add the element to the test plan
-            guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            // guiPackage.getTreeModel().addComponent(newElement, parentNode);
+
+            // Fix: use JMeter's classloader so ClassFinder can scan all jars (e.g., ResultRenderer in ApacheJMeter_components.jar)
+            ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+            try {
+                Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
+                guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            } finally {
+                Thread.currentThread().setContextClassLoader(originalClassLoader);
+            }
             log.info("Successfully added element to the tree model");
 
             // Restore original selection if we changed it
