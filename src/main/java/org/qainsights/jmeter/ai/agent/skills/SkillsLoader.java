@@ -70,10 +70,12 @@ public class SkillsLoader {
      * @return List of always skill names
      */
     public List<String> getAlwaysSkills() {
-        return listSkills(true).stream()
+        List<String> alwaysSkills = listSkills(true).stream()
                 .filter(SkillInfo::isAlways)
                 .map(SkillInfo::getName)
                 .toList();
+        log.info("Found {} always skills: {}", alwaysSkills.size(), alwaysSkills);
+        return alwaysSkills;
     }
 
     /**
@@ -108,6 +110,8 @@ public class SkillsLoader {
             if (content != null) {
                 content = stripFrontmatter(content);
                 parts.add("### Skill: " + name + "\n\n" + content);
+            } else {
+                log.warn("Failed to load skill for context: {}", name);
             }
         }
 
@@ -153,15 +157,19 @@ public class SkillsLoader {
 
     private Path getBuiltinSkillsDirectory() {
         try {
-            // Get JMeter installation directory (e.g., /path/to/jmeter)
             String jmeterHome = JMeterUtils.getJMeterHome();
             if (jmeterHome != null) {
-                // Built-in skills are in {jmeter_home}/bin/jmeter-agent/skills
-                return Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
+                Path runtimeSkillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
+                if (Files.exists(runtimeSkillsDir)) {
+                    return runtimeSkillsDir;
+                }
             }
         } catch (Exception e) {
             log.debug("Could not determine JMeter home directory", e);
         }
+
+        log.warn("Built-in skills directory not found: {}/bin/jmeter-agent/skills",
+                JMeterUtils.getJMeterHome());
         return null;
     }
 
@@ -293,6 +301,8 @@ public class SkillsLoader {
                 } catch (IOException e) {
                     log.warn("Error loading built-in skill from file: {}", skillFile, e);
                 }
+            } else {
+                log.warn("Built-in skill file not found: {}", skillFile);
             }
         }
         return null;
@@ -326,12 +336,12 @@ public class SkillsLoader {
             return meta;
         }
 
-        // Parse YAML frontmatter
-        Pattern frontmatterPattern = Pattern.compile("^---\\n(.*?)\\n---", Pattern.DOTALL);
+        // Parse YAML frontmatter (support all Unicode line endings: \R matches LF, CRLF, CR, etc.)
+        Pattern frontmatterPattern = Pattern.compile("^---\\R(.*?)\\R---", Pattern.DOTALL);
         Matcher matcher = frontmatterPattern.matcher(content);
         if (matcher.find()) {
             String frontmatter = matcher.group(1);
-            for (String line : frontmatter.split("\n")) {
+            for (String line : frontmatter.split("\\R")) {
                 int colonPos = line.indexOf(':');
                 if (colonPos > 0) {
                     String key = line.substring(0, colonPos).trim();
@@ -422,7 +432,8 @@ public class SkillsLoader {
 
     private String stripFrontmatter(String content) {
         if (content.startsWith("---")) {
-            Pattern pattern = Pattern.compile("^---\\n.*?\\n---\\n", Pattern.DOTALL);
+            // \R matches any Unicode line break (LF, CRLF, CR, etc.)
+            Pattern pattern = Pattern.compile("^---\\R.*?\\R---", Pattern.DOTALL);
             Matcher matcher = pattern.matcher(content);
             if (matcher.find()) {
                 return content.substring(matcher.end()).trim();
