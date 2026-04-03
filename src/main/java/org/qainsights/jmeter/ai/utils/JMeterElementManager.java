@@ -244,11 +244,19 @@ public class JMeterElementManager {
         // Thread Groups
         ELEMENT_CLASS_MAP.put("threadgroup", new ElementClassInfo("org.apache.jmeter.threads.ThreadGroup",
                 "org.apache.jmeter.threads.gui.ThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("setupthreadgroup", new ElementClassInfo("org.apache.jmeter.threads.SetupThreadGroup",
+                "org.apache.jmeter.threads.gui.SetupThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("teardownthreadgroup", new ElementClassInfo("org.apache.jmeter.threads.PostThreadGroup",
+                "org.apache.jmeter.threads.gui.PostThreadGroupGui"));
 
         // Assertions
         ELEMENT_CLASS_MAP.put("responseassert", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
                 "org.apache.jmeter.assertions.gui.AssertionGui"));
+        ELEMENT_CLASS_MAP.put("responseassertion", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
+                "org.apache.jmeter.assertions.gui.AssertionGui"));
         ELEMENT_CLASS_MAP.put("jsonassertion", new ElementClassInfo("org.apache.jmeter.assertions.JSONPathAssertion",
+                "org.apache.jmeter.assertions.gui.JSONPathAssertionGui"));
+        ELEMENT_CLASS_MAP.put("jsonpathassertion", new ElementClassInfo("org.apache.jmeter.assertions.JSONPathAssertion",
                 "org.apache.jmeter.assertions.gui.JSONPathAssertionGui"));
         ELEMENT_CLASS_MAP.put("durationassertion",
                 new ElementClassInfo("org.apache.jmeter.assertions.DurationAssertion",
@@ -263,12 +271,19 @@ public class JMeterElementManager {
                 "org.apache.jmeter.assertions.gui.XPath2AssertionGui"));
         ELEMENT_CLASS_MAP.put("compareassert", new ElementClassInfo("org.apache.jmeter.assertions.CompareAssertion",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("compareassertion", new ElementClassInfo("org.apache.jmeter.assertions.CompareAssertion",
+                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("htmlassertion", new ElementClassInfo("org.apache.jmeter.assertions.HTMLAssertion",
                 "org.apache.jmeter.assertions.gui.HTMLAssertionGui"));
         ELEMENT_CLASS_MAP.put("jmespathassert",
                 new ElementClassInfo("org.apache.jmeter.assertions.jmespath.JMESPathAssertion",
                         "org.apache.jmeter.assertions.jmespath.gui.JMESPathAssertionGui"));
+        ELEMENT_CLASS_MAP.put("jmespathassertion",
+                new ElementClassInfo("org.apache.jmeter.assertions.jmespath.JMESPathAssertion",
+                        "org.apache.jmeter.assertions.jmespath.gui.JMESPathAssertionGui"));
         ELEMENT_CLASS_MAP.put("md5assertion", new ElementClassInfo("org.apache.jmeter.assertions.MD5HexAssertion",
+                "org.apache.jmeter.assertions.gui.MD5HexAssertionGUI"));
+        ELEMENT_CLASS_MAP.put("md5hexassertion", new ElementClassInfo("org.apache.jmeter.assertions.MD5HexAssertion",
                 "org.apache.jmeter.assertions.gui.MD5HexAssertionGUI"));
         ELEMENT_CLASS_MAP.put("smimeassertion",
                 new ElementClassInfo("org.apache.jmeter.assertions.SMIMEAssertionTestElement",
@@ -295,6 +310,8 @@ public class JMeterElementManager {
                 new ElementClassInfo("org.apache.jmeter.timers.poissonarrivals.PreciseThroughputTimer",
                         "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("constantthroughputtimer", new ElementClassInfo(
+                "org.apache.jmeter.timers.ConstantThroughputTimer", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("constthroughputtimer", new ElementClassInfo(
                 "org.apache.jmeter.timers.ConstantThroughputTimer", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("jsr223timer", new ElementClassInfo("org.apache.jmeter.timers.JSR223Timer",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
@@ -333,7 +350,13 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("jsonpostprocessor",
                 new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
                         "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
+        ELEMENT_CLASS_MAP.put("jsonpathpostprocessor",
+                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
+                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
         ELEMENT_CLASS_MAP.put("jsonpathextractor",
+                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
+                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
+        ELEMENT_CLASS_MAP.put("jsonextractor",
                 new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
                         "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
         ELEMENT_CLASS_MAP.put("boundaryextractor", new ElementClassInfo("org.apache.jmeter.extractor.BoundaryExtractor",
@@ -406,6 +429,10 @@ public class JMeterElementManager {
                 "org.apache.jmeter.protocol.tcp.config.gui.TCPConfigGui"));
         ELEMENT_CLASS_MAP.put("arguments", new ElementClassInfo("org.apache.jmeter.config.Arguments",
                 "org.apache.jmeter.config.gui.ArgumentsPanel"));
+        ELEMENT_CLASS_MAP.put("configtestelement", new ElementClassInfo("org.apache.jmeter.config.Arguments",
+                "org.apache.jmeter.config.gui.ArgumentsPanel"));
+        ELEMENT_CLASS_MAP.put("userdefinedvariables", new ElementClassInfo("org.apache.jmeter.config.Arguments",
+                "org.apache.jmeter.config.gui.ArgumentsPanel"));
         ELEMENT_CLASS_MAP.put("ftprequestdefaults", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
                 "org.apache.jmeter.protocol.ftp.config.gui.FtpConfigGui"));
         ELEMENT_CLASS_MAP.put("httpauthorizationmanager",
@@ -418,6 +445,8 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("summaryreport", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
                 "org.apache.jmeter.visualizers.SummaryReport"));
         ELEMENT_CLASS_MAP.put("aggregatereport", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
+                "org.apache.jmeter.visualizers.StatVisualizer"));
+        ELEMENT_CLASS_MAP.put("statvisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
                 "org.apache.jmeter.visualizers.StatVisualizer"));
         ELEMENT_CLASS_MAP.put("backendlistener",
                 new ElementClassInfo("org.apache.jmeter.visualizers.backend.BackendListener",
@@ -836,10 +865,14 @@ public class JMeterElementManager {
             case "csvdataset":
                 return "CSV Data Set";
             case "threadgroup":
+            case "setupthreadgroup":
+            case "teardownthreadgroup":
                 return "Thread Group";
             case "responseassert":
+            case "responseassertion":
                 return "Response Assertion";
             case "jsonassertion":
+            case "jsonpathassertion":
                 return "JSON Path Assertion";
             case "durationassertion":
                 return "Duration Assertion";
@@ -847,8 +880,22 @@ public class JMeterElementManager {
                 return "Size Assertion";
             case "xpathassertion":
                 return "XPath Assertion";
+            case "md5assertion":
+            case "md5hexassertion":
+                return "MD5 Hex Assertion";
+            case "jmespathassert":
+            case "jmespathassertion":
+                return "JMES Path Assertion";
+            case "compareassert":
+            case "compareassertion":
+                return "Compare Assertion";
+            case "htmlassertion":
+                return "HTML Assertion";
             case "constanttimer":
                 return "Constant Timer";
+            case "constantthroughputtimer":
+            case "constthroughputtimer":
+                return "Constant Throughput Timer";
             case "uniformrandomtimer":
                 return "Uniform Random Timer";
             case "gaussianrandomtimer":
@@ -860,13 +907,21 @@ public class JMeterElementManager {
             case "xpathextractor":
                 return "XPath Extractor";
             case "jsonpathextractor":
+            case "jsonextractor":
                 return "JSON Path Extractor";
+            case "jsonpostprocessor":
+            case "jsonpathpostprocessor":
+                return "JSON Post Processor";
             case "boundaryextractor":
                 return "Boundary Extractor";
             case "viewresultstree":
                 return "View Results Tree";
             case "aggregatereport":
+            case "statvisualizer":
                 return "Aggregate Report";
+            case "configtestelement":
+            case "userdefinedvariables":
+                return "User Defined Variables";
             case "jsr223sampler":
                 return "JSR223 Sampler";
             case "jsr223preprocessor":

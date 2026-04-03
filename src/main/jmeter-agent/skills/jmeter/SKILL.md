@@ -48,6 +48,8 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | `setupthreadgroup` | Runs before regular thread groups |
 | `teardownthreadgroup` | Runs after regular thread groups |
 
+**Aliases:** `tg`, `setup`, `teardown`
+
 ### Samplers
 | elementType | Description |
 |-------------|-------------|
@@ -71,7 +73,8 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | `httpdefaults` | Default values for HTTP requests |
 | `headermanager` | Manage HTTP headers |
 | `cookiemanager` | Manage cookies |
-| `configtestelement` | User defined variables |
+| `userdefinedvariables` | User defined variables |
+| `configtestelement` | Config test element (User Defined Variables alias) |
 
 ### Pre-Processors
 | elementType | Description |
@@ -83,11 +86,13 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | elementType | Description |
 |-------------|-------------|
 | `regexextractor` | Extract data using regex |
-| `jsonextractor` | Extract data using JSON path |
+| `jsonpathextractor` | Extract data using JSON path |
 | `xpathextractor` | Extract data using XPath |
 | `boundaryextractor` | Extract data using left/right boundaries |
 | `jmespathextractor` | Extract data from JSON using JMESPath |
 | `jsr223postprocessor` | Custom post-processing code |
+
+**Note:** `jsonextractor` is an alias for `jsonpathextractor`
 
 ### Assertions
 | elementType | Description |
@@ -99,6 +104,11 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | `xpathassertion` | Validate XML responses |
 | `jsr223assertion` | Custom assertion code |
 | `md5hexassertion` | Validate response checksum |
+| `jmespathassertion` | Validate JSON using JMESPath |
+| `compareassertion` | Compare sample results |
+| `htmlassertion` | Validate HTML responses |
+
+**Note:** `jsonassertion` is an alias for `jsonpathassertion`
 
 ### Timers
 | elementType | Description |
@@ -107,14 +117,17 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | `uniformrandomtimer` | Random pause with uniform distribution |
 | `gaussianrandomtimer` | Random pause with Gaussian distribution |
 | `poissonrandomtimer` | Random pause with Poisson distribution |
-| `constthroughputtimer` | Target throughput |
+| `constantthroughputtimer` | Target throughput |
+
+**Note:** `constthroughputtimer` is an alias for `constantthroughputtimer`
 
 ### Listeners
 | elementType | Description |
 |-------------|-------------|
 | `viewresultstree` | View detailed results |
 | `summariser` | Summary statistics |
-| `statvisualizer` | Basic summary |
+| `statvisualizer` | Aggregate Report (Basic summary) |
+| `aggregatereport` | Aggregate Report |
 | `backendlistener` | Send results to backend |
 
 ## Common Properties by Element Type
