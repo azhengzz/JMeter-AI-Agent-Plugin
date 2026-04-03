@@ -1,6 +1,6 @@
 package org.qainsights.jmeter.ai.agent.skills;
 
-import org.qainsights.jmeter.ai.utils.AiConfig;
+import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,12 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,7 +19,7 @@ import java.util.regex.Pattern;
  * specific tools or perform certain tasks.
  *
  * Skills are loaded from two locations:
- * 1. Built-in skills: JAR file resources at /skills/{skill_name}/SKILL.md
+ * 1. Built-in skills: {jmeter.bin}/jmeter-agent/skills/{skill_name}/SKILL.md
  * 2. Workspace skills: {workspace}/skills/{skill_name}/SKILL.md
  */
 public class SkillsLoader {
@@ -31,16 +27,12 @@ public class SkillsLoader {
 
     private final Path workspaceSkillsDir;
     private final Path builtinSkillsDir;
-    private final ClassLoader classLoader;
-
-    // Pattern to match skills in JAR: skills/{name}/SKILL.md
-    private static final Pattern JAR_SKILL_PATTERN = Pattern.compile("skills/([^/]+)/SKILL\\.md");
-
     public SkillsLoader(Path workspaceDir) {
         this.workspaceSkillsDir = workspaceDir.resolve("skills");
-        this.builtinSkillsDir = null; // Built-in skills are in JAR resources
-        this.classLoader = getClass().getClassLoader();
+        // Built-in skills are now in JMeter's bin directory
+        this.builtinSkillsDir = getBuiltinSkillsDirectory();
 
+        ensureBuiltinSkillsDirectory();
         ensureWorkspaceSkillsDirectory();
     }
 
@@ -159,6 +151,36 @@ public class SkillsLoader {
 
     // Private methods
 
+    private Path getBuiltinSkillsDirectory() {
+        try {
+            // Get JMeter installation directory (e.g., /path/to/jmeter)
+            String jmeterHome = JMeterUtils.getJMeterHome();
+            if (jmeterHome != null) {
+                // Built-in skills are in {jmeter_home}/bin/jmeter-agent/skills
+                return Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
+            }
+        } catch (Exception e) {
+            log.debug("Could not determine JMeter home directory", e);
+        }
+        return null;
+    }
+
+    private void ensureBuiltinSkillsDirectory() {
+        if (builtinSkillsDir == null) {
+            log.debug("Built-in skills directory not available (JMeter home not found)");
+            return;
+        }
+
+        try {
+            if (!Files.exists(builtinSkillsDir)) {
+                Files.createDirectories(builtinSkillsDir);
+                log.info("Created built-in skills directory: {}", builtinSkillsDir);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to create built-in skills directory: {}", builtinSkillsDir, e);
+        }
+    }
+
     private void ensureWorkspaceSkillsDirectory() {
         try {
             if (!Files.exists(workspaceSkillsDir)) {
@@ -208,45 +230,9 @@ public class SkillsLoader {
     private List<SkillInfo> loadBuiltinSkills() {
         List<SkillInfo> skills = new ArrayList<>();
 
-        try {
-            // Scan JAR file for skills
-            String jarPath = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
-            if (jarPath != null && jarPath.endsWith(".jar")) {
-                try (JarFile jarFile = new JarFile(jarPath)) {
-                    Enumeration<JarEntry> entries = jarFile.entries();
-                    while (entries.hasMoreElements()) {
-                        JarEntry entry = entries.nextElement();
-                        Matcher matcher = JAR_SKILL_PATTERN.matcher(entry.getName());
-                        if (matcher.matches()) {
-                            String skillName = matcher.group(1);
-                            // Load metadata from the skill file
-                            String content = loadResourceAsString(entry.getName());
-                            if (content != null) {
-                                SkillMetadata meta = parseSkillMetadata(content);
-                                boolean available = checkRequirements(meta);
-
-                                skills.add(new SkillInfo(
-                                        skillName,
-                                        "jar:" + entry.getName(),
-                                        SkillInfo.SkillSource.BUILTIN,
-                                        meta.getDescription(),
-                                        meta.isAlways(),
-                                        available,
-                                        Instant.ofEpochMilli(entry.getLastModifiedTime().toMillis())
-                                ));
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Not running from JAR, try filesystem
-                Path skillsResourcePath = Path.of("src/main/resources/skills");
-                if (Files.exists(skillsResourcePath)) {
-                    loadBuiltinSkillsFromFilesystem(skillsResourcePath, skills);
-                }
-            }
-        } catch (IOException e) {
-            log.warn("Error loading built-in skills", e);
+        // Load from JMeter's bin/jmeter-agent/skills directory
+        if (builtinSkillsDir != null && Files.exists(builtinSkillsDir)) {
+            loadBuiltinSkillsFromFilesystem(builtinSkillsDir, skills);
         }
 
         return skills;
@@ -298,17 +284,18 @@ public class SkillsLoader {
     }
 
     private String loadBuiltinSkill(String name) {
-        String resourcePath = "skills/" + name + "/SKILL.md";
-        return loadResourceAsString(resourcePath);
-    }
-
-    private String loadResourceAsString(String resourcePath) {
-        try {
-            return new String(classLoader.getResourceAsStream(resourcePath).readAllBytes());
-        } catch (Exception e) {
-            log.debug("Resource not found: {}", resourcePath);
-            return null;
+        // Load from JMeter's bin/jmeter-agent/skills directory
+        if (builtinSkillsDir != null) {
+            Path skillFile = builtinSkillsDir.resolve(name).resolve("SKILL.md");
+            if (Files.exists(skillFile)) {
+                try {
+                    return Files.readString(skillFile);
+                } catch (IOException e) {
+                    log.warn("Error loading built-in skill from file: {}", skillFile, e);
+                }
+            }
         }
+        return null;
     }
 
     private List<SkillInfo> removeDuplicates(List<SkillInfo> skills) {
