@@ -264,4 +264,13 @@ public class ComponentValidator {
             case ARRAY -> value instanceof Iterable || value.getClass().isArray();
         };
     }
+
+    /**
+     * Get the schema loader used by this validator.
+     *
+     * @return The ComponentSchemaLoader instance
+     */
+    public ComponentSchemaLoader getSchemaLoader() {
+        return schemaLoader;
+    }
 }

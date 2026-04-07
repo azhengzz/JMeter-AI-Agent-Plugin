@@ -104,6 +104,9 @@ public class CreateJMeterElementTool extends AbstractTool {
                 log.warn("Component validation failed for {}: {}", elementType, errorMsg);
                 return ToolResult.error(errorMsg);
             }
+
+            // Apply default values from schema for properties that were not provided
+            properties = applyDefaultValues(elementType, properties);
         }
 
         try {
@@ -600,6 +603,55 @@ public class CreateJMeterElementTool extends AbstractTool {
         sb.append("\n**Solution**: Please provide all required parameters with correct values.\n");
         sb.append("Refer to component documentation for parameter details.");
         return sb.toString();
+    }
+
+    /**
+     * Apply default values from schema for properties that were not provided.
+     *
+     * @param elementType The component type
+     * @param properties  The provided properties (may be null)
+     * @return A new map with default values applied
+     */
+    private Map<String, Object> applyDefaultValues(String elementType, Map<String, Object> properties) {
+        if (componentValidator == null) {
+            return properties;
+        }
+
+        org.qainsights.jmeter.ai.agent.validation.ComponentSchema schema =
+            componentValidator.getSchemaLoader().loadSchema(elementType);
+
+        if (schema == null) {
+            return properties;
+        }
+
+        // Create a new map to avoid modifying the original
+        Map<String, Object> result = new java.util.HashMap<>();
+        if (properties != null) {
+            result.putAll(properties);
+        }
+
+        // Apply default values for missing properties
+        for (org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyDefinition propDef :
+             schema.getProperties()) {
+            String propName = propDef.getName();
+            if (propName == null || propName.isEmpty()) {
+                continue;
+            }
+
+            // Skip if property is already set
+            if (result.containsKey(propName)) {
+                continue;
+            }
+
+            // Apply default value if exists
+            Object defaultValue = propDef.getDefaultValue();
+            if (defaultValue != null) {
+                result.put(propName, defaultValue);
+                log.info("Applied default value for {}: {}", propName, defaultValue);
+            }
+        }
+
+        return result;
     }
 
     /**
