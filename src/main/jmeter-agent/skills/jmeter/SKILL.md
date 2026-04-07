@@ -76,6 +76,26 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 | `userdefinedvariables` | User defined variables |
 | `configtestelement` | Config test element (User Defined Variables alias) |
 
+**HeaderManager Properties:**
+| Property | Description | Example |
+|----------|-------------|---------|
+| `HeaderManager.headers` | HTTP headers as key-value pairs | See example below |
+
+**HeaderManager example:**
+```
+create_jmeter_element(
+  elementType: "headermanager",
+  elementName: "设置请求头",
+  properties: {
+    "HeaderManager.headers": {
+      "Content-Type": "application/json",
+      "User-Agent": "JMeter Load Test",
+      "Authorization": "Bearer ${token}"
+    }
+  }
+)
+```
+
 ### Pre-Processors
 | elementType | Description |
 |-------------|-------------|
@@ -146,14 +166,118 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 ### HTTPSampler Properties
 | Property | Description | Example |
 |----------|-------------|---------|
+| `HTTPsampler.Arguments` | **REQUIRED** - Arguments object for HTTP parameters | See examples below |
 | `HTTPSampler.domain` | Domain name or IP | `www.example.com` |
 | `HTTPSampler.port` | Port number | `8080` |
 | `HTTPSampler.protocol` | Protocol | `https` |
 | `HTTPSampler.path` | Resource path | `/api/users` |
 | `HTTPSampler.method` | HTTP method | `GET`, `POST`, `PUT`, `DELETE` |
 | `HTTPSampler.contentEncoding` | Content encoding | `utf-8` |
+| `HTTPSampler.postBodyRaw` | Use raw body for POST/PUT | `true` (for JSON/XML) |
 | `HTTPSampler.follow_redirects` | Follow redirects | `true` |
 | `HTTPSampler.use_keepalive` | Use keep-alive | `true` |
+
+**Important:** When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`, `graphqlhttprequest`, etc.), you **MUST** include `HTTPsampler.Arguments` in the properties parameter.
+
+**HTTPsampler.Arguments formats:**
+
+1. **Empty arguments** (no parameters):
+```
+"HTTPsampler.Arguments": {}
+```
+
+2. **With query parameters** (for GET requests or form data):
+```
+"HTTPsampler.Arguments": {
+  "name": "张三",
+  "age": "23"
+}
+```
+
+3. **With raw body** (for JSON/XML POST/PUT requests):
+```
+"HTTPsampler.Arguments": {
+  "": "{\"username\":\"admin\",\"password\":\"123456\"}"
+}
+```
+**IMPORTANT:** The key must be an empty string `""`, and the value must be the JSON/XML string. Also set `HTTPSampler.postBodyRaw: true`.
+
+**Raw body format reminder:**
+- Key: exactly `""` (empty string)
+- Value: complete JSON/XML as a string
+- Do NOT use any other key name for raw body
+
+**Complete examples:**
+
+```
+// HTTP Request Defaults
+create_jmeter_element(
+  elementType: "httpdefaults",
+  elementName: "HTTP默认配置",
+  properties: {
+    "HTTPsampler.Arguments": {},
+    "HTTPSampler.domain": "www.example.com",
+    "HTTPSampler.protocol": "https",
+    "HTTPSampler.port": "443"
+  }
+)
+
+// GET request with query parameters
+create_jmeter_element(
+  elementType: "httpsampler",
+  elementName: "GET_查询用户",
+  properties: {
+    "HTTPsampler.Arguments": {
+      "name": "张三",
+      "age": "23"
+    },
+    "HTTPSampler.domain": "www.httpbin.org",
+    "HTTPSampler.protocol": "https",
+    "HTTPSampler.path": "/get",
+    "HTTPSampler.method": "GET"
+  }
+)
+
+// POST request with JSON body
+create_jmeter_element(
+  elementType: "httpsampler",
+  elementName: "POST_用户登录",
+  properties: {
+    "HTTPsampler.Arguments": {
+      "": "{\"username\":\"admin\",\"password\":\"123456\"}"
+    },
+    "HTTPSampler.domain": "api.example.com",
+    "HTTPSampler.protocol": "https",
+    "HTTPSampler.path": "/api/login",
+    "HTTPSampler.method": "POST",
+    "HTTPSampler.postBodyRaw": true,
+    "HTTPSampler.contentEncoding": "utf-8"
+  }
+)
+
+// POST request with JSON body containing JMeter variables/functions
+create_jmeter_element(
+  elementType: "httpsampler",
+  elementName: "POST_用户登录",
+  properties: {
+    "HTTPsampler.Arguments": {
+      "": "{\"username\":\"${user_name}\",\"password\":\"${__aesEncrypt(${user_password},,,)}\"}"
+    },
+    "HTTPSampler.domain": "osc.gitee.work",
+    "HTTPSampler.path": "/api/gateway/login",
+    "HTTPSampler.method": "POST",
+    "HTTPSampler.postBodyRaw": true,
+    "HTTPSampler.contentEncoding": "utf-8"
+  }
+)
+```
+
+**CRITICAL REMINDER for JSON Body:**
+- The key MUST be exactly `""` (empty string) - use two double quotes with nothing between them
+- The value MUST be a string containing the complete JSON
+- Escape double quotes inside JSON with backslash: `\"`
+- Always set `HTTPSampler.postBodyRaw: true` when using JSON body
+- For variables like `${user_name}` or `${__function()}`, include them directly in the JSON string
 
 ### LoopController Properties
 | Property | Description | Example |

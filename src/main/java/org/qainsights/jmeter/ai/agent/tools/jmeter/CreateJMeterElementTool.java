@@ -236,7 +236,7 @@ public class CreateJMeterElementTool extends AbstractTool {
                 log.info("LoopController initialized for ThreadGroup");
             }
 
-            // Set properties if provided
+            // Set properties if provided (including HTTPsampler.Arguments if needed)
             if (properties != null && !properties.isEmpty()) {
                 setElementProperties(element, properties);
             }
@@ -252,6 +252,7 @@ public class CreateJMeterElementTool extends AbstractTool {
 
     /**
      * Set properties on a TestElement.
+     * Supports special handling for complex properties like HTTPsampler.Arguments.
      *
      * @param element    The element to set properties on
      * @param properties The properties to set
@@ -264,6 +265,117 @@ public class CreateJMeterElementTool extends AbstractTool {
             try {
                 if (propValue == null) {
                     log.warn("Skipping null property: {}", propName);
+                    continue;
+                }
+
+                // Special handling for HTTPsampler.Arguments
+                if ("HTTPsampler.Arguments".equals(propName)) {
+                    org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+                    // If the value is a Map, add HTTPArgument objects for each entry
+                    if (propValue instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> argMap = (Map<String, Object>) propValue;
+
+                        try {
+                            // Use reflection to create HTTPArgument instances
+                            Class<?> httpArgClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPArgument");
+
+                            // Check if this is a raw body request
+                            // Priority 1: Check if HTTPSampler.postBodyRaw is set to true (already processed)
+                            boolean isRawBody = "true".equals(element.getPropertyAsString("HTTPSampler.postBodyRaw", "false"));
+                            // Priority 2: Check if HTTPSampler.postBodyRaw exists in original properties (not yet processed)
+                            if (!isRawBody) {
+                                for (java.util.Map.Entry<String, Object> prop : properties.entrySet()) {
+                                    if ("HTTPSampler.postBodyRaw".equals(prop.getKey())) {
+                                        Object propVal = prop.getValue();
+                                        if (propVal instanceof Boolean && (Boolean) propVal) {
+                                            isRawBody = true;
+                                            break;
+                                        }
+                                        if (propVal instanceof String && "true".equalsIgnoreCase((String) propVal)) {
+                                            isRawBody = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            String rawBodyValue = null;
+                            log.info("Processing HTTPsampler.Arguments with {} entries, rawBody mode: {}", argMap.size(), isRawBody);
+
+                            if (isRawBody && argMap.size() == 1) {
+                                // Raw body mode: extract the single value as the body content
+                                java.util.Map.Entry<String, Object> singleEntry = argMap.entrySet().iterator().next();
+                                rawBodyValue = singleEntry.getValue() != null ? singleEntry.getValue().toString() : "";
+                                log.info("Raw body mode detected, content length: {}", rawBodyValue.length());
+                            }
+
+                            if (rawBodyValue != null) {
+                                // Create raw body HTTPArgument (name="", value=body content)
+                                Object httpArg = httpArgClass
+                                        .getConstructor(String.class, String.class, boolean.class)
+                                        .newInstance("", rawBodyValue, false);
+                                args.addArgument((org.apache.jmeter.config.Argument) httpArg);
+                                log.info("Added raw body HTTP argument, length: {}", rawBodyValue.length());
+                            } else {
+                                // Regular query parameters - create HTTPArgument for each entry
+                                for (Map.Entry<String, Object> argEntry : argMap.entrySet()) {
+                                    String argName = argEntry.getKey();
+                                    String argValue = argEntry.getValue() != null ? argEntry.getValue().toString() : "";
+
+                                    // Create HTTPArgument using constructor
+                                    Object httpArg = httpArgClass
+                                            .getConstructor(String.class, String.class, boolean.class)
+                                            .newInstance(argName, argValue, false);
+
+                                    // Add to Arguments
+                                    args.addArgument((org.apache.jmeter.config.Argument) httpArg);
+                                    log.info("Added HTTP argument: {} = {}", argName, argValue);
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to create HTTPArgument, falling back to Argument", e);
+                            // Fallback: use regular Argument
+                            for (Map.Entry<String, Object> argEntry : argMap.entrySet()) {
+                                String argName = argEntry.getKey();
+                                String argValue = argEntry.getValue() != null ? argEntry.getValue().toString() : "";
+                                args.addArgument(argName, argValue);
+                                log.info("Added argument: {} = {}", argName, argValue);
+                            }
+                        }
+                    }
+
+                    element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(
+                            propName, args));
+                    log.info("Set property: {} = {}", propName, args);
+                    continue;
+                }
+
+                // Special handling for HeaderManager.headers
+                if ("HeaderManager.headers".equals(propName) && element.getClass().getName().contains("HeaderManager")) {
+                    try {
+                        // Use reflection to create Header objects
+                        Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
+
+                        for (Map.Entry<String, Object> headerEntry : ((Map<String, Object>) propValue).entrySet()) {
+                            String headerName = headerEntry.getKey();
+                            String headerValue = headerEntry.getValue() != null ? headerEntry.getValue().toString() : "";
+
+                            // Create Header using constructor: Header(String name, String value)
+                            Object header = headerClass
+                                    .getConstructor(String.class, String.class)
+                                    .newInstance(headerName, headerValue);
+
+                            // Add header using HeaderManager.add() method (not addHeader!)
+                            element.getClass().getMethod("add", headerClass).invoke(element, header);
+                            log.info("Added header: {} = {}", headerName, headerValue);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to create Header objects", e);
+                        // Fallback: set as string
+                        element.setProperty(propName, propValue.toString());
+                    }
                     continue;
                 }
 
