@@ -88,6 +88,23 @@ mvn clean package -DskipTests
 - `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
 - `jmeter.ai.terminal.claudecode.enabled` - 启用/禁用 Claude Code 终端
 
+## 开发参考
+
+**JMeter 源码路径：**
+```
+D:\WorkHome\git\github\jmeter
+```
+
+关键类参考：
+- **HTTPArgument** - `protocol/http/src/main/java/org/apache/jmeter/protocol/http/util/HTTPArgument.java`
+- **Header** - `protocol/http/src/main/java/org/apache/jmeter/protocol/http/control/Header.java`
+- **HeaderManager** - `protocol/http/src/main/java/org/apache/jmeter/protocol/http/control/HeaderManager.java`
+- **HTTPSamplerProxy** - `protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPSamplerProxy.java`
+
+**注意事项：**
+- 由于 `ApacheJMeter_http` 被排除在编译依赖之外，HTTP 相关类需要使用反射访问
+- 插件运行时，JMeter 会提供完整的类路径
+
 ## JMeter 集成点
 
 - **GuiPackage** - 访问 JMeter 的 GUI 上下文和树结构
