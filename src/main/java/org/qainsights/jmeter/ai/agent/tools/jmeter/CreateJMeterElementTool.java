@@ -3,14 +3,19 @@ package org.qainsights.jmeter.ai.agent.tools.jmeter;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.util.JMeterUtils;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
+import org.qainsights.jmeter.ai.agent.tools.ValidationResult;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
+import org.qainsights.jmeter.ai.agent.validation.ComponentSchemaLoader;
+import org.qainsights.jmeter.ai.agent.validation.ComponentValidator;
 import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.tree.TreePath;
+import java.nio.file.Path;
 import java.util.Map;
 
 /**
@@ -19,6 +24,20 @@ import java.util.Map;
 public class CreateJMeterElementTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(CreateJMeterElementTool.class);
+    private final ComponentValidator componentValidator;
+
+    public CreateJMeterElementTool() {
+        // Initialize validator with schema loader
+        String jmeterHome = JMeterUtils.getJMeterHome();
+        if (jmeterHome != null) {
+            Path skillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
+            ComponentSchemaLoader schemaLoader = new ComponentSchemaLoader(skillsDir);
+            this.componentValidator = new ComponentValidator(schemaLoader);
+        } else {
+            log.warn("JMeter home not found, component validation will be disabled");
+            this.componentValidator = null;
+        }
+    }
 
     @Override
     public String getName() {
@@ -75,6 +94,16 @@ public class CreateJMeterElementTool extends AbstractTool {
         }
         if (elementName == null || elementName.isEmpty()) {
             return ToolResult.error("elementName is required");
+        }
+
+        // Schema validation (if schema exists)
+        if (componentValidator != null) {
+            ValidationResult validation = componentValidator.validate(elementType, properties);
+            if (!validation.isValid()) {
+                String errorMsg = buildValidationErrorMessage(elementType, validation);
+                log.warn("Component validation failed for {}: {}", elementType, errorMsg);
+                return ToolResult.error(errorMsg);
+            }
         }
 
         try {
@@ -271,6 +300,9 @@ public class CreateJMeterElementTool extends AbstractTool {
             String propName = entry.getKey();
             Object propValue = entry.getValue();
 
+            // Apply property name mapping for JMeter historical naming quirks
+            propName = mapPropertyName(propName);
+
             try {
                 if (propValue == null) {
                     log.warn("Skipping null property: {}", propName);
@@ -388,6 +420,55 @@ public class CreateJMeterElementTool extends AbstractTool {
                     continue;
                 }
 
+                // Special handling for array/collection properties (e.g., Assertion.test_strings)
+                if (isArrayValue(propValue)) {
+                    try {
+                        // Use reflection to create CollectionProperty and StringProperty
+                        Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
+                        Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
+                        Class<?> jmeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
+
+                        // Convert array/list to collection first
+                        java.util.List<String> items = convertToList(propValue);
+
+                        // Create CollectionProperty with name and empty collection
+                        Object collectionProp = collectionPropClass
+                                .getConstructor(String.class, java.util.Collection.class)
+                                .newInstance(propName, new java.util.ArrayList<>());
+
+                        // Get the addProperty method (not addItem!)
+                        java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jmeterPropClass);
+
+                        // Add each item as StringProperty
+                        int index = 0;
+                        for (String item : items) {
+                            // Create StringProperty with a unique name (using index-based ID)
+                            String uniqueName = String.valueOf(System.currentTimeMillis() + index);
+                            Object stringProp = stringPropClass
+                                    .getConstructor(String.class, String.class)
+                                    .newInstance(uniqueName, item);
+
+                            // Add to collection using addProperty
+                            addPropertyMethod.invoke(collectionProp, stringProp);
+                            index++;
+                            log.info("Added item to {}: {}", propName, item);
+                        }
+
+                        // Set the collection property on the element
+                        element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) collectionProp);
+                        log.info("Set collection property: {} with {} items", propName, items.size());
+                        continue;
+
+                    } catch (Exception e) {
+                        log.warn("Failed to create CollectionProperty for {}, trying fallback", propName, e);
+                        // Fallback: join as comma-separated string
+                        String joinedValue = convertToList(propValue).stream().collect(java.util.stream.Collectors.joining(","));
+                        element.setProperty(propName, joinedValue);
+                        log.info("Set property (fallback): {} = {}", propName, joinedValue);
+                        continue;
+                    }
+                }
+
                 // Convert the value to appropriate type
                 if (propValue instanceof Number) {
                     if (propValue instanceof Integer || propValue instanceof Long) {
@@ -455,5 +536,89 @@ public class CreateJMeterElementTool extends AbstractTool {
                 elementType.equals("ajpsampler") ||
                 elementType.equals("graphqlhttprequest") ||
                 elementType.equals("httptestsample");
+    }
+
+    /**
+     * Check if a value is an array or collection type.
+     *
+     * @param value The value to check
+     * @return true if the value is an array or collection
+     */
+    private boolean isArrayValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        return value instanceof Iterable || value.getClass().isArray();
+    }
+
+    /**
+     * Convert an array or collection value to a List of strings.
+     *
+     * @param value The value to convert
+     * @return List of string values
+     */
+    private java.util.List<String> convertToList(Object value) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+
+        if (value == null) {
+            return result;
+        }
+
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) {
+                if (item != null) {
+                    result.add(item.toString());
+                }
+            }
+        } else if (value.getClass().isArray()) {
+            Object[] array = (Object[]) value;
+            for (Object item : array) {
+                if (item != null) {
+                    result.add(item.toString());
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Build a user-friendly error message for validation failures.
+     *
+     * @param elementType  The component type
+     * @param validation   The validation result
+     * @return Formatted error message
+     */
+    private String buildValidationErrorMessage(String elementType, ValidationResult validation) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Component Parameter Validation Failed**\n\n");
+        sb.append("Component Type: ").append(elementType).append("\n\n");
+        sb.append("Errors:\n");
+        for (String error : validation.getErrors()) {
+            sb.append("  - ").append(error).append("\n");
+        }
+        sb.append("\n**Solution**: Please provide all required parameters with correct values.\n");
+        sb.append("Refer to component documentation for parameter details.");
+        return sb.toString();
+    }
+
+    /**
+     * Map property names to handle JMeter historical naming quirks.
+     * This handles cases where JMeter uses incorrect spelling for backward compatibility.
+     *
+     * @param propName The property name from the user/AI
+     * @return The actual property name to use in JMeter
+     */
+    private String mapPropertyName(String propName) {
+        if (propName == null) {
+            return null;
+        }
+
+        // Handle JMeter's historical spelling error: Asserion.test_strings (not Assertion.test_strings)
+        if ("Assertion.test_strings".equals(propName)) {
+            return "Asserion.test_strings";
+        }
+
+        return propName;
     }
 }

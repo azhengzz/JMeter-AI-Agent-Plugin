@@ -8,7 +8,7 @@ Response Assertion validates server responses against expected criteria. It can 
 
 | Property | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `Assertion.test_field` | Yes | What to test | `Response Code`, `Response Data`, `Response Headers` |
+| `Assertion.test_field` | Yes | What to test | `Assertion.response_data`, `Assertion.sample_label`, `Response Data`, `Response Headers` |
 | `Assertion.test_type` | Yes | Type of comparison | `Contains`, `Matches`, `Equals` |
 | `Assertion.test_string` | Yes | Pattern to match | `200`, `success`, `.*Status.*OK.*` |
 
