@@ -75,6 +75,39 @@ create_jmeter_element with:
   - HTTPSampler.contentEncoding: "utf-8"
 ```
 
+### Example 4: GET Request with Query Parameters (Arguments Object)
+
+```
+create_jmeter_element with:
+- elementType: "httpsampler"
+- elementName: "GET_查询用户"
+- properties:
+  - HTTPSampler.domain: "www.httpbin.org"
+  - HTTPSampler.protocol: "https"
+  - HTTPSampler.path: "/get"
+  - HTTPSampler.method: "GET"
+  - HTTPsampler.Arguments:
+    - name: "张三"
+    - age: "23"
+```
+
+### Example 5: POST Request with JSON Body (Raw)
+
+```
+create_jmeter_element with:
+- elementType: "httpsampler"
+- elementName: "POST_用户登录"
+- properties:
+  - HTTPSampler.domain: "api.example.com"
+  - HTTPSampler.protocol: "https"
+  - HTTPSampler.path: "/api/login"
+  - HTTPSampler.method: "POST"
+  - HTTPSampler.postBodyRaw: true
+  - HTTPSampler.contentEncoding: "utf-8"
+  - HTTPsampler.Arguments:
+    - "": "{\"username\":\"admin\",\"password\":\"123456\"}"
+```
+
 ## Request Body Types
 
 ### 1. Query Parameters (GET/DELETE)

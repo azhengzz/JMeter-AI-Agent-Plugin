@@ -236,6 +236,15 @@ public class CreateJMeterElementTool extends AbstractTool {
                 log.info("LoopController initialized for ThreadGroup");
             }
 
+            // For HTTP-related elements, ensure HTTPsampler.Arguments is initialized
+            // This prevents NoSuchElementException when JMeter code calls get(schema.getArguments())
+            if (isHttpRelatedElement(normalizedType) && (properties == null || !properties.containsKey("HTTPsampler.Arguments"))) {
+                log.info("Initializing empty HTTPsampler.Arguments for HTTP-related element: {}", normalizedType);
+                org.apache.jmeter.config.Arguments emptyArgs = new org.apache.jmeter.config.Arguments();
+                element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(
+                        "HTTPsampler.Arguments", emptyArgs));
+            }
+
             // Set properties if provided (including HTTPsampler.Arguments if needed)
             if (properties != null && !properties.isEmpty()) {
                 setElementProperties(element, properties);
@@ -431,5 +440,20 @@ public class CreateJMeterElementTool extends AbstractTool {
         } catch (Exception e) {
             log.error("Failed to refresh tree or select element", e);
         }
+    }
+
+    /**
+     * Check if an element type is HTTP-related and requires HTTPsampler.Arguments.
+     *
+     * @param elementType The normalized element type
+     * @return true if the element is HTTP-related
+     */
+    private boolean isHttpRelatedElement(String elementType) {
+        // HTTP samplers that extend HTTPSamplerBase and require HTTPsampler.Arguments
+        return elementType.equals("httpsampler") ||
+                elementType.equals("httpdefaults") ||
+                elementType.equals("ajpsampler") ||
+                elementType.equals("graphqlhttprequest") ||
+                elementType.equals("httptestsample");
     }
 }

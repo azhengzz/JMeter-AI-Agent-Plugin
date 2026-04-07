@@ -14,8 +14,9 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
 
 - Elements are created using the `create_jmeter_element` tool with `elementType` and `elementName` parameters
 - Properties are set using JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
-- Parent-child compatibility is automatically validated before adding elements
-- The test plan tree is accessed via `get_test_plan_tree` and elements are located via `find_element`
+- **Parent-child compatibility is automatically validated** - the tool checks if elements can be added together
+- Use `get_test_plan_tree` to view the test plan structure and get `instanceId` values
+- Use `parentId` parameter to specify where to add the element (optional, defaults to current selection)
 
 ## Workflow
 
@@ -30,163 +31,118 @@ This project uses **JMeter API** to create and modify test plans, NOT direct JMX
    - Determine parameterization and data sources
 
 3. **Create Elements via API**
-   - Use `create_jmeter_element` tool with appropriate `elementType`
+   - Use `create_jmeter_element` tool with `elementType`, `elementName`, and optional `parentId`
    - Set properties using JMeter property names in the `properties` parameter
    - Follow naming conventions with meaningful component names
+   - **Note**: The tool automatically validates parent-child compatibility
 
 4. **Verify and Troubleshoot**
-   - Use `get_test_plan_tree` to verify the structure
+   - Use `get_test_plan_tree` to verify the structure and get instanceId values
+   - Use `parentId` parameter to add elements to specific parent nodes
    - Use `@this` command to inspect selected elements
    - Use `@optimize` command to analyze and optimize elements
 
-## Supported Element Types
+
+## Component Reference
 
 ### Thread Groups
-| elementType | Description |
-|-------------|-------------|
-| `threadgroup` | Basic thread group for virtual users |
-| `setupthreadgroup` | Runs before regular thread groups |
-| `teardownthreadgroup` | Runs after regular thread groups |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `threadgroup` | Basic thread group for virtual users | [Thread Group](./references/thread%20group/Thread%20Group.md) |
+| `setupthreadgroup` | Runs before regular thread groups | (see Thread Group) |
+| `teardownthreadgroup` | Runs after regular thread groups | (see Thread Group) |
 
 **Aliases:** `tg`, `setup`, `teardown`
 
 ### Samplers
-| elementType | Description |
-|-------------|-------------|
-| `httpsampler` | Make HTTP/HTTPS requests |
-| `jdbcsampler` | Execute database queries |
-| `jsr223sampler` | Execute custom code (Groovy, Java, etc.) |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `httpsampler` | Make HTTP/HTTPS requests | [HTTP Request](./references/samplers/HTTP%20Request.md) |
+| `jdbcsampler` | Execute database queries | [JDBC Sampler](./references/samplers/JDBCSampler.md) |
+| `jsr223sampler` | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/samplers/JSR223Sampler.md) |
 
 ### Controllers
-| elementType | Description |
-|-------------|-------------|
-| `loopcontroller` | Loop contained samplers |
-| `ifcontroller` | Conditional execution |
-| `whilecontroller` | Loop while condition is true |
-| `transactioncontroller` | Group samplers into transactions |
-| `randomcontroller` | Random selection of children |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `loopcontroller` | Loop contained samplers | [Loop Controller](./references/controllers/LoopController.md) |
+| `ifcontroller` | Conditional execution | [If Controller](./references/controllers/IfController.md) |
+| `whilecontroller` | Loop while condition is true | [While Controller](./references/controllers/WhileController.md) |
+| `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) |
+| `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) |
 
 ### Configuration Elements
-| elementType | Description |
-|-------------|-------------|
-| `csvdataset` | Read CSV files for parameterization |
-| `httpdefaults` | Default values for HTTP requests |
-| `headermanager` | Manage HTTP headers |
-| `cookiemanager` | Manage cookies |
-| `userdefinedvariables` | User defined variables |
-| `configtestelement` | Config test element (User Defined Variables alias) |
-
-**HeaderManager Properties:**
-| Property | Description | Example |
-|----------|-------------|---------|
-| `HeaderManager.headers` | HTTP headers as key-value pairs | See example below |
-
-**HeaderManager example:**
-```
-create_jmeter_element(
-  elementType: "headermanager",
-  elementName: "设置请求头",
-  properties: {
-    "HeaderManager.headers": {
-      "Content-Type": "application/json",
-      "User-Agent": "JMeter Load Test",
-      "Authorization": "Bearer ${token}"
-    }
-  }
-)
-```
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `csvdataset` | Read CSV files for parameterization | [CSV Data Set Config](./references/configuration%20elements/CSVDataSet.md) |
+| `httpdefaults` | Default values for HTTP requests | [HTTP Request Defaults](./references/configuration%20elements/HTTP%20Request%20Defaults.md) |
+| `headermanager` | Manage HTTP headers | [Header Manager](./references/configuration%20elements/HeaderManager.md) |
+| `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration%20elements/CookieManager.md) |
+| `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration%20elements/UserDefinedVariables.md) |
+| `configtestelement` | Config test element (User Defined Variables alias) | (see User Defined Variables) |
 
 ### Pre-Processors
-| elementType | Description |
-|-------------|-------------|
-| `jsr223preprocessor` | Execute code before sampler |
-| `userparameters` | Pre-process user-specific values |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `jsr223preprocessor` | Execute code before sampler | [JSR223 Pre-Processor](./references/pre-processors/JSR223PreProcessor.md) |
+| `userparameters` | Pre-process user-specific values | [User Parameters](./references/pre-processors/UserParameters.md) |
 
 ### Post-Processors
-| elementType | Description |
-|-------------|-------------|
-| `regexextractor` | Extract data using regex |
-| `jsonpathextractor` | Extract data using JSON path |
-| `xpathextractor` | Extract data using XPath |
-| `boundaryextractor` | Extract data using left/right boundaries |
-| `jmespathextractor` | Extract data from JSON using JMESPath |
-| `jsr223postprocessor` | Custom post-processing code |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `regexextractor` | Extract data using regex | [Regex Extractor](./references/post-processors/RegexExtractor.md) |
+| `jsonpathextractor` | Extract data using JSON path | [JSON Path Extractor](./references/post-processors/JSONPathExtractor.md) |
+| `xpathextractor` | Extract data using XPath | [XPath Extractor](./references/post-processors/XPathExtractor.md) |
+| `boundaryextractor` | Extract data using left/right boundaries | [Boundary Extractor](./references/post-processors/BoundaryExtractor.md) |
+| `jmespathextractor` | Extract data from JSON using JMESPath | [JMESPath Extractor](./references/post-processors/JMESPathExtractor.md) |
+| `jsr223postprocessor` | Custom post-processing code | [JSR223 Post-Processor](./references/post-processors/JSR223PostProcessor.md) |
 
 **Note:** `jsonextractor` is an alias for `jsonpathextractor`
 
 ### Assertions
-| elementType | Description |
-|-------------|-------------|
-| `responseassertion` | Validate response data |
-| `jsonpathassertion` | Validate JSON responses |
-| `durationassertion` | Validate response time |
-| `sizeassertion` | Validate response size |
-| `xpathassertion` | Validate XML responses |
-| `jsr223assertion` | Custom assertion code |
-| `md5hexassertion` | Validate response checksum |
-| `jmespathassertion` | Validate JSON using JMESPath |
-| `compareassertion` | Compare sample results |
-| `htmlassertion` | Validate HTML responses |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) |
+| `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) |
+| `durationassertion` | Validate response time | [Duration Assertion](./references/assertions/DurationAssertion.md) |
+| `sizeassertion` | Validate response size | [Size Assertion](./references/assertions/SizeAssertion.md) |
+| `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) |
+| `jsr223assertion` | Custom assertion code | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) |
+| `md5hexassertion` | Validate response checksum | [MD5Hex Assertion](./references/assertions/MD5HexAssertion.md) |
+| `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) |
+| `compareassertion` | Compare sample results | [Compare Assertion](./references/assertions/CompareAssertion.md) |
+| `htmlassertion` | Validate HTML responses | [HTML Assertion](./references/assertions/HTMLAssertion.md) |
 
 **Note:** `jsonassertion` is an alias for `jsonpathassertion`
 
 ### Timers
-| elementType | Description |
-|-------------|-------------|
-| `constanttimer` | Fixed pause |
-| `uniformrandomtimer` | Random pause with uniform distribution |
-| `gaussianrandomtimer` | Random pause with Gaussian distribution |
-| `poissonrandomtimer` | Random pause with Poisson distribution |
-| `constantthroughputtimer` | Target throughput |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) |
+| `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) |
+| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) |
+| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) |
+| `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) |
 
 **Note:** `constthroughputtimer` is an alias for `constantthroughputtimer`
 
 ### Listeners
-| elementType | Description |
-|-------------|-------------|
-| `viewresultstree` | View detailed results |
-| `summariser` | Summary statistics |
-| `statvisualizer` | Aggregate Report (Basic summary) |
-| `aggregatereport` | Aggregate Report |
-| `backendlistener` | Send results to backend |
+| elementType | Description | Docs |
+|-------------|-------------|------|
+| `viewresultstree` | View detailed results | [View Results Tree](./references/listeners/ViewResultsTree.md) |
+| `summariser` | Summary statistics | [Summariser](./references/listeners/Summariser.md) |
+| `statvisualizer` | Aggregate Report (Basic summary) | [Summary Report](./references/listeners/SummaryReport.md) |
+| `aggregatereport` | Aggregate Report | [Aggregate Report](./references/listeners/AggregateReport.md) |
+| `backendlistener` | Send results to backend | [Backend Listener](./references/listeners/BackendListener.md) |
 
-## Common Properties by Element Type
+## Important: HTTP Arguments Format
 
-### ThreadGroup Properties
-| Property | Description | Example |
-|----------|-------------|---------|
-| `ThreadGroup.num_threads` | Number of virtual users | `10` |
-| `ThreadGroup.ramp_time` | Ramp-up time in seconds | `5` |
-| `ThreadGroup.scheduler` | Enable scheduler | `true` |
-| `ThreadGroup.duration` | Test duration in seconds | `300` |
-| `ThreadGroup.delay` | Startup delay in seconds | `10` |
-| `LoopController.loops` | Loop count (-1 for infinite) | `10` |
-| `ThreadGroup.on_sample_error` | Error handling | `continue` |
+When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`, `graphqlhttprequest`, etc.), the tool automatically initializes an empty `HTTPsampler.Arguments` if not provided.
 
-### HTTPSampler Properties
-| Property | Description | Example |
-|----------|-------------|---------|
-| `HTTPsampler.Arguments` | **REQUIRED** - Arguments object for HTTP parameters | See examples below |
-| `HTTPSampler.domain` | Domain name or IP | `www.example.com` |
-| `HTTPSampler.port` | Port number | `8080` |
-| `HTTPSampler.protocol` | Protocol | `https` |
-| `HTTPSampler.path` | Resource path | `/api/users` |
-| `HTTPSampler.method` | HTTP method | `GET`, `POST`, `PUT`, `DELETE` |
-| `HTTPSampler.contentEncoding` | Content encoding | `utf-8` |
-| `HTTPSampler.postBodyRaw` | Use raw body for POST/PUT | `true` (for JSON/XML) |
-| `HTTPSampler.follow_redirects` | Follow redirects | `true` |
-| `HTTPSampler.use_keepalive` | Use keep-alive | `true` |
-
-**Important:** When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`, `graphqlhttprequest`, etc.), you **MUST** include `HTTPsampler.Arguments` in the properties parameter.
+You only need to include `HTTPsampler.Arguments` when you have parameters to send.
 
 **HTTPsampler.Arguments formats:**
 
-1. **Empty arguments** (no parameters):
-```
-"HTTPsampler.Arguments": {}
-```
-
-2. **With query parameters** (for GET requests or form data):
+1. **With query parameters** (for GET requests or form data):
 ```
 "HTTPsampler.Arguments": {
   "name": "张三",
@@ -194,101 +150,16 @@ create_jmeter_element(
 }
 ```
 
-3. **With raw body** (for JSON/XML POST/PUT requests):
+2. **With raw body** (for JSON/XML POST/PUT requests):
 ```
 "HTTPsampler.Arguments": {
   "": "{\"username\":\"admin\",\"password\":\"123456\"}"
 }
 ```
-**IMPORTANT:** The key must be an empty string `""`, and the value must be the JSON/XML string. Also set `HTTPSampler.postBodyRaw: true`.
-
-**Raw body format reminder:**
-- Key: exactly `""` (empty string)
-- Value: complete JSON/XML as a string
-- Do NOT use any other key name for raw body
-
-**Complete examples:**
-
-```
-// HTTP Request Defaults
-create_jmeter_element(
-  elementType: "httpdefaults",
-  elementName: "HTTP默认配置",
-  properties: {
-    "HTTPsampler.Arguments": {},
-    "HTTPSampler.domain": "www.example.com",
-    "HTTPSampler.protocol": "https",
-    "HTTPSampler.port": "443"
-  }
-)
-
-// GET request with query parameters
-create_jmeter_element(
-  elementType: "httpsampler",
-  elementName: "GET_查询用户",
-  properties: {
-    "HTTPsampler.Arguments": {
-      "name": "张三",
-      "age": "23"
-    },
-    "HTTPSampler.domain": "www.httpbin.org",
-    "HTTPSampler.protocol": "https",
-    "HTTPSampler.path": "/get",
-    "HTTPSampler.method": "GET"
-  }
-)
-
-// POST request with JSON body
-create_jmeter_element(
-  elementType: "httpsampler",
-  elementName: "POST_用户登录",
-  properties: {
-    "HTTPsampler.Arguments": {
-      "": "{\"username\":\"admin\",\"password\":\"123456\"}"
-    },
-    "HTTPSampler.domain": "api.example.com",
-    "HTTPSampler.protocol": "https",
-    "HTTPSampler.path": "/api/login",
-    "HTTPSampler.method": "POST",
-    "HTTPSampler.postBodyRaw": true,
-    "HTTPSampler.contentEncoding": "utf-8"
-  }
-)
-
-// POST request with JSON body containing JMeter variables/functions
-create_jmeter_element(
-  elementType: "httpsampler",
-  elementName: "POST_用户登录",
-  properties: {
-    "HTTPsampler.Arguments": {
-      "": "{\"username\":\"${user_name}\",\"password\":\"${__aesEncrypt(${user_password},,,)}\"}"
-    },
-    "HTTPSampler.domain": "osc.gitee.work",
-    "HTTPSampler.path": "/api/gateway/login",
-    "HTTPSampler.method": "POST",
-    "HTTPSampler.postBodyRaw": true,
-    "HTTPSampler.contentEncoding": "utf-8"
-  }
-)
-```
-
-**CRITICAL REMINDER for JSON Body:**
-- The key MUST be exactly `""` (empty string) - use two double quotes with nothing between them
-- The value MUST be a string containing the complete JSON
-- Escape double quotes inside JSON with backslash: `\"`
-- Always set `HTTPSampler.postBodyRaw: true` when using JSON body
-- For variables like `${user_name}` or `${__function()}`, include them directly in the JSON string
-
-### LoopController Properties
-| Property | Description | Example |
-|----------|-------------|---------|
-| `LoopController.continue_forever` | Loop forever | `false` |
-| `LoopController.loops` | Loop count | `10` |
-
-### ConstantTimer Properties
-| Property | Description | Example |
-|----------|-------------|---------|
-| `ConstantTimer.delay` | Delay in milliseconds | `1000` |
+**IMPORTANT for raw body:**
+- The key must be an empty string `""`
+- The value must be the JSON/XML string
+- Set `HTTPSampler.postBodyRaw: true` to enable raw body mode
 
 ## Naming Conventions
 
