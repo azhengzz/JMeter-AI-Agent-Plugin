@@ -4,6 +4,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
+import org.apache.jmeter.testelement.property.TestElementProperty;
 
 import javax.swing.tree.TreePath;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ public class JMeterTreeUtils {
 
     private static final int DEFAULT_MAX_PROPERTIES = 500;
     private static final int DEFAULT_MAX_STRING_LENGTH = 2000;
+    private static final int MAX_NESTED_DEPTH = 3;
 
     private JMeterTreeUtils() {
         // Utility class - prevent instantiation
@@ -104,8 +106,8 @@ public class JMeterTreeUtils {
      * @param element The test element
      * @return Map of property names to values
      */
-    public static Map<String, String> buildPropertiesData(TestElement element) {
-        return buildPropertiesData(element, DEFAULT_MAX_PROPERTIES, DEFAULT_MAX_STRING_LENGTH);
+    public static Map<String, Object> buildPropertiesData(TestElement element) {
+        return buildPropertiesData(element, DEFAULT_MAX_PROPERTIES, DEFAULT_MAX_STRING_LENGTH, 0);
     }
 
     /**
@@ -114,10 +116,23 @@ public class JMeterTreeUtils {
      * @param element The test element
      * @param maxProperties Maximum number of properties to include
      * @param maxLength Maximum string length for property values
-     * @return Map of property names to values
+     * @return Map of property names to values (can be String or nested Map for ObjectProperty)
      */
-    public static Map<String, String> buildPropertiesData(TestElement element, int maxProperties, int maxLength) {
-        Map<String, String> props = new LinkedHashMap<>();
+    public static Map<String, Object> buildPropertiesData(TestElement element, int maxProperties, int maxLength) {
+        return buildPropertiesData(element, maxProperties, maxLength, 0);
+    }
+
+    /**
+     * Build data structure for element properties with nested object support.
+     *
+     * @param element The test element
+     * @param maxProperties Maximum number of properties to include
+     * @param maxLength Maximum string length for property values
+     * @param nestedDepth Current nested depth (for preventing infinite recursion)
+     * @return Map of property names to values (can be String or nested Map for ObjectProperty)
+     */
+    private static Map<String, Object> buildPropertiesData(TestElement element, int maxProperties, int maxLength, int nestedDepth) {
+        Map<String, Object> props = new LinkedHashMap<>();
         PropertyIterator propIterator = element.propertyIterator();
         int count = 0;
 
@@ -127,10 +142,28 @@ public class JMeterTreeUtils {
 
             // Skip internal TestElement properties
             if (!propName.startsWith("TestElement.")) {
-                String propValue = prop.getStringValue();
-                if (propValue != null && !propValue.isEmpty()) {
-                    props.put(propName, truncate(propValue, maxLength));
-                    count++;
+                if (prop instanceof TestElementProperty) {
+                    // Handle nested TestElement properties
+                    TestElement nestedElement = ((TestElementProperty) prop).getElement();
+                    if (nestedElement != null && nestedDepth < MAX_NESTED_DEPTH) {
+                        // Recursively build properties for nested TestElement
+                        Map<String, Object> nestedProps = new LinkedHashMap<>();
+                        nestedProps.put("__type", nestedElement.getClass().getSimpleName());
+                        nestedProps.put("__nestedProperties", buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1));
+                        props.put(propName, nestedProps);
+                        count++;
+                    } else if (nestedElement != null) {
+                        // Max depth reached, use string representation
+                        String propValue = nestedElement.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(nestedElement));
+                        props.put(propName, propValue);
+                        count++;
+                    }
+                } else {
+                    String propValue = prop.getStringValue();
+                    if (propValue != null && !propValue.isEmpty()) {
+                        props.put(propName, truncate(propValue, maxLength));
+                        count++;
+                    }
                 }
             }
         }
