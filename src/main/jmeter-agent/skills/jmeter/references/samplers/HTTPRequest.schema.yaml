@@ -83,6 +83,7 @@ properties:
 
   - name: HTTPsampler.Arguments
     type: Array
+    class: org.apache.jmeter.config.Arguments
     required: false
     description: HTTP request arguments/parameters as an array of HTTPArgument objects.
     itemClass: org.apache.jmeter.protocol.http.util.HTTPArgument

@@ -135,6 +135,7 @@ public class ComponentSchemaLoader {
     /**
      * Parse a property definition from YAML map.
      */
+    @SuppressWarnings("unchecked")
     private ComponentSchema.PropertyDefinition parsePropertyDefinition(Map<String, Object> propData) {
         if (propData == null) {
             return null;
@@ -148,11 +149,60 @@ public class ComponentSchemaLoader {
             String typeStr = getStringValue(propData, "type");
             if (typeStr != null) {
                 propDef.setType(typeStr);
+                log.debug("Property '{}' type: '{}' -> parsed as: {}", propDef.getName(), typeStr, propDef.getType());
+            } else {
+                log.debug("Property '{}' has no type specified", propDef.getName());
             }
 
             propDef.setRequired(getBooleanValue(propData, "required", false));
             propDef.setDescription(getStringValue(propData, "description"));
             propDef.setPattern(getStringValue(propData, "pattern"));
+
+            // Parse class name for Object type
+            propDef.setClassName(getStringValue(propData, "class"));
+
+            // Parse nested properties for Object type
+            if (propData.containsKey("properties")) {
+                Object nestedPropsObj = propData.get("properties");
+                if (nestedPropsObj instanceof List) {
+                    List<ComponentSchema.PropertyDefinition> nestedProps = new ArrayList<>();
+                    for (Object nestedPropObj : (List<?>) nestedPropsObj) {
+                        if (nestedPropObj instanceof Map) {
+                            ComponentSchema.PropertyDefinition nestedProp =
+                                parsePropertyDefinition((Map<String, Object>) nestedPropObj);
+                            if (nestedProp != null && nestedProp.getName() != null) {
+                                nestedProps.add(nestedProp);
+                            }
+                        }
+                    }
+                    if (!nestedProps.isEmpty()) {
+                        propDef.setNestedProperties(nestedProps);
+                    }
+                }
+            }
+
+            // Parse item type for collection properties
+            propDef.setItemType(getStringValue(propData, "itemType"));
+
+            // Parse item properties for collection properties
+            if (propData.containsKey("itemProperties")) {
+                Object itemPropsObj = propData.get("itemProperties");
+                if (itemPropsObj instanceof List) {
+                    List<ComponentSchema.PropertyDefinition> itemProps = new ArrayList<>();
+                    for (Object itemPropObj : (List<?>) itemPropsObj) {
+                        if (itemPropObj instanceof Map) {
+                            ComponentSchema.PropertyDefinition itemProp =
+                                parsePropertyDefinition((Map<String, Object>) itemPropObj);
+                            if (itemProp != null && itemProp.getName() != null) {
+                                itemProps.add(itemProp);
+                            }
+                        }
+                    }
+                    if (!itemProps.isEmpty()) {
+                        propDef.setItemProperties(itemProps);
+                    }
+                }
+            }
 
             // Parse default value
             if (propData.containsKey("default")) {

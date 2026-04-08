@@ -88,6 +88,10 @@ public class ComponentSchema {
         private Integer maxValue;
         private String pattern;
         private String description;
+        private String className;  // Fully qualified class name for Object type
+        private List<PropertyDefinition> nestedProperties;  // Nested properties for Object type
+        private String itemType;  // Item type for collection properties (e.g., "HTTPArgument")
+        private List<PropertyDefinition> itemProperties;  // Item property definitions for collection properties
 
         public String getName() {
             return name;
@@ -163,6 +167,52 @@ public class ComponentSchema {
 
         public void setDescription(String description) {
             this.description = description;
+        }
+
+        public String getClassName() {
+            return className;
+        }
+
+        public void setClassName(String className) {
+            this.className = className;
+        }
+
+        public List<PropertyDefinition> getNestedProperties() {
+            return nestedProperties;
+        }
+
+        public void setNestedProperties(List<PropertyDefinition> nestedProperties) {
+            this.nestedProperties = nestedProperties;
+        }
+
+        /**
+         * Check if this property definition has nested properties (Object type).
+         */
+        public boolean hasNestedProperties() {
+            return nestedProperties != null && !nestedProperties.isEmpty();
+        }
+
+        public String getItemType() {
+            return itemType;
+        }
+
+        public void setItemType(String itemType) {
+            this.itemType = itemType;
+        }
+
+        public List<PropertyDefinition> getItemProperties() {
+            return itemProperties;
+        }
+
+        public void setItemProperties(List<PropertyDefinition> itemProperties) {
+            this.itemProperties = itemProperties;
+        }
+
+        /**
+         * Check if this property definition has item properties (collection type).
+         */
+        public boolean hasItemProperties() {
+            return itemProperties != null && !itemProperties.isEmpty();
         }
     }
 

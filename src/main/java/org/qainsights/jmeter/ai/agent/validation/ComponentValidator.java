@@ -58,7 +58,7 @@ public class ComponentValidator {
 
     /**
      * Validate that all provided parameters are defined in the schema.
-     * Reports error for unknown parameters.
+     * Reports error for unknown parameters. Recursively validates nested objects.
      */
     private void validateUnknownParameters(ComponentSchema schema,
                                            Map<String, Object> properties,
@@ -70,7 +70,10 @@ public class ComponentValidator {
         // Collect unknown parameters
         java.util.List<String> unknownParams = new java.util.ArrayList<>();
 
-        for (String propName : properties.keySet()) {
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String propName = entry.getKey();
+            Object propValue = entry.getValue();
+
             if (propName == null || propName.isEmpty()) {
                 continue;
             }
@@ -79,6 +82,17 @@ public class ComponentValidator {
             ComponentSchema.PropertyDefinition propDef = schema.getProperty(propName);
             if (propDef == null) {
                 unknownParams.add(propName);
+                continue;
+            }
+
+            // Recursively validate nested object properties
+            if (propDef.getType() == ComponentSchema.PropertyType.OBJECT && propValue instanceof Map) {
+                validateNestedUnknownParameters(propDef, (Map<String, Object>) propValue, builder);
+            }
+
+            // Validate array item properties (e.g., HTTPsampler.Arguments)
+            if (propDef.hasItemProperties() && isArrayValue(propValue)) {
+                validateArrayItemUnknownParameters(propDef, propValue, builder);
             }
         }
 
@@ -102,7 +116,52 @@ public class ComponentValidator {
     }
 
     /**
+     * Validate that all provided nested parameters are defined in the schema.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateNestedUnknownParameters(ComponentSchema.PropertyDefinition parentDef,
+                                                  Map<String, Object> nestedProperties,
+                                                  ValidationResult.Builder builder) {
+        if (!parentDef.hasNestedProperties() || nestedProperties == null || nestedProperties.isEmpty()) {
+            return;
+        }
+
+        // Collect unknown nested parameters
+        java.util.List<String> unknownParams = new java.util.ArrayList<>();
+
+        for (String nestedPropName : nestedProperties.keySet()) {
+            if (nestedPropName == null || nestedPropName.isEmpty()) {
+                continue;
+            }
+
+            // Find nested property definition
+            ComponentSchema.PropertyDefinition nestedDef = findNestedPropertyDef(parentDef, nestedPropName);
+            if (nestedDef == null) {
+                unknownParams.add(parentDef.getName() + "." + nestedPropName);
+                continue;
+            }
+
+            // Recursively validate deeper nested objects
+            Object nestedPropValue = nestedProperties.get(nestedPropName);
+            if (nestedDef.getType() == ComponentSchema.PropertyType.OBJECT && nestedPropValue instanceof Map) {
+                validateNestedUnknownParameters(nestedDef, (Map<String, Object>) nestedPropValue, builder);
+            }
+        }
+
+        // Report unknown nested parameters
+        if (!unknownParams.isEmpty()) {
+            String error = String.format(
+                "Unknown nested parameter(s) [%s] are not defined in the schema",
+                String.join(", ", unknownParams)
+            );
+            builder.addError(error);
+            log.debug("Validation failed: {}", error);
+        }
+    }
+
+    /**
      * Validate that all required parameters are present.
+     * Recursively validates nested object required parameters.
      */
     private void validateRequiredParameters(ComponentSchema schema,
                                            Map<String, Object> properties,
@@ -114,8 +173,9 @@ public class ComponentValidator {
         for (ComponentSchema.PropertyDefinition propDef : schema.getRequiredProperties()) {
             String paramName = propDef.getName();
             if (paramName == null || paramName.isEmpty()) {
-                continue; // Skip invalid property definitions
+                continue;
             }
+
             if (!properties.containsKey(paramName)) {
                 String error = String.format(
                     "Missing required parameter '%s'%s",
@@ -124,6 +184,113 @@ public class ComponentValidator {
                 );
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
+                continue;
+            }
+
+            // Recursively validate required nested parameters
+            Object propValue = properties.get(paramName);
+            if (propDef.getType() == ComponentSchema.PropertyType.OBJECT && propValue instanceof Map) {
+                validateNestedRequiredParameters(propDef, (Map<String, Object>) propValue, builder);
+            }
+
+            // Validate required array item parameters (e.g., HTTPsampler.Arguments)
+            if (propDef.hasItemProperties() && isArrayValue(propValue)) {
+                validateArrayItemRequiredParameters(propDef, propValue, builder);
+            }
+        }
+    }
+
+    /**
+     * Validate that all required nested parameters are present.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateNestedRequiredParameters(ComponentSchema.PropertyDefinition parentDef,
+                                                  Map<String, Object> nestedProperties,
+                                                  ValidationResult.Builder builder) {
+        if (!parentDef.hasNestedProperties() || nestedProperties == null || nestedProperties.isEmpty()) {
+            return;
+        }
+
+        // Get required nested properties
+        for (ComponentSchema.PropertyDefinition nestedDef : parentDef.getNestedProperties()) {
+            if (!nestedDef.isRequired()) {
+                continue;
+            }
+
+            String nestedPropName = nestedDef.getName();
+            if (nestedPropName == null || nestedPropName.isEmpty()) {
+                continue;
+            }
+
+            if (!nestedProperties.containsKey(nestedPropName)) {
+                String error = String.format(
+                    "Missing required nested parameter '%s.%s'%s",
+                    parentDef.getName(), nestedPropName,
+                    nestedDef.getDescription() != null ? ". " + nestedDef.getDescription() : ""
+                );
+                builder.addError(error);
+                log.debug("Validation failed: {}", error);
+                continue;
+            }
+
+            // Recursively validate deeper nested required parameters
+            Object nestedPropValue = nestedProperties.get(nestedPropName);
+            if (nestedDef.getType() == ComponentSchema.PropertyType.OBJECT && nestedPropValue instanceof Map) {
+                validateNestedRequiredParameters(nestedDef, (Map<String, Object>) nestedPropValue, builder);
+            }
+        }
+    }
+
+    /**
+     * Validate required parameters in array items (e.g., HTTPsampler.Arguments).
+     * Checks that each item has all required properties defined in itemProperties schema.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateArrayItemRequiredParameters(ComponentSchema.PropertyDefinition propDef,
+                                                      Object propValue,
+                                                      ValidationResult.Builder builder) {
+        if (!propDef.hasItemProperties()) {
+            return;
+        }
+
+        // Convert to list
+        java.util.List<Map<String, Object>> items = convertToArrayItems(propValue);
+        if (items.isEmpty()) {
+            return;
+        }
+
+        // Get required item properties
+        java.util.List<ComponentSchema.PropertyDefinition> requiredItemProps = propDef.getItemProperties().stream()
+                .filter(ComponentSchema.PropertyDefinition::isRequired)
+                .toList();
+
+        if (requiredItemProps.isEmpty()) {
+            return; // No required properties to validate
+        }
+
+        // Validate each item
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+
+            // Check each required property
+            for (ComponentSchema.PropertyDefinition requiredProp : requiredItemProps) {
+                String requiredPropName = requiredProp.getName();
+                if (requiredPropName == null || requiredPropName.isEmpty()) {
+                    continue;
+                }
+
+                if (!item.containsKey(requiredPropName)) {
+                    String error = String.format(
+                        "Missing required parameter in array item %d: '%s[%d].%s'%s",
+                        i, propDef.getName(), i, requiredPropName,
+                        requiredProp.getDescription() != null ? ". " + requiredProp.getDescription() : ""
+                    );
+                    builder.addError(error);
+                    log.debug("Validation failed: {}", error);
+                }
             }
         }
     }
@@ -160,13 +327,196 @@ public class ComponentValidator {
                 );
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
+                continue;
+            }
+
+            // Recursively validate nested object properties
+            if (propDef.getType() == ComponentSchema.PropertyType.OBJECT && value instanceof Map) {
+                validateNestedProperties(propDef, (Map<String, Object>) value, builder);
+            }
+
+            // Validate collection items against itemProperties schema
+            if (propDef.hasItemProperties() && value instanceof Map) {
+                validateItemProperties(propDef, (Map<String, Object>) value, builder);
+            }
+        }
+    }
+
+    /**
+     * Validate collection item properties against itemProperties schema.
+     * Used for properties like HTTPsampler.Arguments where each item should conform to itemProperties.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateItemProperties(ComponentSchema.PropertyDefinition propDef,
+                                       Map<String, Object> itemValues,
+                                       ValidationResult.Builder builder) {
+        if (!propDef.hasItemProperties() || itemValues == null || itemValues.isEmpty()) {
+            return;
+        }
+
+        // For HTTPsampler.Arguments, the keys are argument names and values are argument values
+        // We need to validate that the structure conforms to the itemProperties schema
+        for (Map.Entry<String, Object> entry : itemValues.entrySet()) {
+            String itemName = entry.getKey();
+            Object itemValue = entry.getValue();
+
+            // Check if the item name matches any item property name
+            boolean nameMatches = propDef.getItemProperties().stream()
+                .anyMatch(p -> itemName.equals(p.getName()));
+
+            // Or check if the item value is a simple type (string, number, boolean)
+            // In HTTPsampler.Arguments, values are typically strings or numbers
+            if (!nameMatches && itemValue != null) {
+                // The value itself might be a structured property, check if any item property matches
+                boolean isStructured = propDef.getItemProperties().stream()
+                    .anyMatch(p -> isValidType(itemValue, p.getType()));
+
+                if (!isStructured) {
+                    // Unknown property in the item
+                    builder.addError(String.format(
+                        "Parameter '%s' contains unknown item property '%s'. Valid properties are: %s",
+                        propDef.getName(), itemName,
+                        propDef.getItemProperties().stream()
+                            .map(p -> p.getName())
+                            .filter(n -> n != null && !n.isEmpty())
+                            .toList()
+                    ));
+                    log.debug("Validation failed: unknown item property {}.{}",
+                        propDef.getName(), itemName);
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively validate nested object properties.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateNestedProperties(ComponentSchema.PropertyDefinition propDef,
+                                         Map<String, Object> nestedValue,
+                                         ValidationResult.Builder builder) {
+        if (!propDef.hasNestedProperties()) {
+            return;
+        }
+
+        for (Map.Entry<String, Object> entry : nestedValue.entrySet()) {
+            String nestedPropName = entry.getKey();
+            Object nestedPropValue = entry.getValue();
+
+            // Find nested property definition
+            ComponentSchema.PropertyDefinition nestedDef = findNestedPropertyDef(propDef, nestedPropName);
+
+            if (nestedDef == null) {
+                builder.addError(String.format(
+                    "Unknown nested property '%s.%s'",
+                    propDef.getName(), nestedPropName
+                ));
+                log.debug("Validation failed: unknown nested property {}.{}",
+                    propDef.getName(), nestedPropName);
+                continue;
+            }
+
+            // Validate type
+            if (!isValidType(nestedPropValue, nestedDef.getType())) {
+                builder.addError(String.format(
+                    "Nested property '%s.%s' has invalid type. Expected %s but got %s",
+                    propDef.getName(), nestedPropName, nestedDef.getType(),
+                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null"
+                ));
+                log.debug("Validation failed: nested property {}.{} type mismatch",
+                    propDef.getName(), nestedPropName);
+                continue;
+            }
+
+            // Validate value constraints (enum, range, pattern)
+            validatePropertyConstraints(nestedDef, nestedPropValue, builder);
+
+            // Recursively validate deeper nested objects
+            if (nestedDef.getType() == ComponentSchema.PropertyType.OBJECT && nestedPropValue instanceof Map) {
+                validateNestedProperties(nestedDef, (Map<String, Object>) nestedPropValue, builder);
+            }
+        }
+    }
+
+    /**
+     * Find a nested property definition by name.
+     */
+    private ComponentSchema.PropertyDefinition findNestedPropertyDef(
+            ComponentSchema.PropertyDefinition parentDef, String propName) {
+        if (parentDef.getNestedProperties() == null) {
+            return null;
+        }
+        return parentDef.getNestedProperties().stream()
+                .filter(p -> propName.equals(p.getName()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Validate property constraints (enum, range, pattern).
+     */
+    private void validatePropertyConstraints(ComponentSchema.PropertyDefinition propDef,
+                                            Object value,
+                                            ValidationResult.Builder builder) {
+        if (value == null) {
+            return;
+        }
+
+        // Enum validation
+        if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
+            String strValue = value.toString();
+            if (!propDef.getEnumValues().contains(strValue)) {
+                builder.addError(String.format(
+                    "Property '%s' has invalid value '%s'. Allowed values: %s",
+                    propDef.getName(), value, propDef.getEnumValues()
+                ));
+                log.debug("Validation failed: property {} enum value mismatch", propDef.getName());
+            }
+        }
+
+        // Range validation for integers
+        if (propDef.getType() == ComponentSchema.PropertyType.INTEGER && value instanceof Number) {
+            long numValue = ((Number) value).longValue();
+
+            if (propDef.getMinValue() != null && numValue < propDef.getMinValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %d is below minimum %d",
+                    propDef.getName(), numValue, propDef.getMinValue()
+                ));
+                log.debug("Validation failed: property {} below minimum", propDef.getName());
+            }
+
+            if (propDef.getMaxValue() != null && numValue > propDef.getMaxValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %d exceeds maximum %d",
+                    propDef.getName(), numValue, propDef.getMaxValue()
+                ));
+                log.debug("Validation failed: property {} exceeds maximum", propDef.getName());
+            }
+        }
+
+        // Pattern validation (regex)
+        if (propDef.getPattern() != null && !propDef.getPattern().isEmpty()) {
+            String strValue = value.toString();
+            try {
+                if (!strValue.matches(propDef.getPattern())) {
+                    builder.addError(String.format(
+                        "Property '%s' value '%s' does not match required pattern '%s'",
+                        propDef.getName(), strValue, propDef.getPattern()
+                    ));
+                    log.debug("Validation failed: property {} pattern mismatch", propDef.getName());
+                }
+            } catch (Exception e) {
+                log.warn("Invalid regex pattern for property {}: {}", propDef.getName(), propDef.getPattern(), e);
             }
         }
     }
 
     /**
      * Validate parameter values (enum, range, pattern).
+     * Recursively validates nested object properties.
      */
+    @SuppressWarnings("unchecked")
     private void validateParameterValues(ComponentSchema schema,
                                         Map<String, Object> properties,
                                         ValidationResult.Builder builder) {
@@ -192,59 +542,206 @@ public class ComponentValidator {
                 continue;
             }
 
-            // Enum validation
-            if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
-                String strValue = value.toString();
-                if (!propDef.getEnumValues().contains(strValue)) {
-                    String error = String.format(
-                        "Parameter '%s' has invalid value '%s'. Allowed values: %s",
-                        propName, value, propDef.getEnumValues()
-                    );
-                    builder.addError(error);
-                    log.debug("Validation failed: {}", error);
-                }
+            // Validate value constraints (enum, range, pattern)
+            validatePropertyConstraints(propDef, value, builder);
+
+            // Recursively validate nested object properties
+            if (propDef.getType() == ComponentSchema.PropertyType.OBJECT && value instanceof Map) {
+                validateNestedParameterValues(propDef, (Map<String, Object>) value, builder);
             }
 
-            // Range validation for integers
-            if (propDef.getType() == ComponentSchema.PropertyType.INTEGER && value instanceof Number) {
-                long numValue = ((Number) value).longValue();
+            // Validate array item property values (e.g., HTTPsampler.Arguments)
+            if (propDef.hasItemProperties() && isArrayValue(value)) {
+                validateArrayItemParameterValues(propDef, value, builder);
+            }
+        }
+    }
 
-                if (propDef.getMinValue() != null && numValue < propDef.getMinValue()) {
-                    String error = String.format(
-                        "Parameter '%s' value %d is below minimum %d",
-                        propName, numValue, propDef.getMinValue()
-                    );
-                    builder.addError(error);
-                    log.debug("Validation failed: {}", error);
-                }
+    /**
+     * Validate nested parameter values recursively.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateNestedParameterValues(ComponentSchema.PropertyDefinition parentDef,
+                                              Map<String, Object> nestedProperties,
+                                              ValidationResult.Builder builder) {
+        if (!parentDef.hasNestedProperties() || nestedProperties == null || nestedProperties.isEmpty()) {
+            return;
+        }
 
-                if (propDef.getMaxValue() != null && numValue > propDef.getMaxValue()) {
-                    String error = String.format(
-                        "Parameter '%s' value %d exceeds maximum %d",
-                        propName, numValue, propDef.getMaxValue()
-                    );
-                    builder.addError(error);
-                    log.debug("Validation failed: {}", error);
-                }
+        for (Map.Entry<String, Object> entry : nestedProperties.entrySet()) {
+            String nestedPropName = entry.getKey();
+            Object nestedPropValue = entry.getValue();
+
+            // Find nested property definition
+            ComponentSchema.PropertyDefinition nestedDef = findNestedPropertyDef(parentDef, nestedPropName);
+            if (nestedDef == null) {
+                continue; // Already reported in validateNestedProperties
             }
 
-            // Pattern validation (regex)
-            if (propDef.getPattern() != null && !propDef.getPattern().isEmpty()) {
-                String strValue = value.toString();
-                try {
-                    if (!strValue.matches(propDef.getPattern())) {
-                        String error = String.format(
-                            "Parameter '%s' value '%s' does not match required pattern",
-                            propName, strValue
-                        );
-                        builder.addError(error);
-                        log.debug("Validation failed: {}", error);
-                    }
-                } catch (Exception e) {
-                    log.warn("Invalid regex pattern for parameter {}: {}", propName, propDef.getPattern(), e);
+            // Skip null values
+            if (nestedPropValue == null) {
+                continue;
+            }
+
+            // Validate value constraints
+            validatePropertyConstraints(nestedDef, nestedPropValue, builder);
+
+            // Recursively validate deeper nested objects
+            if (nestedDef.getType() == ComponentSchema.PropertyType.OBJECT && nestedPropValue instanceof Map) {
+                validateNestedParameterValues(nestedDef, (Map<String, Object>) nestedPropValue, builder);
+            }
+        }
+    }
+
+    /**
+     * Validate parameter values (enum, range, pattern) in array items.
+     * Checks that each item's property values conform to schema constraints.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateArrayItemParameterValues(ComponentSchema.PropertyDefinition propDef,
+                                                   Object propValue,
+                                                   ValidationResult.Builder builder) {
+        if (!propDef.hasItemProperties()) {
+            return;
+        }
+
+        // Convert to list
+        java.util.List<Map<String, Object>> items = convertToArrayItems(propValue);
+        if (items.isEmpty()) {
+            return;
+        }
+
+        // Validate each item
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+
+            // Check each property in the item
+            for (java.util.Map.Entry<String, Object> itemEntry : item.entrySet()) {
+                String itemPropName = itemEntry.getKey();
+                Object itemPropValue = itemEntry.getValue();
+
+                if (itemPropName == null || itemPropName.isEmpty()) {
+                    continue;
+                }
+
+                // Skip null values
+                if (itemPropValue == null) {
+                    continue;
+                }
+
+                // Find item property definition
+                ComponentSchema.PropertyDefinition itemPropDef = propDef.getItemProperties().stream()
+                        .filter(p -> itemPropName.equals(p.getName()))
+                        .findFirst()
+                        .orElse(null);
+
+                if (itemPropDef == null) {
+                    continue; // Already reported in validateArrayItemUnknownParameters
+                }
+
+                // Validate value constraints (enum, range, pattern)
+                validatePropertyConstraints(itemPropDef, itemPropValue, builder);
+            }
+        }
+    }
+
+    /**
+     * Validate unknown parameters in array items (e.g., HTTPsampler.Arguments).
+     * Checks that each item's properties match the itemProperties schema definition.
+     */
+    @SuppressWarnings("unchecked")
+    private void validateArrayItemUnknownParameters(ComponentSchema.PropertyDefinition propDef,
+                                                     Object propValue,
+                                                     ValidationResult.Builder builder) {
+        if (!propDef.hasItemProperties()) {
+            return;
+        }
+
+        // Convert to list
+        java.util.List<Map<String, Object>> items = convertToArrayItems(propValue);
+        if (items.isEmpty()) {
+            return;
+        }
+
+        // Get valid item property names
+        java.util.List<String> validItemProps = propDef.getItemProperties().stream()
+                .map(p -> p.getName())
+                .filter(name -> name != null && !name.isEmpty())
+                .toList();
+
+        // Validate each item
+        java.util.List<String> allUnknownParams = new java.util.ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+
+            // Check each property in the item
+            for (String itemPropName : item.keySet()) {
+                if (itemPropName == null || itemPropName.isEmpty()) {
+                    continue;
+                }
+
+                // Check if property is in valid item properties
+                if (!validItemProps.contains(itemPropName)) {
+                    allUnknownParams.add(propDef.getName() + "[" + i + "]." + itemPropName);
                 }
             }
         }
+
+        // Report unknown parameters
+        if (!allUnknownParams.isEmpty()) {
+            String error = String.format(
+                "Unknown array item parameter(s) [%s] are not defined in the schema. Valid item properties: %s",
+                String.join(", ", allUnknownParams),
+                validItemProps
+            );
+            builder.addError(error);
+            log.debug("Validation failed: {}", error);
+        }
+    }
+
+    /**
+     * Check if a value is an array or collection type.
+     */
+    private boolean isArrayValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        return value instanceof Iterable || value.getClass().isArray();
+    }
+
+    /**
+     * Convert an array or collection value to a list of maps.
+     */
+    @SuppressWarnings("unchecked")
+    private java.util.List<Map<String, Object>> convertToArrayItems(Object value) {
+        java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
+
+        if (value == null) {
+            return result;
+        }
+
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) {
+                if (item instanceof Map) {
+                    result.add((Map<String, Object>) item);
+                }
+            }
+        } else if (value.getClass().isArray()) {
+            Object[] array = (Object[]) value;
+            for (Object item : array) {
+                if (item instanceof Map) {
+                    result.add((Map<String, Object>) item);
+                }
+            }
+        }
+
+        return result;
     }
 
     /**

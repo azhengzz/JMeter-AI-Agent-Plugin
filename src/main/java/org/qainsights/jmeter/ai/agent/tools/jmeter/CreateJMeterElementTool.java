@@ -7,6 +7,7 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
 import org.qainsights.jmeter.ai.agent.tools.ValidationResult;
+import org.qainsights.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 import org.qainsights.jmeter.ai.agent.validation.ComponentSchemaLoader;
 import org.qainsights.jmeter.ai.agent.validation.ComponentValidator;
@@ -25,6 +26,7 @@ public class CreateJMeterElementTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(CreateJMeterElementTool.class);
     private final ComponentValidator componentValidator;
+    private final SchemaBasedPropertyHandler propertyHandler;
 
     public CreateJMeterElementTool() {
         // Initialize validator with schema loader
@@ -37,6 +39,9 @@ public class CreateJMeterElementTool extends AbstractTool {
             log.warn("JMeter home not found, component validation will be disabled");
             this.componentValidator = null;
         }
+
+        // Initialize schema-based property handler
+        this.propertyHandler = new SchemaBasedPropertyHandler();
     }
 
     @Override
@@ -247,27 +252,6 @@ public class CreateJMeterElementTool extends AbstractTool {
             // Set the name
             element.setName(elementName);
 
-            // Special handling for ThreadGroup - it requires a LoopController
-            if (normalizedType.equals("threadgroup")) {
-                log.info("Initializing ThreadGroup with a LoopController");
-                org.apache.jmeter.threads.ThreadGroup threadGroup =
-                        (org.apache.jmeter.threads.ThreadGroup) element;
-
-                // Create and initialize a LoopController
-                org.apache.jmeter.control.LoopController loopController =
-                        new org.apache.jmeter.control.LoopController();
-                loopController.setLoops(1);
-                loopController.setFirst(true);
-                loopController.setProperty(TestElement.TEST_CLASS,
-                        org.apache.jmeter.control.LoopController.class.getName());
-                loopController.setProperty(TestElement.GUI_CLASS,
-                        org.apache.jmeter.control.gui.LoopControlPanel.class.getName());
-
-                // Set the controller on the ThreadGroup
-                threadGroup.setSamplerController(loopController);
-                log.info("LoopController initialized for ThreadGroup");
-            }
-
             // For HTTP-related elements, ensure HTTPsampler.Arguments is initialized
             // This prevents NoSuchElementException when JMeter code calls get(schema.getArguments())
             if (isHttpRelatedElement(normalizedType) && (properties == null || !properties.containsKey("HTTPsampler.Arguments"))) {
@@ -279,7 +263,7 @@ public class CreateJMeterElementTool extends AbstractTool {
 
             // Set properties if provided (including HTTPsampler.Arguments if needed)
             if (properties != null && !properties.isEmpty()) {
-                setElementProperties(element, properties);
+                setElementProperties(element, properties, normalizedType);
             }
 
             log.info("Successfully created element: {}", element.getClass().getSimpleName());
@@ -292,206 +276,26 @@ public class CreateJMeterElementTool extends AbstractTool {
     }
 
     /**
-     * Set properties on a TestElement.
-     * Supports special handling for complex properties like HTTPsampler.Arguments.
+     * Set properties on a TestElement using schema-based property handler.
+     * Properties are routed based on schema type definitions.
      *
-     * @param element    The element to set properties on
-     * @param properties The properties to set
+     * @param element       The element to set properties on
+     * @param properties    The properties to set
+     * @param elementType   The component type for schema lookup
      */
-    private void setElementProperties(TestElement element, Map<String, Object> properties) {
-        for (Map.Entry<String, Object> entry : properties.entrySet()) {
-            String propName = entry.getKey();
-            Object propValue = entry.getValue();
-
-            // Apply property name mapping for JMeter historical naming quirks
-            propName = mapPropertyName(propName);
-
-            try {
-                if (propValue == null) {
-                    log.warn("Skipping null property: {}", propName);
-                    continue;
-                }
-
-                // Special handling for HTTPsampler.Arguments
-                if ("HTTPsampler.Arguments".equals(propName)) {
-                    org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-                    // If the value is a Map, add HTTPArgument objects for each entry
-                    if (propValue instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> argMap = (Map<String, Object>) propValue;
-
-                        try {
-                            // Use reflection to create HTTPArgument instances
-                            Class<?> httpArgClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPArgument");
-
-                            // Check if this is a raw body request
-                            // Priority 1: Check if HTTPSampler.postBodyRaw is set to true (already processed)
-                            boolean isRawBody = "true".equals(element.getPropertyAsString("HTTPSampler.postBodyRaw", "false"));
-                            // Priority 2: Check if HTTPSampler.postBodyRaw exists in original properties (not yet processed)
-                            if (!isRawBody) {
-                                for (java.util.Map.Entry<String, Object> prop : properties.entrySet()) {
-                                    if ("HTTPSampler.postBodyRaw".equals(prop.getKey())) {
-                                        Object propVal = prop.getValue();
-                                        if (propVal instanceof Boolean && (Boolean) propVal) {
-                                            isRawBody = true;
-                                            break;
-                                        }
-                                        if (propVal instanceof String && "true".equalsIgnoreCase((String) propVal)) {
-                                            isRawBody = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            String rawBodyValue = null;
-                            log.info("Processing HTTPsampler.Arguments with {} entries, rawBody mode: {}", argMap.size(), isRawBody);
-
-                            if (isRawBody && argMap.size() == 1) {
-                                // Raw body mode: extract the single value as the body content
-                                java.util.Map.Entry<String, Object> singleEntry = argMap.entrySet().iterator().next();
-                                rawBodyValue = singleEntry.getValue() != null ? singleEntry.getValue().toString() : "";
-                                log.info("Raw body mode detected, content length: {}", rawBodyValue.length());
-                            }
-
-                            if (rawBodyValue != null) {
-                                // Create raw body HTTPArgument (name="", value=body content)
-                                Object httpArg = httpArgClass
-                                        .getConstructor(String.class, String.class, boolean.class)
-                                        .newInstance("", rawBodyValue, false);
-                                args.addArgument((org.apache.jmeter.config.Argument) httpArg);
-                                log.info("Added raw body HTTP argument, length: {}", rawBodyValue.length());
-                            } else {
-                                // Regular query parameters - create HTTPArgument for each entry
-                                for (Map.Entry<String, Object> argEntry : argMap.entrySet()) {
-                                    String argName = argEntry.getKey();
-                                    String argValue = argEntry.getValue() != null ? argEntry.getValue().toString() : "";
-
-                                    // Create HTTPArgument using constructor
-                                    Object httpArg = httpArgClass
-                                            .getConstructor(String.class, String.class, boolean.class)
-                                            .newInstance(argName, argValue, false);
-
-                                    // Add to Arguments
-                                    args.addArgument((org.apache.jmeter.config.Argument) httpArg);
-                                    log.info("Added HTTP argument: {} = {}", argName, argValue);
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.warn("Failed to create HTTPArgument, falling back to Argument", e);
-                            // Fallback: use regular Argument
-                            for (Map.Entry<String, Object> argEntry : argMap.entrySet()) {
-                                String argName = argEntry.getKey();
-                                String argValue = argEntry.getValue() != null ? argEntry.getValue().toString() : "";
-                                args.addArgument(argName, argValue);
-                                log.info("Added argument: {} = {}", argName, argValue);
-                            }
-                        }
-                    }
-
-                    element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(
-                            propName, args));
-                    log.info("Set property: {} = {}", propName, args);
-                    continue;
-                }
-
-                // Special handling for HeaderManager.headers
-                if ("HeaderManager.headers".equals(propName) && element.getClass().getName().contains("HeaderManager")) {
-                    try {
-                        // Use reflection to create Header objects
-                        Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
-
-                        for (Map.Entry<String, Object> headerEntry : ((Map<String, Object>) propValue).entrySet()) {
-                            String headerName = headerEntry.getKey();
-                            String headerValue = headerEntry.getValue() != null ? headerEntry.getValue().toString() : "";
-
-                            // Create Header using constructor: Header(String name, String value)
-                            Object header = headerClass
-                                    .getConstructor(String.class, String.class)
-                                    .newInstance(headerName, headerValue);
-
-                            // Add header using HeaderManager.add() method (not addHeader!)
-                            element.getClass().getMethod("add", headerClass).invoke(element, header);
-                            log.info("Added header: {} = {}", headerName, headerValue);
-                        }
-                    } catch (Exception e) {
-                        log.warn("Failed to create Header objects", e);
-                        // Fallback: set as string
-                        element.setProperty(propName, propValue.toString());
-                    }
-                    continue;
-                }
-
-                // Special handling for array/collection properties (e.g., Assertion.test_strings)
-                if (isArrayValue(propValue)) {
-                    try {
-                        // Use reflection to create CollectionProperty and StringProperty
-                        Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
-                        Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
-                        Class<?> jmeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
-
-                        // Convert array/list to collection first
-                        java.util.List<String> items = convertToList(propValue);
-
-                        // Create CollectionProperty with name and empty collection
-                        Object collectionProp = collectionPropClass
-                                .getConstructor(String.class, java.util.Collection.class)
-                                .newInstance(propName, new java.util.ArrayList<>());
-
-                        // Get the addProperty method (not addItem!)
-                        java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jmeterPropClass);
-
-                        // Add each item as StringProperty
-                        int index = 0;
-                        for (String item : items) {
-                            // Create StringProperty with a unique name (using index-based ID)
-                            String uniqueName = String.valueOf(System.currentTimeMillis() + index);
-                            Object stringProp = stringPropClass
-                                    .getConstructor(String.class, String.class)
-                                    .newInstance(uniqueName, item);
-
-                            // Add to collection using addProperty
-                            addPropertyMethod.invoke(collectionProp, stringProp);
-                            index++;
-                            log.info("Added item to {}: {}", propName, item);
-                        }
-
-                        // Set the collection property on the element
-                        element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) collectionProp);
-                        log.info("Set collection property: {} with {} items", propName, items.size());
-                        continue;
-
-                    } catch (Exception e) {
-                        log.warn("Failed to create CollectionProperty for {}, trying fallback", propName, e);
-                        // Fallback: join as comma-separated string
-                        String joinedValue = convertToList(propValue).stream().collect(java.util.stream.Collectors.joining(","));
-                        element.setProperty(propName, joinedValue);
-                        log.info("Set property (fallback): {} = {}", propName, joinedValue);
-                        continue;
-                    }
-                }
-
-                // Convert the value to appropriate type
-                if (propValue instanceof Number) {
-                    if (propValue instanceof Integer || propValue instanceof Long) {
-                        element.setProperty(propName, String.valueOf(((Number) propValue).longValue()));
-                    } else {
-                        element.setProperty(propName, String.valueOf(((Number) propValue).doubleValue()));
-                    }
-                } else if (propValue instanceof Boolean) {
-                    element.setProperty(propName, String.valueOf(propValue));
-                } else {
-                    // Default to string
-                    element.setProperty(propName, propValue.toString());
-                }
-
-                log.info("Set property: {} = {}", propName, propValue);
-
-            } catch (Exception e) {
-                log.warn("Failed to set property: {} = {}", propName, propValue, e);
-            }
+    private void setElementProperties(TestElement element, Map<String, Object> properties, String elementType) {
+        if (properties == null || properties.isEmpty()) {
+            return;
         }
+
+        // Load schema for this element type
+        org.qainsights.jmeter.ai.agent.validation.ComponentSchema schema = null;
+        if (componentValidator != null) {
+            schema = componentValidator.getSchemaLoader().loadSchema(elementType);
+        }
+
+        // Use schema-based property handler to set all properties
+        propertyHandler.setProperties(element, properties, schema);
     }
 
     /**
@@ -542,50 +346,6 @@ public class CreateJMeterElementTool extends AbstractTool {
     }
 
     /**
-     * Check if a value is an array or collection type.
-     *
-     * @param value The value to check
-     * @return true if the value is an array or collection
-     */
-    private boolean isArrayValue(Object value) {
-        if (value == null) {
-            return false;
-        }
-        return value instanceof Iterable || value.getClass().isArray();
-    }
-
-    /**
-     * Convert an array or collection value to a List of strings.
-     *
-     * @param value The value to convert
-     * @return List of string values
-     */
-    private java.util.List<String> convertToList(Object value) {
-        java.util.List<String> result = new java.util.ArrayList<>();
-
-        if (value == null) {
-            return result;
-        }
-
-        if (value instanceof Iterable) {
-            for (Object item : (Iterable<?>) value) {
-                if (item != null) {
-                    result.add(item.toString());
-                }
-            }
-        } else if (value.getClass().isArray()) {
-            Object[] array = (Object[]) value;
-            for (Object item : array) {
-                if (item != null) {
-                    result.add(item.toString());
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
      * Build a user-friendly error message for validation failures.
      *
      * @param elementType  The component type
@@ -607,11 +367,13 @@ public class CreateJMeterElementTool extends AbstractTool {
 
     /**
      * Apply default values from schema for properties that were not provided.
+     * Recursively applies default values for nested object properties.
      *
      * @param elementType The component type
      * @param properties  The provided properties (may be null)
      * @return A new map with default values applied
      */
+    @SuppressWarnings("unchecked")
     private Map<String, Object> applyDefaultValues(String elementType, Map<String, Object> properties) {
         if (componentValidator == null) {
             return properties;
@@ -638,6 +400,30 @@ public class CreateJMeterElementTool extends AbstractTool {
                 continue;
             }
 
+            // Check if this is a nested object property
+            if (propDef.getType() == org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyType.OBJECT
+                    && propDef.hasNestedProperties()) {
+                // Handle nested object property defaults
+                Object currentValue = result.get(propName);
+                if (currentValue == null) {
+                    // Property not provided, create defaults map
+                    Map<String, Object> nestedDefaults = createNestedDefaults(propDef);
+                    if (!nestedDefaults.isEmpty()) {
+                        result.put(propName, nestedDefaults);
+                        log.info("Applied default nested object for {} with properties: {}", propName, nestedDefaults.keySet());
+                    }
+                } else if (currentValue instanceof Map) {
+                    // Property provided as map, merge with defaults
+                    Map<String, Object> nestedProps = (Map<String, Object>) currentValue;
+                    Map<String, Object> merged = mergeNestedDefaults(propDef, nestedProps);
+                    result.put(propName, merged);
+                    if (!merged.equals(nestedProps)) {
+                        log.info("Merged defaults for {} properties: {}", propName, merged.keySet());
+                    }
+                }
+                continue;
+            }
+
             // Skip if property is already set
             if (result.containsKey(propName)) {
                 continue;
@@ -655,22 +441,88 @@ public class CreateJMeterElementTool extends AbstractTool {
     }
 
     /**
-     * Map property names to handle JMeter historical naming quirks.
-     * This handles cases where JMeter uses incorrect spelling for backward compatibility.
-     *
-     * @param propName The property name from the user/AI
-     * @return The actual property name to use in JMeter
+     * Create a map of default values for nested object properties.
      */
-    private String mapPropertyName(String propName) {
-        if (propName == null) {
-            return null;
+    private Map<String, Object> createNestedDefaults(
+            org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyDefinition propDef) {
+        Map<String, Object> defaults = new java.util.HashMap<>();
+        if (propDef.getNestedProperties() == null) {
+            return defaults;
         }
 
-        // Handle JMeter's historical spelling error: Asserion.test_strings (not Assertion.test_strings)
-        if ("Assertion.test_strings".equals(propName)) {
-            return "Asserion.test_strings";
+        for (org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyDefinition nestedDef :
+                propDef.getNestedProperties()) {
+            String nestedPropName = nestedDef.getName();
+            if (nestedPropName == null || nestedPropName.isEmpty()) {
+                continue;
+            }
+
+            Object defaultValue = nestedDef.getDefaultValue();
+            if (defaultValue != null) {
+                defaults.put(nestedPropName, defaultValue);
+            }
+
+            // Recursively create defaults for deeper nested objects
+            if (nestedDef.getType() == org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyType.OBJECT
+                    && nestedDef.hasNestedProperties()) {
+                Map<String, Object> deeperDefaults = createNestedDefaults(nestedDef);
+                if (!deeperDefaults.isEmpty()) {
+                    defaults.put(nestedPropName, deeperDefaults);
+                }
+            }
         }
 
-        return propName;
+        return defaults;
+    }
+
+    /**
+     * Merge provided nested properties with schema defaults.
+     * Provided values take precedence over defaults.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mergeNestedDefaults(
+            org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyDefinition propDef,
+            Map<String, Object> providedProps) {
+        Map<String, Object> result = new java.util.HashMap<>(providedProps);
+
+        if (propDef.getNestedProperties() == null) {
+            return result;
+        }
+
+        for (org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyDefinition nestedDef :
+                propDef.getNestedProperties()) {
+            String nestedPropName = nestedDef.getName();
+            if (nestedPropName == null || nestedPropName.isEmpty()) {
+                continue;
+            }
+
+            // Skip if property is already provided
+            if (result.containsKey(nestedPropName)) {
+                // But check if it's a nested object that needs deeper merging
+                Object currentValue = result.get(nestedPropName);
+                if (currentValue instanceof Map && nestedDef.hasNestedProperties()) {
+                    Map<String, Object> merged = mergeNestedDefaults(nestedDef, (Map<String, Object>) currentValue);
+                    result.put(nestedPropName, merged);
+                }
+                continue;
+            }
+
+            // Apply default value
+            Object defaultValue = nestedDef.getDefaultValue();
+            if (defaultValue != null) {
+                result.put(nestedPropName, defaultValue);
+            }
+
+            // Recursively handle deeper nested objects
+            if (nestedDef.getType() == org.qainsights.jmeter.ai.agent.validation.ComponentSchema.PropertyType.OBJECT
+                    && nestedDef.hasNestedProperties()) {
+                Map<String, Object> deeperDefaults = createNestedDefaults(nestedDef);
+                if (!deeperDefaults.isEmpty()) {
+                    result.put(nestedPropName, deeperDefaults);
+                }
+            }
+        }
+
+        return result;
     }
 }
