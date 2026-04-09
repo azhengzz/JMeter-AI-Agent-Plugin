@@ -71,18 +71,17 @@ public class JMeterElementManager {
     private static final Map<ComponentType, Set<ComponentType>> COMPATIBILITY_MATRIX = new HashMap<>();
 
     static {
-        // TestPlan can contain: ThreadGroups, Controllers, Fragments, ConfigElements,
+        // TestPlan can contain: ThreadGroups, Fragments, ConfigElements,
         // Timers, Listeners, Assertions, Pre/Post Processors, Non-Test Elements
         COMPATIBILITY_MATRIX.put(ComponentType.TEST_PLAN, new HashSet<>(Arrays.asList(
                 ComponentType.THREAD_GROUP,
-                ComponentType.CONTROLLER,
-                ComponentType.FRAGMENT,
                 ComponentType.CONFIG_ELEMENT,
-                ComponentType.TIMER,
                 ComponentType.LISTENER,
-                ComponentType.ASSERTION,
+                ComponentType.TIMER,
                 ComponentType.PRE_PROCESSOR,
                 ComponentType.POST_PROCESSOR,
+                ComponentType.ASSERTION,
+                ComponentType.FRAGMENT,
                 ComponentType.NON_TEST_ELEMENT)));
 
         // ThreadGroup can contain: Samplers, Controllers, Fragments, ConfigElements,
@@ -90,49 +89,47 @@ public class JMeterElementManager {
         COMPATIBILITY_MATRIX.put(ComponentType.THREAD_GROUP, new HashSet<>(Arrays.asList(
                 ComponentType.SAMPLER,
                 ComponentType.CONTROLLER,
+                ComponentType.PRE_PROCESSOR,
+                ComponentType.POST_PROCESSOR,
+                ComponentType.ASSERTION,
+                ComponentType.TIMER,
                 ComponentType.FRAGMENT,
                 ComponentType.CONFIG_ELEMENT,
-                ComponentType.TIMER,
-                ComponentType.LISTENER,
-                ComponentType.ASSERTION,
-                ComponentType.PRE_PROCESSOR,
-                ComponentType.POST_PROCESSOR)));
+                ComponentType.LISTENER)));
 
         // Controller can contain: Samplers, Controllers, Fragments, ConfigElements,
         // Timers, Listeners, Assertions, Pre/Post Processors
         COMPATIBILITY_MATRIX.put(ComponentType.CONTROLLER, new HashSet<>(Arrays.asList(
                 ComponentType.SAMPLER,
                 ComponentType.CONTROLLER,
-                ComponentType.FRAGMENT,
-                ComponentType.CONFIG_ELEMENT,
-                ComponentType.TIMER,
-                ComponentType.LISTENER,
                 ComponentType.ASSERTION,
+                ComponentType.TIMER,
                 ComponentType.PRE_PROCESSOR,
-                ComponentType.POST_PROCESSOR)));
+                ComponentType.POST_PROCESSOR,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.LISTENER)));
 
         // Fragment (Test Fragment) can contain: Samplers, Controllers, Fragments,
         // ConfigElements, Timers, Listeners, Assertions, Pre/Post Processors
         COMPATIBILITY_MATRIX.put(ComponentType.FRAGMENT, new HashSet<>(Arrays.asList(
-                ComponentType.SAMPLER,
                 ComponentType.CONTROLLER,
-                ComponentType.FRAGMENT,
                 ComponentType.CONFIG_ELEMENT,
                 ComponentType.TIMER,
-                ComponentType.LISTENER,
-                ComponentType.ASSERTION,
                 ComponentType.PRE_PROCESSOR,
-                ComponentType.POST_PROCESSOR)));
+                ComponentType.SAMPLER,
+                ComponentType.POST_PROCESSOR,
+                ComponentType.ASSERTION,
+                ComponentType.LISTENER)));
 
         // Sampler can contain: ConfigElements, Timers, Listeners, Assertions, Pre/Post
         // Processors
         COMPATIBILITY_MATRIX.put(ComponentType.SAMPLER, new HashSet<>(Arrays.asList(
-                ComponentType.CONFIG_ELEMENT,
-                ComponentType.TIMER,
-                ComponentType.LISTENER,
                 ComponentType.ASSERTION,
+                ComponentType.TIMER,
                 ComponentType.PRE_PROCESSOR,
-                ComponentType.POST_PROCESSOR)));
+                ComponentType.POST_PROCESSOR,
+                ComponentType.CONFIG_ELEMENT,
+                ComponentType.LISTENER)));
 
         // Timers, Assertions, Pre/Post Processors, ConfigElements, Listeners,
         // NonTestElements cannot contain child elements
@@ -142,9 +139,7 @@ public class JMeterElementManager {
         COMPATIBILITY_MATRIX.put(ComponentType.POST_PROCESSOR, Collections.emptySet());
         COMPATIBILITY_MATRIX.put(ComponentType.CONFIG_ELEMENT, Collections.emptySet());
         COMPATIBILITY_MATRIX.put(ComponentType.LISTENER, Collections.emptySet());
-        COMPATIBILITY_MATRIX.put(ComponentType.NON_TEST_ELEMENT, Collections.emptySet()); // HTTP(S) Test Script
-                                                                                          // Recorder
-                                                                                          // 组件在Gui上还可以添加组件（暂不处理）
+        COMPATIBILITY_MATRIX.put(ComponentType.NON_TEST_ELEMENT, Collections.emptySet()); // HTTP(S) Test Script  Recorder 组件在Gui上还可以添加组件（暂不处理）
     }
 
     /**
