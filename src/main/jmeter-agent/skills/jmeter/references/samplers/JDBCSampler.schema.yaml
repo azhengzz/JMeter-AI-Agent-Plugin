@@ -1,0 +1,59 @@
+component:
+  type: jdbcsampler
+  name: JDBC Sampler
+  description: Allows you to execute database queries using JDBC
+
+properties:
+  - name: dataSource
+    type: String
+    required: true
+    description: Variable Name of Pool declared in JDBC Connection Configuration
+
+  - name: queryType
+    type: String
+    required: true
+    enum: ["Select Statement", "Update Statement", "Callable Statement", "Prepared Select Statement", "Prepared Update Statement", "Commit", "Rollback", "AutoCommit(false)", "AutoCommit(true)"]
+    description: Type of query
+
+  - name: query
+    type: String
+    required: true
+    description: SQL query to execute
+
+  - name: queryArguments
+    type: String
+    required: false
+    description: Query parameters (for prepared statements)
+
+  - name: queryArgumentsTypes
+    type: String
+    required: false
+    description: JDBC types for parameters (VARCHAR, INTEGER, NUMERIC, etc.)
+
+  - name: variableNames
+    type: String
+    required: false
+    description: Variable names to store result columns
+
+  - name: resultVariable
+    type: String
+    required: false
+    description: Variable name to store entire result set
+
+  - name: queryTimeout
+    type: Integer
+    required: false
+    min: 0
+    description: Query timeout in seconds
+
+  - name: resultSetMaxRows
+    type: String
+    required: false
+    description: Limit ResultSet
+
+  - name: resultSetHandler
+    type: String
+    required: true
+    default: "Store as String"
+    enum: ["Store as String", "Store as Object", "Count Records"]
+    description: Handle ResultSet
