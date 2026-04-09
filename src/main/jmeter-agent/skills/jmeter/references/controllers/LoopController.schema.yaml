@@ -10,3 +10,9 @@ properties:
     min: -1
     default: 1
     description: Number of iterations (-1 for infinite loop)
+
+  - name: LoopController.continue_forever
+    type: Boolean
+    required: false
+    default: false
+    description: Loop infinitely

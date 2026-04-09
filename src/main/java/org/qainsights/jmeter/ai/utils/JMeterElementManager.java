@@ -501,7 +501,7 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("interleavecontroller", new ElementClassInfo(
                 "org.apache.jmeter.control.InterleaveControl", "org.apache.jmeter.control.gui.InterleaveControlPanel"));
         ELEMENT_CLASS_MAP.put("randomcontroller", new ElementClassInfo("org.apache.jmeter.control.RandomController",
-                "org.apache.jmeter.control.gui.RandomControlPanel"));
+                "org.apache.jmeter.control.gui.RandomControlGui"));
         ELEMENT_CLASS_MAP.put("randomordercontroller",
                 new ElementClassInfo("org.apache.jmeter.control.RandomOrderController",
                         "org.apache.jmeter.control.gui.RandomOrderControllerPanel"));

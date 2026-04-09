@@ -112,6 +112,10 @@ public class CreateJMeterElementTool extends AbstractTool {
 
             // Apply default values from schema for properties that were not provided
             properties = applyDefaultValues(elementType, properties);
+
+            log.info("Properties after applying defaults for {} ({} properties):", elementType, properties.size());
+            properties.forEach((key, value) -> log.info("  {} = {}", key, value));
+
         }
 
         try {

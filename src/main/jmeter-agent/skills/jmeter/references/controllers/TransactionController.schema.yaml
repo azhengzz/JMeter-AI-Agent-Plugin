@@ -1,0 +1,21 @@
+component:
+  type: transactioncontroller
+  name: Transaction Controller
+  description: Groups multiple samplers into a single transaction
+
+properties:
+  - name: TransactionController.parent
+    type: Boolean
+    required: false
+    default: false
+    description: |
+      Generate parent sample. When true, the sample is generated as a parent of the other samples.
+      When false, the sample is generated as an independent sample.
+
+  - name: TransactionController.includeTimers
+    type: Boolean
+    required: false
+    default: false
+    description: |
+      Include duration of timer and pre-post processors in generated sample.
+      When true, includes timer, pre- and post-processing delays in the generated sample.
