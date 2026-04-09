@@ -118,7 +118,7 @@ public class JMeterElementRequestHandler {
         // Additional elements from ELEMENT_CLASS_MAP
         addSynonyms("ftprequest", "ftp request", "ftp sampler", "ftp", "ftp client");
         addSynonyms("httprequest", "http request", "web request", "http", "request", "web test", "http test");
-        addSynonyms("jdbcrequest", "jdbc request", "database request", "sql request", "db request", "database query",
+        addSynonyms("jdbcsampler", "jdbc request", "database request", "sql request", "db request", "database query",
                 "sql query");
         addSynonyms("javarequest", "java request", "java sampler", "java test", "java method call");
         addSynonyms("ldaprequest", "ldap request", "ldap sampler", "directory request", "ldap query");

@@ -176,17 +176,15 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("httpsampler",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-
         ELEMENT_CLASS_MAP.put("httptestsample",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-
         ELEMENT_CLASS_MAP.put("httprequest",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
                         "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
         ELEMENT_CLASS_MAP.put("ftprequest", new ElementClassInfo("org.apache.jmeter.protocol.ftp.sampler.FTPSampler",
                 "org.apache.jmeter.protocol.ftp.control.gui.FtpTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("jdbcrequest", new ElementClassInfo("org.apache.jmeter.protocol.jdbc.sampler.JDBCSampler",
+        ELEMENT_CLASS_MAP.put("jdbcsampler", new ElementClassInfo("org.apache.jmeter.protocol.jdbc.sampler.JDBCSampler",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("javarequest", new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.JavaSampler",
                 "org.apache.jmeter.protocol.java.control.gui.JavaTestSamplerGui"));
