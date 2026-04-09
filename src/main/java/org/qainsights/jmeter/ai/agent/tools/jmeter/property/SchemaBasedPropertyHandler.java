@@ -382,13 +382,20 @@ public class SchemaBasedPropertyHandler {
     private void handleSimpleProperty(TestElement element, String propName, Object propValue) {
         try {
             if (propValue instanceof Number) {
-                if (propValue instanceof Integer || propValue instanceof Long) {
-                    element.setProperty(propName, String.valueOf(((Number) propValue).longValue()));
+                // Use typed setProperty methods for TestBean compatibility
+                if (propValue instanceof Integer) {
+                    element.setProperty(propName, ((Integer) propValue).intValue());
+                } else if (propValue instanceof Long) {
+                    element.setProperty(propName, ((Long) propValue).longValue());
+                } else if (propValue instanceof Float) {
+                    // Use FloatProperty for float values
+                    element.setProperty(new org.apache.jmeter.testelement.property.FloatProperty(propName, ((Float) propValue).floatValue()));
                 } else {
-                    element.setProperty(propName, String.valueOf(((Number) propValue).doubleValue()));
+                    // Double and other numeric types - use DoubleProperty
+                    element.setProperty(new org.apache.jmeter.testelement.property.DoubleProperty(propName, ((Number) propValue).doubleValue()));
                 }
             } else if (propValue instanceof Boolean) {
-                element.setProperty(propName, String.valueOf(propValue));
+                element.setProperty(propName, (Boolean) propValue);
             } else {
                 element.setProperty(propName, propValue.toString());
             }
