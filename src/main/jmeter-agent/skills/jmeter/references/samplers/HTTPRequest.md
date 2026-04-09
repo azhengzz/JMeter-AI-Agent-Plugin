@@ -87,8 +87,8 @@ create_jmeter_element with:
   - HTTPSampler.path: "/get"
   - HTTPSampler.method: "GET"
   - HTTPsampler.Arguments:
-    - name: "张三"
-    - age: "23"
+    - {"Argument.name": "name", "Argument.value": "张三"}
+    - {"Argument.name": "age", "Argument.value": "23"}
 ```
 
 ### Example 5: POST Request with JSON Body (Raw)
@@ -105,7 +105,7 @@ create_jmeter_element with:
   - HTTPSampler.postBodyRaw: true
   - HTTPSampler.contentEncoding: "utf-8"
   - HTTPsampler.Arguments:
-    - "": "{\"username\":\"admin\",\"password\":\"123456\"}"
+    - {"Argument.name": "", "Argument.value": "{\"username\":\"admin\",\"password\":\"123456\"}", "HTTPArgument.always_encode": false}
 ```
 
 ## Request Body Types
