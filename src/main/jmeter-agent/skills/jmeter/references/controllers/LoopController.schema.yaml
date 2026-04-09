@@ -1,0 +1,12 @@
+component:
+  type: loopcontroller
+  name: Loop Controller
+  description: Controls the execution count of its child elements
+
+properties:
+  - name: LoopController.loops
+    type: Integer
+    required: true
+    min: -1
+    default: 1
+    description: Number of iterations (-1 for infinite loop)
