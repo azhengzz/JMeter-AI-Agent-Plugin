@@ -75,7 +75,9 @@ public class SchemaBasedPropertyHandler {
             case ARRAY:
                 // Special handling for HTTPsampler.Arguments
                 if ("HTTPsampler.Arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleHttpArgumentsProperty(element, propName, propValue, allProperties);
+                    handleHttpArgumentsProperty(element, propName, propValue);
+                } else if ("Arguments.arguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleArgumentsProperty(element, propName, propValue);
                 } else if ("HeaderManager.headers".equals(propName) && propDef.hasItemProperties()) {
                     handleHeaderManagerProperty(element, propName, propValue);
                 } else if ("CookieManager.cookies".equals(propName) && propDef.hasItemProperties()) {
@@ -155,8 +157,7 @@ public class SchemaBasedPropertyHandler {
      * Only supports array format.
      */
     @SuppressWarnings("unchecked")
-    private void handleHttpArgumentsProperty(TestElement element, String propName, Object propValue,
-                                              Map<String, Object> allProperties) {
+    private void handleHttpArgumentsProperty(TestElement element, String propName, Object propValue) {
         org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
 
         // Only support array format
@@ -169,6 +170,36 @@ public class SchemaBasedPropertyHandler {
 
         element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
         log.info("Set HTTPsampler.Arguments with {} arguments", args.getArguments().size());
+    }
+
+    /**
+     * Handle Arguments.arguments property with itemProperties schema.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleArgumentsProperty(TestElement element, String propName, Object propValue) {
+        for (Object argItem : convertToList(propValue)) {
+            if (!(argItem instanceof Map)) {
+                continue;
+            }
+
+            Map<String, Object> argProps = (Map<String, Object>) argItem;
+            String argName = getStringValue(argProps, "Argument.name");
+            if (argName == null) {
+                continue;
+            }
+
+            String argValue = getStringValue(argProps, "Argument.value", "");
+            String argDesc = getStringValue(argProps, "Argument.desc");
+            String metadata = getStringValue(argProps, "Argument.metadata", "=");
+
+            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(argName, argValue, metadata);
+            if (argDesc != null && !argDesc.isEmpty()) {
+                argument.setDescription(argDesc);
+            }
+
+            ((org.apache.jmeter.config.Arguments) element).addArgument(argument);
+        }
+        log.info("Added {} arguments to {}", convertToList(propValue).size(), propName);
     }
 
     /**
