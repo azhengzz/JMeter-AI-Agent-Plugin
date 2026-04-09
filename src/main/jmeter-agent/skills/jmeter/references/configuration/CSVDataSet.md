@@ -46,7 +46,7 @@ create_jmeter_element with:
   - HTTPSampler.path: "/api/login"
   - HTTPSampler.method: "POST"
   - HTTPsampler.Arguments:
-    - "": '{"username":"${username}","password":"${password}"}'
+    - {"Argument.name": "", "Argument.value": "{\"username\":\"${username}\",\"password\":\"${password}\"}", "HTTPArgument.always_encode": false}
   - HTTPSampler.postBodyRaw: "true"
 ```
 
