@@ -12,7 +12,7 @@ import java.util.Map;
 
 /**
  * Tool to get the complete JMeter TestPlan tree structure in JSON format.
- * Returns all elements with their properties and instance IDs.
+ * Returns all elements with their properties and element IDs.
  */
 public class GetTestPlanTreeTool extends AbstractTool {
 
@@ -26,7 +26,7 @@ public class GetTestPlanTreeTool extends AbstractTool {
     @Override
     public String getDescription() {
         return "Get the complete JMeter TestPlan tree structure in JSON format. " +
-                "Returns all elements with their types, names, properties, and instance IDs. " +
+                "Returns all elements with their types, names, properties, and element IDs. " +
                 "This is useful for understanding the full structure of your test plan.";
     }
 

@@ -27,9 +27,9 @@ public class DeleteJMeterElementTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Delete a JMeter test plan element by its instanceId. " +
+        return "Delete a JMeter test plan element by its elementId. " +
                 "The TestPlan root node cannot be deleted for safety reasons. " +
-                "Use get_test_plan_tree or find_element to get the instanceId of the element you want to delete.";
+                "Use get_test_plan_tree or find_element to get the elementId of the element you want to delete.";
     }
 
     @Override
@@ -38,35 +38,35 @@ public class DeleteJMeterElementTool extends AbstractTool {
                 {
                     "type": "object",
                     "properties": {
-                        "instanceId": {
+                        "elementId": {
                             "type": "integer",
-                            "description": "The instanceId of the element to delete. Use get_test_plan_tree or find_element to get the instanceId."
+                            "description": "The elementId of the element to delete. Use get_test_plan_tree or find_element to get the elementId."
                         }
                     },
-                    "required": ["instanceId"]
+                    "required": ["elementId"]
                 }
                 """;
     }
 
     @Override
     protected ToolResult executeInternal(Map<String, Object> parameters) {
-        int instanceId = getIntParameter(parameters, "instanceId", -1);
+        int elementId = getIntParameter(parameters, "elementId", -1);
 
         // Basic validation
-        if (instanceId <= 0) {
-            return ToolResult.error("Invalid instanceId: " + instanceId + ". Must be a positive integer.");
+        if (elementId <= 0) {
+            return ToolResult.error("Invalid elementId: " + elementId + ". Must be a positive integer.");
         }
 
-        return deleteElement(instanceId);
+        return deleteElement(elementId);
     }
 
     /**
      * Delete a JMeter element with proper validation and cleanup.
      *
-     * @param instanceId The instanceId of the element to delete
+     * @param elementId The elementId of the element to delete
      * @return ToolResult indicating success or failure
      */
-    private ToolResult deleteElement(int instanceId) {
+    private ToolResult deleteElement(int elementId) {
         try {
             // 1. Get GuiPackage instance
             GuiPackage guiPackage = GuiPackage.getInstance();
@@ -80,11 +80,11 @@ public class DeleteJMeterElementTool extends AbstractTool {
                 return ToolResult.error("Test plan root is not available");
             }
 
-            // 3. Find target node by instanceId
-            JMeterTreeNode targetNode = JMeterTreeUtils.findNodeByInstanceId(rootNode, instanceId);
+            // 3. Find target node by elementId
+            JMeterTreeNode targetNode = JMeterTreeUtils.findNodeByElementId(rootNode, elementId);
             if (targetNode == null) {
-                return ToolResult.error("Could not find element with instanceId: " + instanceId +
-                        ". The element may have been removed. Use get_test_plan_tree to get current instanceIds.");
+                return ToolResult.error("Could not find element with elementId: " + elementId +
+                        ". The element may have been removed. Use get_test_plan_tree to get current elementIds.");
             }
 
             // 4. Get node information
@@ -123,13 +123,13 @@ public class DeleteJMeterElementTool extends AbstractTool {
             StringBuilder result = new StringBuilder();
             result.append("Successfully deleted element: **").append(elementName).append("** (").append(elementType).append(")");
             result.append("\n\nParent path: ").append(parentPath);
-            result.append("\nInstanceId: ").append(instanceId);
+            result.append("\nElement Id: ").append(elementId);
 
-            log.info("Successfully deleted element: {} ({}) with instanceId: {}", elementName, elementType, instanceId);
+            log.info("Successfully deleted element: {} ({}) with elementId: {}", elementName, elementType, elementId);
             return ToolResult.success(result.toString());
 
         } catch (Exception e) {
-            log.error("Error deleting element with instanceId: {}", instanceId, e);
+            log.error("Error deleting element with elementId: {}", elementId, e);
             return ToolResult.error("Failed to delete element: " + e.getMessage());
         }
     }

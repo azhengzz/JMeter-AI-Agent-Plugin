@@ -32,7 +32,7 @@ public class MoveJMeterElementTool extends AbstractTool {
         return "Move a JMeter test plan element to a different parent node at a specified position. " +
                 "Useful for restructuring test plans, reorganizing elements, or moving elements between thread groups. " +
                 "Supports positioning at 'first', 'last', 'before:<id>', or 'after:<id>'. " +
-                "Use get_test_plan_tree or find_element to get instanceIds.";
+                "Use get_test_plan_tree or find_element to get elementIds.";
     }
 
     @Override
@@ -43,15 +43,15 @@ public class MoveJMeterElementTool extends AbstractTool {
                 "properties": {
                     "elementId": {
                         "type": "integer",
-                        "description": "The instanceId of the element to move. Use get_test_plan_tree or find_element to get the instanceId."
+                        "description": "The elementId of the element to move. Use get_test_plan_tree or find_element to get the elementId."
                     },
                     "targetParentId": {
                         "type": "integer",
-                        "description": "The instanceId of the target parent node where the element should be moved."
+                        "description": "The elementId of the target parent node where the element should be moved."
                     },
                     "position": {
                         "type": "string",
-                        "description": "Position where to insert the element: 'first' (at beginning), 'last' (at end), 'before:<id>' (before element with instanceId), 'after:<id>' (after element with instanceId). Default is 'last'.",
+                        "description": "Position where to insert the element: 'first' (at beginning), 'last' (at end), 'before:<id>' (before element with elementId), 'after:<id>' (after element with elementId). Default is 'last'.",
                         "default": "last"
                     }
                 },
@@ -80,8 +80,8 @@ public class MoveJMeterElementTool extends AbstractTool {
             return ToolResult.error("Invalid position format: '" + position + "'. " +
                     "Valid formats are: 'first' (insert at beginning), " +
                     "'last' (insert at end, default), " +
-                    "'before:<id>' (insert before element with instanceId), " +
-                    "'after:<id>' (insert after element with instanceId).");
+                    "'before:<id>' (insert before element with elementId), " +
+                    "'after:<id>' (insert after element with elementId).");
         }
 
 
@@ -99,16 +99,16 @@ public class MoveJMeterElementTool extends AbstractTool {
             }
 
             // 4. Find source and target nodes
-            JMeterTreeNode sourceNode = JMeterTreeUtils.findNodeByInstanceId(rootNode, elementId);
+            JMeterTreeNode sourceNode = JMeterTreeUtils.findNodeByElementId(rootNode, elementId);
             if (sourceNode == null) {
-                return ToolResult.error("Could not find element with instanceId: " + elementId +
-                        ". Use get_test_plan_tree to get current instanceIds.");
+                return ToolResult.error("Could not find element with elementId: " + elementId +
+                        ". Use get_test_plan_tree to get current elementIds.");
             }
 
-            JMeterTreeNode targetParent = JMeterTreeUtils.findNodeByInstanceId(rootNode, targetParentId);
+            JMeterTreeNode targetParent = JMeterTreeUtils.findNodeByElementId(rootNode, targetParentId);
             if (targetParent == null) {
-                return ToolResult.error("Could not find target parent node with instanceId: " + targetParentId +
-                        ". Use get_test_plan_tree to get current instanceIds.");
+                return ToolResult.error("Could not find target parent node with elementId: " + targetParentId +
+                        ". Use get_test_plan_tree to get current elementIds.");
             }
 
             // 5. Validate move operation
@@ -124,7 +124,7 @@ public class MoveJMeterElementTool extends AbstractTool {
             return performMove(sourceNode, targetParent, insertIndex);
 
         } catch (Exception e) {
-            log.error("Error moving element with instanceId: {}", elementId, e);
+            log.error("Error moving element with elementId: {}", elementId, e);
             return ToolResult.error("Failed to move element: " + e.getMessage());
         }
     }
@@ -217,7 +217,7 @@ public class MoveJMeterElementTool extends AbstractTool {
         if (position.startsWith("before:")) {
             try {
                 int refId = Integer.parseInt(position.substring("before:".length()));
-                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByInstanceId(root, refId);
+                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(root, refId);
                 if (refNode != null && refNode.getParent() == targetParent) {
                     return targetParent.getIndex(refNode);
                 }
@@ -230,7 +230,7 @@ public class MoveJMeterElementTool extends AbstractTool {
         if (position.startsWith("after:")) {
             try {
                 int refId = Integer.parseInt(position.substring("after:".length()));
-                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByInstanceId(root, refId);
+                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(root, refId);
                 if (refNode != null && refNode.getParent() == targetParent) {
                     return targetParent.getIndex(refNode) + 1;
                 }
@@ -287,7 +287,7 @@ public class MoveJMeterElementTool extends AbstractTool {
                     .append("** (").append(elementType).append(")\n\n");
             result.append("From: `").append(oldParentPath).append("`\n");
             result.append("To: `").append(JMeterTreeUtils.getNodePath(targetParent)).append("`\n");
-            result.append("New instanceId: ").append(System.identityHashCode(sourceNode));
+            result.append("New elementId: ").append(System.identityHashCode(sourceNode));
 
             log.info("Successfully moved element: {} ({}) from '{}' to '{}'",
                     elementName, elementType, oldParentPath, targetParent.getName());

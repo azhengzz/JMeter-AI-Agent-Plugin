@@ -58,7 +58,7 @@ public class JMeterTreeUtils {
         Map<String, Object> data = new LinkedHashMap<>();
 
         // Node basic info
-        data.put("instanceId", System.identityHashCode(node));
+        data.put("elementId", System.identityHashCode(node));
         data.put("depth", currentDepth);
 
         TestElement element = node.getTestElement();
@@ -345,23 +345,23 @@ public class JMeterTreeUtils {
     }
 
     /**
-     * Find a node in the tree by its instance ID (identityHashCode).
+     * Find a node in the tree by its element ID (identityHashCode).
      *
-     * @param rootNode   The root node to search from
-     * @param instanceId The instance ID to search for
+     * @param rootNode  The root node to search from
+     * @param elementId The element ID to search for
      * @return The matching node, or null if not found
      */
-    public static JMeterTreeNode findNodeByInstanceId(JMeterTreeNode rootNode, int instanceId) {
+    public static JMeterTreeNode findNodeByElementId(JMeterTreeNode rootNode, int elementId) {
         if (rootNode == null) {
             return null;
         }
-        if (System.identityHashCode(rootNode) == instanceId) {
+        if (System.identityHashCode(rootNode) == elementId) {
             return rootNode;
         }
         int childCount = rootNode.getChildCount();
         for (int i = 0; i < childCount; i++) {
             JMeterTreeNode child = (JMeterTreeNode) rootNode.getChildAt(i);
-            JMeterTreeNode found = findNodeByInstanceId(child, instanceId);
+            JMeterTreeNode found = findNodeByElementId(child, elementId);
             if (found != null) {
                 return found;
             }

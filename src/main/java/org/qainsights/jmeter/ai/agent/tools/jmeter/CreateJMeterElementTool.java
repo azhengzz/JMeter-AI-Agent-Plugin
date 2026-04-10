@@ -72,7 +72,7 @@ public class CreateJMeterElementTool extends AbstractTool {
                         },
                         "parentId": {
                             "type": "integer",
-                            "description": "Optional instanceId of the parent node where to add the element. Use get_test_plan_tree or find_element to get instanceId. If not specified, adds to currently selected node."
+                            "description": "Optional elementId of the parent node where to add the element. Use get_test_plan_tree or find_element to get elementId. If not specified, adds to currently selected node."
                         },
                         "properties": {
                             "type": "object",
@@ -136,17 +136,17 @@ public class CreateJMeterElementTool extends AbstractTool {
             // Determine the parent node where to add the element
             JMeterTreeNode parentNode;
             if (parentId != null && parentId > 0) {
-                // Find parent node by instanceId
+                // Find parent node by elementId
                 JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
-                parentNode = JMeterTreeUtils.findNodeByInstanceId(rootNode, parentId);
+                parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
                 if (parentNode == null) {
-                    return ToolResult.error("Could not find parent node with instanceId: " + parentId +
-                            ". The node may have been removed. Use get_test_plan_tree to get current instanceIds.");
+                    return ToolResult.error("Could not find parent node with elementId: " + parentId +
+                            ". The node may have been removed. Use get_test_plan_tree to get current elementIds.");
                 }
                 // Select the parent node for visual feedback
                 guiPackage.getTreeListener().getJTree()
                         .setSelectionPath(new TreePath(parentNode.getPath()));
-                log.info("Selected parent node by instanceId: {}, name: {}", parentId, parentNode.getName());
+                log.info("Selected parent node by elementId: {}, name: {}", parentId, parentNode.getName());
             } else {
                 // Use the currently selected node
                 parentNode = guiPackage.getTreeListener().getCurrentNode();
