@@ -462,6 +462,20 @@ public class ComponentValidator {
             return;
         }
 
+        // Array type validation - check if value is a valid array format
+        if (propDef.getType() == ComponentSchema.PropertyType.ARRAY) {
+            log.info("Validating array property '{}': value={}, type={}",
+                    propDef.getName(), value, value.getClass().getName());
+            if (!isValidArrayValue(value)) {
+                builder.addError(String.format(
+                    "Property '%s' must be an array (e.g., ['value1', 'value2']). Received: %s (type: %s)",
+                    propDef.getName(), value, value.getClass().getSimpleName()
+                ));
+                log.debug("Validation failed: property {} is not a valid array", propDef.getName());
+                return;
+            }
+        }
+
         // Enum validation
         if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
             String strValue = value.toString();
@@ -703,6 +717,30 @@ public class ComponentValidator {
             builder.addError(error);
             log.debug("Validation failed: {}", error);
         }
+    }
+
+    /**
+     * Check if a value is a valid array format.
+     * Valid formats: Iterable (List, Set, etc.), native array, or JSON array string.
+     */
+    private boolean isValidArrayValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        // Check for Iterable (List, Set, etc.)
+        if (value instanceof Iterable) {
+            return true;
+        }
+        // Check for native array
+        if (value.getClass().isArray()) {
+            return true;
+        }
+        // Reject string values - AI should pass actual arrays, not string representations
+        if (value instanceof String) {
+            log.debug("Array property received as String instead of List/Array: {}", value);
+            return false;
+        }
+        return false;
     }
 
     /**
