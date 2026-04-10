@@ -1,0 +1,6 @@
+component:
+  type: simplecontroller
+  name: Simple Controller
+  description: Organizes and executes its child elements in sequential order without any special logic
+
+properties: []

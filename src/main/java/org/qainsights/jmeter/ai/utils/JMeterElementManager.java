@@ -495,7 +495,7 @@ public class JMeterElementManager {
                 new ElementClassInfo("org.apache.jmeter.control.TransactionController",
                         "org.apache.jmeter.control.gui.TransactionControllerGui"));
         ELEMENT_CLASS_MAP.put("simplecontroller", new ElementClassInfo("org.apache.jmeter.control.GenericController",
-                "org.apache.jmeter.control.gui.LogicControllerPanel"));
+                "org.apache.jmeter.control.gui.LogicControllerGui"));
         ELEMENT_CLASS_MAP.put("onceonlycontroller", new ElementClassInfo("org.apache.jmeter.control.OnceOnlyController",
                 "org.apache.jmeter.control.gui.OnceOnlyControllerPanel"));
         ELEMENT_CLASS_MAP.put("interleavecontroller", new ElementClassInfo(
@@ -517,7 +517,7 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("modulecontroller", new ElementClassInfo("org.apache.jmeter.control.ModuleController",
                 "org.apache.jmeter.control.gui.ModuleControllerGui"));
         ELEMENT_CLASS_MAP.put("includecontroller", new ElementClassInfo("org.apache.jmeter.control.IncludeController",
-                "org.apache.jmeter.control.gui.IncludeControllerPanel"));
+                "org.apache.jmeter.control.gui.IncludeControllerGui"));
         ELEMENT_CLASS_MAP.put("recordingcontroller", new ElementClassInfo(
                 "org.apache.jmeter.control.RecordingController", "org.apache.jmeter.control.gui.RecordController"));
         ELEMENT_CLASS_MAP.put("criticalsectioncontroller",

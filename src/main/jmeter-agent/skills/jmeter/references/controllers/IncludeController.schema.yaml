@@ -1,0 +1,14 @@
+component:
+  type: includecontroller
+  name: Include Controller
+  description: Includes an external JMX test plan fragment (TestFragment) into the current test plan
+
+properties:
+  - name: IncludeController.includepath
+    type: String
+    required: false
+    default: ""
+    description: |
+      Path to the external JMX file to include. The included file must contain a TestFragment
+      element, which will be inserted at this controller's location.
+      The path can be absolute or relative to the test plan location.
