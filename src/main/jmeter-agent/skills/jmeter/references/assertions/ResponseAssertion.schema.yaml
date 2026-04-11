@@ -28,7 +28,7 @@ properties:
     max: 52
     description: Type of comparison (2=Contains, 1=Match, 8=Equals, 16=Substring, 4=Not, 32=Or, combinations with bitwise OR)
 
-  - name: Assertion.test_strings
+  - name: Asserion.test_strings
     type: Array
     itemType: String
     required: false

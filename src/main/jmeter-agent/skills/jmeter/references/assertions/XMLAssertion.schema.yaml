@@ -1,0 +1,6 @@
+component:
+  type: xmlassertion
+  name: XML Assertion
+  description: The XML Assertion tests that the response data consists of a formally correct XML document.
+
+properties: []
