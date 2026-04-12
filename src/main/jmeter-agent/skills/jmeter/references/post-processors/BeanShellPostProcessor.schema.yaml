@@ -1,0 +1,29 @@
+component:
+  type: beanshellpostprocessor
+  name: BeanShell Post-Processor
+  description: "Executes BeanShell scripts after a sampler completes. Note: JSR223 with Groovy is recommended for better performance."
+
+properties:
+  - name: parameters
+    type: String
+    required: false
+    default: ""
+    description: "Parameters to pass to the script. Available as 'Parameters' string and 'bsh.args' array."
+
+  - name: filename
+    type: String
+    required: false
+    default: ""
+    description: "External script file path. If set, script content from file will be used instead of inline script."
+
+  - name: resetInterpreter
+    type: Boolean
+    required: false
+    default: false
+    description: "Reset the BeanShell interpreter before each execution."
+
+  - name: script
+    type: String
+    required: false
+    default: ""
+    description: "BeanShell script code to execute. Required if filename is not set."

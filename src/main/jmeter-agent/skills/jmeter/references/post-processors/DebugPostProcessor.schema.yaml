@@ -1,0 +1,29 @@
+component:
+  type: debugpostprocessor
+  name: Debug Post-Processor
+  description: "Displays JMeter variables, properties, and sampler information in the View Results Tree for debugging."
+
+properties:
+  - name: displayJMeterVariables
+    type: Boolean
+    required: false
+    default: true
+    description: "Display JMeter variables in the sub-sampler results."
+
+  - name: displayJMeterProperties
+    type: Boolean
+    required: false
+    default: false
+    description: "Display JMeter properties in the sub-sampler results."
+
+  - name: displaySamplerProperties
+    type: Boolean
+    required: false
+    default: true
+    description: "Display sampler properties in the sub-sampler results."
+
+  - name: displaySystemProperties
+    type: Boolean
+    required: false
+    default: false
+    description: "Display system properties in the sub-sampler results."
