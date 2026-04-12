@@ -11,6 +11,9 @@ JSR223 Post-Processor executes code after a sampler completes. It's commonly use
 | `scriptLanguage` | Yes | Scripting language | `groovy` |
 | `script` | Yes* | Script code to execute | See examples below |
 | `scriptFile` | Yes* | Path to external script file | `/path/to/script.groovy` |
+| `filename` | No | Alias for scriptFile | `/path/to/script.groovy` |
+| `parameters` | No | Parameters to pass to script | `param1=value1,param2=value2` |
+| `cacheKey` | No | Enable script compilation caching | `true` (enabled), `false` (disabled) |
 
 ## Usage Examples
 
