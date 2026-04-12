@@ -14,7 +14,9 @@ CSS Selector Extractor uses CSS Selector or jQuery expressions to extract data f
 | `HtmlExtractor.match_number` | No | Which match to use (0=random, 1=first, -1=all) | `1` |
 | `HtmlExtractor.default` | No | Default value if no match found | `NOT_FOUND` |
 | `HtmlExtractor.default_empty_value` | No | Set empty string as default | `false` |
-| `HtmlExtractor.extractor_impl` | No | Extractor implementation (empty=JSOUP) | `JSOUP` or `JODD` |
+| `HtmlExtractor.extractor_impl` | No | Extractor implementation (empty=JSOUP, recommended) | `JSOUP` or `JODD` |
+| `Sample.scope` | No | Scope: parent/main/all/children/variable | `parent` |
+| `Scope.variable` | No | Variable name to extract from (when scope=variable) | `response_body` |
 
 ## Usage Examples
 
@@ -73,7 +75,20 @@ create_jmeter_element with:
   - HtmlExtractor.match_number: "1"
 ```
 
-### Example 5: Complex CSS Selector
+### Example 5: Extract from Sub-samples
+
+```
+create_jmeter_element with:
+- elementType: "htmlextractor"
+- elementName: "提取子请求中的链接"
+- properties:
+  - HtmlExtractor.refname: "sub_link"
+  - HtmlExtractor.expr: "a.next-link"
+  - HtmlExtractor.attribute: "href"
+  - Sample.scope: "children"
+```
+
+### Example 6: Complex CSS Selector
 
 ```
 create_jmeter_element with:
@@ -102,6 +117,19 @@ create_jmeter_element with:
 | `:last-child` | Last child | `li:last-child` |
 | `:nth-child(n)` | Nth child | `td:nth-child(2)` |
 
+### Example 7: Extract from Variable
+
+```
+create_jmeter_element with:
+- elementType: "htmlextractor"
+- elementName: "从变量中提取数据"
+- properties:
+  - HtmlExtractor.refname: "extracted_value"
+  - HtmlExtractor.expr: "div.content > p"
+  - Sample.scope: "variable"
+  - Scope.variable: "stored_html"
+```
+
 ## Attribute Values
 
 | Attribute | Description |
@@ -123,6 +151,15 @@ create_jmeter_element with:
 | `1` | First match (default) |
 | `n` | Nth match |
 | `-1` | All matches |
+
+## Scope Options
+
+| Value | Description |
+|-------|-------------|
+| `parent` | Main sample only (default) |
+| `all` | Main sample and sub-samples |
+| `children` | Sub-samples only |
+| `variable` | JMeter variable (use with `Scope.variable`) |
 
 ## Extractor Implementation
 
