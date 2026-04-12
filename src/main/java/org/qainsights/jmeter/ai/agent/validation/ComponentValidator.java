@@ -4,6 +4,8 @@ import org.qainsights.jmeter.ai.agent.tools.ValidationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -476,6 +478,17 @@ public class ComponentValidator {
             }
         }
 
+        // ARRAY_2D type validation - check if value is a valid nested array format
+        if (propDef.getType() == ComponentSchema.PropertyType.ARRAY_2D) {
+            log.info("Validating ARRAY_2D property '{}': value={}, type={}",
+                    propDef.getName(), value, value.getClass().getName());
+            ValidationResult nestedValidation = validateArray2D(value, propDef);
+            if (!nestedValidation.isValid()) {
+                builder.addErrors(nestedValidation.getErrors());
+                return;
+            }
+        }
+
         // Enum validation
         if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
             String strValue = value.toString();
@@ -744,6 +757,87 @@ public class ComponentValidator {
     }
 
     /**
+     * Validate ARRAY_2D (nested array) property.
+     * Checks that outer array contains inner arrays, and inner elements match innerItemType.
+     */
+    @SuppressWarnings("unchecked")
+    private ValidationResult validateArray2D(Object value, ComponentSchema.PropertyDefinition propDef) {
+        ValidationResult.Builder builder = new ValidationResult.Builder();
+
+        // Check outer array format
+        if (!isValidArrayValue(value)) {
+            builder.addError(String.format(
+                "Property '%s' must be a nested array (e.g., [['val1', 'val2'], ['val3', 'val4']]). Received: %s (type: %s)",
+                propDef.getName(), value, value.getClass().getSimpleName()
+            ));
+            return builder.build();
+        }
+
+        // Convert to list and validate each inner array
+        List<Object> outerList = convertToSimpleList(value);
+        ComponentSchema.PropertyType innerItemType = propDef.getInnerItemType();
+
+        if (innerItemType == null) {
+            log.debug("Property '{}' has no innerItemType defined, skipping inner element validation", propDef.getName());
+            return ValidationResult.valid();
+        }
+
+        for (int i = 0; i < outerList.size(); i++) {
+            Object innerItem = outerList.get(i);
+
+            // Check if inner element is an array
+            if (!isValidArrayValue(innerItem)) {
+                builder.addError(String.format(
+                    "Property '%s' inner element at index %d must be an array. Received: %s (type: %s)",
+                    propDef.getName(), i, innerItem,
+                    innerItem != null ? innerItem.getClass().getSimpleName() : "null"
+                ));
+                continue;
+            }
+
+            // Validate inner array elements
+            List<Object> innerList = convertToSimpleList(innerItem);
+            for (int j = 0; j < innerList.size(); j++) {
+                Object element = innerList.get(j);
+                if (!isValidType(element, innerItemType)) {
+                    builder.addError(String.format(
+                        "Property '%s' inner element [%d][%d] has invalid type. Expected: %s, Received: %s",
+                        propDef.getName(), i, j, innerItemType,
+                        element != null ? element.getClass().getSimpleName() : "null"
+                    ));
+                }
+            }
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Convert an array or collection value to a simple list.
+     */
+    private List<Object> convertToSimpleList(Object value) {
+        List<Object> result = new ArrayList<>();
+        if (value == null) {
+            return result;
+        }
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) {
+                if (item != null) {
+                    result.add(item);
+                }
+            }
+        } else if (value.getClass().isArray()) {
+            Object[] array = (Object[]) value;
+            for (Object item : array) {
+                if (item != null) {
+                    result.add(item);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Check if a value is an array or collection type.
      */
     private boolean isArrayValue(Object value) {
@@ -797,6 +891,7 @@ public class ComponentValidator {
             case NUMBER -> value instanceof Number;
             case OBJECT -> value instanceof Map;
             case ARRAY -> value instanceof Iterable || value.getClass().isArray();
+            case ARRAY_2D -> value instanceof Iterable || value.getClass().isArray();  // Top-level is iterable
         };
     }
 

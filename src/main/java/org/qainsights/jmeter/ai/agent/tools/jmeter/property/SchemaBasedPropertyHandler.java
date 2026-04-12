@@ -87,6 +87,10 @@ public class SchemaBasedPropertyHandler {
                 }
                 break;
 
+            case ARRAY_2D:
+                handleNestedArrayProperty(element, propName, propValue);
+                break;
+
             default:
                 handleSimpleProperty(element, propName, propValue);
                 break;
@@ -346,7 +350,7 @@ public class SchemaBasedPropertyHandler {
         try {
             Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
             Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
-            Class<?> jmeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
+            Class<?> jMeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
 
             List<Object> items = convertToList(propValue);
 
@@ -354,7 +358,7 @@ public class SchemaBasedPropertyHandler {
                     .getConstructor(String.class, java.util.Collection.class)
                     .newInstance(propName, new ArrayList<>());
 
-            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jmeterPropClass);
+            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jMeterPropClass);
 
             for (int i = 0; i < items.size(); i++) {
                 String uniqueName = String.valueOf(System.currentTimeMillis() + i);
@@ -373,6 +377,55 @@ public class SchemaBasedPropertyHandler {
                     .map(Object::toString)
                     .collect(java.util.stream.Collectors.joining(","));
             element.setProperty(propName, joinedValue);
+        }
+    }
+
+    /**
+     * Handle nested array properties (Array of Array) for UserParameters.thread_values.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleNestedArrayProperty(TestElement element, String propName, Object propValue) {
+        try {
+            Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
+            Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
+            Class<?> jMeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
+
+            List<Object> outerList = convertToList(propValue);
+
+            Object outerCollectionProp = collectionPropClass
+                    .getConstructor(String.class, java.util.Collection.class)
+                    .newInstance(propName, new ArrayList<>());
+
+            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jMeterPropClass);
+
+            for (int i = 0; i < outerList.size(); i++) {
+                Object innerItem = outerList.get(i);
+                if (!(innerItem instanceof List)) {
+                    log.warn("Nested array item {} is not a list, skipping", i);
+                    continue;
+                }
+
+                List<Object> innerList = (List<Object>) innerItem;
+                Object innerCollectionProp = collectionPropClass
+                        .getConstructor(String.class, java.util.Collection.class)
+                        .newInstance(String.valueOf(System.currentTimeMillis() + i), new ArrayList<>());
+
+                for (int j = 0; j < innerList.size(); j++) {
+                    String uniqueName = String.valueOf(System.currentTimeMillis() + i + j);
+                    Object stringProp = stringPropClass
+                            .getConstructor(String.class, String.class)
+                            .newInstance(uniqueName, innerList.get(j).toString());
+                    addPropertyMethod.invoke(innerCollectionProp, stringProp);
+                }
+
+                addPropertyMethod.invoke(outerCollectionProp, innerCollectionProp);
+            }
+
+            element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) outerCollectionProp);
+            log.info("Set nested array property: {} with {} inner arrays", propName, outerList.size());
+
+        } catch (Exception e) {
+            log.error("Failed to create nested CollectionProperty for {}", propName, e);
         }
     }
 

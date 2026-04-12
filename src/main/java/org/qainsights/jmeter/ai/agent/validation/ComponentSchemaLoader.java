@@ -184,6 +184,9 @@ public class ComponentSchemaLoader {
             // Parse item type for collection properties
             propDef.setItemType(getStringValue(propData, "itemType"));
 
+            // Parse inner item type for ARRAY_2D properties
+            propDef.setInnerItemType(getStringValue(propData, "innerItemType"));
+
             // Parse item properties for collection properties
             if (propData.containsKey("itemProperties")) {
                 Object itemPropsObj = propData.get("itemProperties");

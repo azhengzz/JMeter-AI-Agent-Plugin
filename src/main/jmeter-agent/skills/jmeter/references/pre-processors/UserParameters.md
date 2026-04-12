@@ -8,8 +8,9 @@ User Parameters allows you to define specific values for different users. Each u
 
 | Property | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `UserParameterNames` | No | Comma-separated parameter names | `username,password` |
-| `UserParameterValues` | No | Parameter values per user | See examples below |
+| `UserParameters.names` | Yes | List of parameter names | `["username", "password"]` |
+| `UserParameters.thread_values` | Yes | List of user value lists | See examples below |
+| `UserParameters.per_iteration` | No | Update each iteration instead of once at thread start | `false` |
 
 ## Usage Examples
 
@@ -20,22 +21,12 @@ create_jmeter_element with:
 - elementType: "userparameters"
 - elementName: "用户参数"
 - properties:
-  - UserParameterNames: "username,password"
-  - UserParameterValues: |
-    User 1: alice,alice123
-    User 2: bob,bob456
-    User 3: charlie,charlie789
-
-// Use in HTTP Request
-create_jmeter_element with:
-- elementType: "httpsampler"
-- elementName: "POST_登录"
-- properties:
-  - HTTPSampler.path: "/api/login"
-  - HTTPSampler.method: "POST"
-  - HTTPsampler.Arguments:
-    - "": '{"username":"${username}","password":"${password}"}'
-  - HTTPSampler.postBodyRaw: "true"
+  - UserParameters.names: ["username", "password"]
+  - UserParameters.thread_values: [
+      ["alice", "alice123"],
+      ["bob", "bob456"],
+      ["charlie", "charlie789"]
+    ]
 ```
 
 ### Example 2: Different User Profiles
@@ -45,11 +36,12 @@ create_jmeter_element with:
 - elementType: "userparameters"
 - elementName: "用户配置参数"
 - properties:
-  - UserParameterNames: "user_type,max_items,timeout"
-  - UserParameterValues: |
-    User 1: premium,100,5000
-    User 2: standard,50,3000
-    User 3: basic,25,1000
+  - UserParameters.names: ["user_type", "max_items", "timeout"]
+  - UserParameters.thread_values: [
+      ["premium", "100", "5000"],
+      ["standard", "50", "3000"],
+      ["basic", "25", "1000"]
+    ]
 ```
 
 ### Example 3: Per-User Test Data
@@ -59,11 +51,12 @@ create_jmeter_element with:
 - elementType: "userparameters"
 - elementName: "测试数据参数"
 - properties:
-  - UserParameterNames: "account_id,product_id,region"
-  - UserParameterValues: |
-    User 1: ACC001,PROD100,US-East
-    User 2: ACC002,PROD200,EU-West
-    User 3: ACC003,PROD300,AP-South
+  - UserParameters.names: ["account_id", "product_id", "region"]
+  - UserParameters.thread_values: [
+      ["ACC001", "PROD100", "US-East"],
+      ["ACC002", "PROD200", "EU-West"],
+      ["ACC003", "PROD300", "AP-South"]
+    ]
 ```
 
 ## How It Works
@@ -73,15 +66,6 @@ create_jmeter_element with:
 3. **Thread 1**: Uses User 1 parameters
 4. **Thread 2**: Uses User 2 parameters
 5. **Thread N**: Uses parameters modulo N (wraps around)
-
-## Parameter Format
-
-```
-parameter_name_1,parameter_name_2,parameter_name_3
-User 1: value1_1,value1_2,value1_3
-User 2: value2_1,value2_2,value2_3
-User 3: value3_1,value3_2,value3_3
-```
 
 ## Comparison with CSV Data Set
 
@@ -124,7 +108,7 @@ User 3: value3_1,value3_2,value3_3
 
 ## Notes
 
-- Parameters are set when the thread starts
+- Parameters are set when the thread starts (unless per_iteration is true)
 - Each thread uses its assigned user's parameters
 - If threads > users, assignment wraps around
 - More users than threads means some users won't be used

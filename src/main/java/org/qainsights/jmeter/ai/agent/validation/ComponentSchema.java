@@ -92,6 +92,7 @@ public class ComponentSchema {
         private List<PropertyDefinition> nestedProperties;  // Nested properties for Object type
         private String itemType;  // Item type for collection properties (e.g., "HTTPArgument")
         private List<PropertyDefinition> itemProperties;  // Item property definitions for collection properties
+        private PropertyType innerItemType;  // Inner element type for ARRAY_2D (e.g., STRING for UserParameters.thread_values)
 
         public String getName() {
             return name;
@@ -214,6 +215,18 @@ public class ComponentSchema {
         public boolean hasItemProperties() {
             return itemProperties != null && !itemProperties.isEmpty();
         }
+
+        public PropertyType getInnerItemType() {
+            return innerItemType;
+        }
+
+        public void setInnerItemType(PropertyType innerItemType) {
+            this.innerItemType = innerItemType;
+        }
+
+        public void setInnerItemType(String innerItemTypeStr) {
+            this.innerItemType = PropertyType.fromString(innerItemTypeStr);
+        }
     }
 
     /**
@@ -225,7 +238,8 @@ public class ComponentSchema {
         BOOLEAN,
         NUMBER,
         OBJECT,
-        ARRAY;
+        ARRAY,
+        ARRAY_2D;  // Nested array (Array of Array) for components like UserParameters.thread_values
 
         /**
          * Parse property type from string.
