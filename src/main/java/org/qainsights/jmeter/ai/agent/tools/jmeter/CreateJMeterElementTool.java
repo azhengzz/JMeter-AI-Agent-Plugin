@@ -87,6 +87,7 @@ public class CreateJMeterElementTool extends AbstractTool {
 
     @Override
     protected ToolResult executeInternal(Map<String, Object> parameters) {
+        // Extract parameters
         String elementType = getStringParameter(parameters, "elementType", null);
         String elementName = getStringParameter(parameters, "elementName", null);
         Integer parentId = getIntParameter(parameters, "parentId", -1);
@@ -94,6 +95,7 @@ public class CreateJMeterElementTool extends AbstractTool {
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) parameters.get("properties");
 
+        // Validate required parameters
         if (elementType == null || elementType.isEmpty()) {
             return ToolResult.error("elementType is required");
         }
@@ -101,39 +103,30 @@ public class CreateJMeterElementTool extends AbstractTool {
             return ToolResult.error("elementName is required");
         }
 
-        // Schema validation (if schema exists)
-        if (componentValidator != null) {
-            ValidationResult validation = componentValidator.validate(elementType, properties);
-            if (!validation.isValid()) {
-                String errorMsg = buildValidationErrorMessage(elementType, validation);
-                log.warn("Component validation failed for {}: {}", elementType, errorMsg);
-                return ToolResult.error(errorMsg);
-            }
+        // Apply schema validation and defaults
+        ValidationResult validationResult = validateComponent(elementType, properties);
+        if (!validationResult.isValid()) {
+            return ToolResult.error(buildValidationErrorMessage(elementType, validationResult));
+        }
 
-            // Apply default values from schema for properties that were not provided
-            properties = applyDefaultValues(elementType, properties);
+        // Apply default values from schema for properties that were not provided
+        properties = applyDefaultValues(elementType, properties);
+        log.info("Properties after applying defaults for {} ({} properties):", elementType, properties.size());
+        properties.forEach((key, value) -> log.info("  {} = {}", key, value));
 
-            log.info("Properties after applying defaults for {} ({} properties):", elementType, properties.size());
-            properties.forEach((key, value) -> log.info("  {} = {}", key, value));
+        // Check test plan readiness
+        JMeterElementManager.TestPlanStatus status = JMeterElementManager.isTestPlanReady();
+        if (!status.isReady()) {
+            return ToolResult.error("Cannot create element: " + status.getErrorMessage());
+        }
 
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return ToolResult.error("JMeter GUI is not available");
         }
 
         try {
-            // Check if test plan is ready
-            JMeterElementManager.TestPlanStatus status = JMeterElementManager.isTestPlanReady();
-            if (!status.isReady()) {
-                return ToolResult.error("Cannot create element: " + status.getErrorMessage());
-            }
-
-            GuiPackage guiPackage = GuiPackage.getInstance();
-            if (guiPackage == null) {
-                return ToolResult.error("JMeter GUI is not available");
-            }
-
-            // Save the current selected node to restore later
-            JMeterTreeNode originalSelectedNode = guiPackage.getTreeListener().getCurrentNode();
-
-            // Determine the parent node where to add the element
+            // Determine parent node
             JMeterTreeNode parentNode;
             if (parentId != null && parentId > 0) {
                 // Find parent node by elementId
@@ -155,73 +148,134 @@ public class CreateJMeterElementTool extends AbstractTool {
                 }
             }
 
-            // Create the element with properties
+            // Create element with properties
             TestElement newElement = createElementWithProperties(elementType, elementName, properties);
-
             if (newElement == null) {
                 return ToolResult.error("Failed to create element of type: " + elementType);
             }
 
             // Check compatibility
-            if (!JMeterElementManager.isNodeCompatible(parentNode, newElement)) {
-                String parentTypeName = parentNode.getTestElement().getClass().getSimpleName();
-                String parentNodeSupportedTypes = JMeterElementManager.getSupportedChildTypesDescription(parentNode);
-                String childElementSupportedParents = JMeterElementManager.getSupportedParentTypesDescription(newElement);
-
-                StringBuilder errorMsg = new StringBuilder();
-                errorMsg.append("Cannot add element of type '").append(elementType)
-                        .append("' to the parent node '").append(parentNode.getTestElement().getName())
-                        .append("' (type: ").append(parentTypeName).append("').\n\n");
-                errorMsg.append("**Compatibility Rule Violation**\n\n");
-                errorMsg.append("1. Current parent node constraints:\n   ");
-                errorMsg.append(parentNodeSupportedTypes != null ? parentNodeSupportedTypes : "Unable to determine.");
-                errorMsg.append("\n\n");
-                errorMsg.append("2. Child element requirements:\n   ");
-                errorMsg.append(childElementSupportedParents != null ? childElementSupportedParents : "Unable to determine.");
-                errorMsg.append("\n\n**Solution**: Try adding this element to a compatible parent node type listed above.");
-
-                return ToolResult.error(errorMsg.toString());
+            ToolResult compatibilityResult = checkCompatibility(parentNode, newElement, elementType);
+            if (!compatibilityResult.isSuccess()) {
+                return compatibilityResult;
             }
 
-            // Add the element to the test plan
-            // guiPackage.getTreeModel().addComponent(newElement, parentNode);
-
-            // Fix: use JMeter's classloader so ClassFinder can scan all jars (e.g., ResultRenderer in ApacheJMeter_components.jar)
-            ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-            try {
-                Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
-                guiPackage.getTreeModel().addComponent(newElement, parentNode);
-            } finally {
-                Thread.currentThread().setContextClassLoader(originalClassLoader);
-            }
-            log.info("Successfully added element to the tree model");
-
-            // Restore original selection if we changed it
-            if (parentId != null && parentId > 0 && originalSelectedNode != null) {
-                guiPackage.getTreeListener().getJTree()
-                        .setSelectionPath(new TreePath(originalSelectedNode.getPath()));
-                log.info("Restored original selection");
+            // Add element to test plan
+            ToolResult addResult = addElementToTestPlan(guiPackage, newElement, parentNode);
+            if (!addResult.isSuccess()) {
+                return addResult;
             }
 
-            // Refresh the tree and select the newly added element
-            refreshTreeAndSelectNewElement(parentNode);
-
-            StringBuilder result = new StringBuilder();
-            result.append("Successfully created element: **").append(elementName).append("** (").append(elementType).append(")");
-
-            if (properties != null && !properties.isEmpty()) {
-                result.append("\n\nSet properties:\n");
-                for (Map.Entry<String, Object> entry : properties.entrySet()) {
-                    result.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
-                }
-            }
-
-            return ToolResult.success(result.toString());
+            // Build and return success result
+            return buildSuccessResult(elementName, elementType, properties);
 
         } catch (Exception e) {
             log.error("Error creating JMeter element", e);
             return ToolResult.error("Failed to create element: " + e.getMessage());
         }
+    }
+
+    /**
+     * Validate component parameters against schema.
+     *
+     * @param elementType  The component type
+     * @param properties   The provided properties (may be null)
+     * @return ValidationResult containing validation status
+     */
+    private ValidationResult validateComponent(String elementType, Map<String, Object> properties) {
+        if (componentValidator == null) {
+            return ValidationResult.valid();
+        }
+
+        ValidationResult validation = componentValidator.validate(elementType, properties);
+        if (!validation.isValid()) {
+            log.warn("Component validation failed for {}: {}", elementType, validation.getErrors());
+        }
+
+        return validation;
+    }
+
+    /**
+     * Check if a child element is compatible with the parent node.
+     *
+     * @param parentNode   The parent node
+     * @param newElement   The element to add
+     * @param elementType  The element type for error messages
+     * @return ToolResult indicating compatibility status
+     */
+    private ToolResult checkCompatibility(JMeterTreeNode parentNode, TestElement newElement, String elementType) {
+        if (JMeterElementManager.isNodeCompatible(parentNode, newElement)) {
+            return ToolResult.success("");
+        }
+
+        String parentTypeName = parentNode.getTestElement().getClass().getSimpleName();
+        String parentNodeSupportedTypes = JMeterElementManager.getSupportedChildTypesDescription(parentNode);
+        String childElementSupportedParents = JMeterElementManager.getSupportedParentTypesDescription(newElement);
+
+        StringBuilder errorMsg = new StringBuilder();
+        errorMsg.append("Cannot add element of type '").append(elementType)
+                .append("' to the parent node '").append(parentNode.getTestElement().getName())
+                .append("' (type: ").append(parentTypeName).append("').\n\n");
+        errorMsg.append("**Compatibility Rule Violation**\n\n");
+        errorMsg.append("1. Current parent node constraints:\n   ");
+        errorMsg.append(parentNodeSupportedTypes != null ? parentNodeSupportedTypes : "Unable to determine.");
+        errorMsg.append("\n\n");
+        errorMsg.append("2. Child element requirements:\n   ");
+        errorMsg.append(childElementSupportedParents != null ? childElementSupportedParents : "Unable to determine.");
+        errorMsg.append("\n\n**Solution**: Try adding this element to a compatible parent node type listed above.");
+
+        return ToolResult.error(errorMsg.toString());
+    }
+
+    /**
+     * Add an element to the test plan tree.
+     *
+     * @param guiPackage The GuiPackage instance
+     * @param newElement The element to add
+     * @param parentNode The parent node
+     * @return ToolResult indicating success or failure
+     */
+    private ToolResult addElementToTestPlan(GuiPackage guiPackage, TestElement newElement,
+                                             JMeterTreeNode parentNode) {
+        // Fix: use JMeter's classloader so ClassFinder can scan all jars (e.g., ResultRenderer in ApacheJMeter_components.jar)
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
+            guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            log.info("Successfully added element to the tree model");
+        } catch (Exception e) {
+            log.error("Failed to add element to tree model", e);
+            return ToolResult.error("Failed to add element to test plan: " + e.getMessage());
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
+
+        // Refresh the tree and select the newly added element
+        refreshTreeAndSelectNewElement(parentNode);
+
+        return ToolResult.success("");
+    }
+
+    /**
+     * Build a success result message.
+     *
+     * @param elementName The element name
+     * @param elementType The element type
+     * @param properties  The properties that were set
+     * @return ToolResult with success message
+     */
+    private ToolResult buildSuccessResult(String elementName, String elementType, Map<String, Object> properties) {
+        StringBuilder result = new StringBuilder();
+        result.append("Successfully created element: **").append(elementName).append("** (").append(elementType).append(")");
+
+        if (properties != null && !properties.isEmpty()) {
+            result.append("\n\nSet properties:\n");
+            for (Map.Entry<String, Object> entry : properties.entrySet()) {
+                result.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+            }
+        }
+
+        return ToolResult.success(result.toString());
     }
 
     /**
@@ -267,7 +321,12 @@ public class CreateJMeterElementTool extends AbstractTool {
 
             // Set properties if provided (including HTTPsampler.Arguments if needed)
             if (properties != null && !properties.isEmpty()) {
-                setElementProperties(element, properties, normalizedType);
+                try {
+                    setElementProperties(element, properties, normalizedType);
+                } catch (Exception e) {
+                    log.error("Failed to set properties on element, returning null", e);
+                    return null;
+                }
             }
 
             log.info("Successfully created element: {}", element.getClass().getSimpleName());
