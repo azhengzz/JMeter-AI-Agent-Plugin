@@ -295,7 +295,7 @@ public class ElementSuggestionManager {
                 return "xpathextractor";
             }
             if (elementType.contains("json")) {
-                return "jsonpathextractor";
+                return "jsonpostprocessor";
             }
             if (elementType.contains("boundary")) {
                 return "boundaryextractor";
@@ -436,8 +436,6 @@ public class ElementSuggestionManager {
                 return "CSV Data Set";
             
             // Post Processors
-            case "jsonextractor":
-            case "jsonpathextractor":
             case "jsonpostprocessor":
                 return "JSON Extractor";
             case "regexextractor":

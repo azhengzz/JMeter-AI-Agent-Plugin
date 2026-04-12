@@ -343,15 +343,6 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("jsonpostprocessor",
                 new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
                         "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
-        ELEMENT_CLASS_MAP.put("jsonpathpostprocessor",
-                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
-                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
-        ELEMENT_CLASS_MAP.put("jsonpathextractor",
-                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
-                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
-        ELEMENT_CLASS_MAP.put("jsonextractor",
-                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
-                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
         ELEMENT_CLASS_MAP.put("boundaryextractor", new ElementClassInfo("org.apache.jmeter.extractor.BoundaryExtractor",
                 "org.apache.jmeter.extractor.gui.BoundaryExtractorGui"));
         ELEMENT_CLASS_MAP.put("htmlextractor", new ElementClassInfo("org.apache.jmeter.extractor.HtmlExtractor",
@@ -899,11 +890,7 @@ public class JMeterElementManager {
                 return "Regular Expression Extractor";
             case "xpathextractor":
                 return "XPath Extractor";
-            case "jsonpathextractor":
-            case "jsonextractor":
-                return "JSON Path Extractor";
             case "jsonpostprocessor":
-            case "jsonpathpostprocessor":
                 return "JSON Post Processor";
             case "boundaryextractor":
                 return "Boundary Extractor";

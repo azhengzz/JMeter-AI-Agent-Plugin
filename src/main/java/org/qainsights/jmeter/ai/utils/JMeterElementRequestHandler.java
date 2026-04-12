@@ -88,7 +88,7 @@ public class JMeterElementRequestHandler {
         addSynonyms("regexextractor", "regex extractor", "regular expression extractor", "regex", "regexp",
                 "pattern extractor", "text extractor");
         addSynonyms("xpathextractor", "xpath extractor", "xml extractor", "xpath", "xml path extractor", "xml parser");
-        addSynonyms("jsonpathextractor", "json extractor", "jsonpath extractor", "json path extractor", "jsonpath",
+        addSynonyms("jsonpostprocessor", "json extractor", "jsonpath extractor", "json path extractor", "jsonpath",
                 "json parser", "json data extractor");
         addSynonyms("boundaryextractor", "boundary extractor", "text extractor", "boundary", "string extractor",
                 "substring extractor");
@@ -782,7 +782,7 @@ public class JMeterElementRequestHandler {
                 return "xpathextractor";
             } else if (normalized.contains("json") || normalized.contains("jsonpath")) {
                 log.info("Identified as json path extractor");
-                return "jsonpathextractor";
+                return "jsonpostprocessor";
             } else if (normalized.contains("boundary") || normalized.contains("text")) {
                 log.info("Identified as boundary extractor");
                 return "boundaryextractor";
@@ -1001,7 +1001,7 @@ public class JMeterElementRequestHandler {
         elementTypeMap.put("Poisson Random Timer", "poissonrandomtimer");
         elementTypeMap.put("Regex Extractor", "regexextractor");
         elementTypeMap.put("XPath Extractor", "xpathextractor");
-        elementTypeMap.put("JSON Path Extractor", "jsonpathextractor");
+        elementTypeMap.put("JSON Path Extractor", "jsonpostprocessor");
         elementTypeMap.put("Boundary Extractor", "boundaryextractor");
         elementTypeMap.put("View Results Tree", "viewresultstree");
         elementTypeMap.put("Aggregate Report", "aggregatereport");

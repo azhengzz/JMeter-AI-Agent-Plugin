@@ -135,9 +135,6 @@ public class JMeterElementManager {
                     return "CSVDataSet";
                 
                 // Post Processors
-                case "jsonextractor":
-                case "jsonpathextractor":
-                case "jsonpath":
                 case "jsonpostprocessor":
                     return "JSONPostProcessor";
                 case "regexextractor":
