@@ -6,10 +6,10 @@ Uniform Random Timer adds a random pause with uniform distribution. Each pause i
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `ConstantTimer.delay` | Yes | Constant delay in milliseconds | `1000` |
-| `RandomTimer.range` | Yes | Maximum random delay in milliseconds | `500` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `ConstantTimer.delay` | Yes | `0` | Number of milliseconds to pause in addition to the random delay | `1000` |
+| `RandomTimer.range` | Yes | `100.0` | Maximum random number of milliseconds to pause | `500` |
 
 ## Usage Examples
 

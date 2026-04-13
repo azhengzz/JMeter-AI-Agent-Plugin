@@ -1,0 +1,17 @@
+component:
+  type: uniformrandomtimer
+  name: Uniform Random Timer
+  description: Adds a random pause with uniform distribution
+
+properties:
+  - name: ConstantTimer.delay
+    type: String
+    required: true
+    default: "0"
+    description: Number of milliseconds to pause in addition to the random delay.
+
+  - name: RandomTimer.range
+    type: String
+    required: true
+    default: "100.0"
+    description: Maximum random number of milliseconds to pause.

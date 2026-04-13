@@ -6,9 +6,9 @@ Constant Timer adds a fixed pause before each sampler in its scope. It's used to
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `ConstantTimer.delay` | Yes | Delay in milliseconds | `1000` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `ConstantTimer.delay` | Yes | `300` | Delay in milliseconds | `1000` |
 
 ## Usage Examples
 
