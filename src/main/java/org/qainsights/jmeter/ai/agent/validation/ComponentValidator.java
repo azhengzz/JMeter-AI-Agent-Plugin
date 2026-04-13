@@ -522,6 +522,49 @@ public class ComponentValidator {
             }
         }
 
+        // Range validation for Long
+        if (propDef.getType() == ComponentSchema.PropertyType.LONG && value instanceof Number) {
+            long numValue = ((Number) value).longValue();
+
+            if (propDef.getMinValue() != null && numValue < propDef.getMinValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %d is below minimum %d",
+                    propDef.getName(), numValue, propDef.getMinValue()
+                ));
+                log.debug("Validation failed: property {} below minimum", propDef.getName());
+            }
+
+            if (propDef.getMaxValue() != null && numValue > propDef.getMaxValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %d exceeds maximum %d",
+                    propDef.getName(), numValue, propDef.getMaxValue()
+                ));
+                log.debug("Validation failed: property {} exceeds maximum", propDef.getName());
+            }
+        }
+
+        // Range validation for Float/Double
+        if ((propDef.getType() == ComponentSchema.PropertyType.FLOAT || propDef.getType() == ComponentSchema.PropertyType.DOUBLE)
+                && value instanceof Number) {
+            double numValue = ((Number) value).doubleValue();
+
+            if (propDef.getDoubleMinValue() != null && numValue < propDef.getDoubleMinValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %s is below minimum %s",
+                    propDef.getName(), numValue, propDef.getDoubleMinValue()
+                ));
+                log.debug("Validation failed: property {} below minimum", propDef.getName());
+            }
+
+            if (propDef.getDoubleMaxValue() != null && numValue > propDef.getDoubleMaxValue()) {
+                builder.addError(String.format(
+                    "Property '%s' value %s exceeds maximum %s",
+                    propDef.getName(), numValue, propDef.getDoubleMaxValue()
+                ));
+                log.debug("Validation failed: property {} exceeds maximum", propDef.getName());
+            }
+        }
+
         // Pattern validation (regex)
         if (propDef.getPattern() != null && !propDef.getPattern().isEmpty()) {
             String strValue = value.toString();
@@ -886,9 +929,12 @@ public class ComponentValidator {
 
         return switch (expectedType) {
             case STRING -> value instanceof String;
-            case INTEGER -> value instanceof Integer || value instanceof Long;
+            case INTEGER -> value instanceof Integer;
+            case LONG -> value instanceof Long || value instanceof Integer;  // Integer can be promoted to Long
+            case FLOAT -> value instanceof Float;
+            case DOUBLE -> value instanceof Double || value instanceof Float;  // Float can be promoted to Double
             case BOOLEAN -> value instanceof Boolean;
-            case NUMBER -> value instanceof Number;
+            case NUMBER -> value instanceof Number;  // Generic numeric type (legacy)
             case OBJECT -> value instanceof Map;
             case ARRAY -> value instanceof Iterable || value.getClass().isArray();
             case ARRAY_2D -> value instanceof Iterable || value.getClass().isArray();  // Top-level is iterable

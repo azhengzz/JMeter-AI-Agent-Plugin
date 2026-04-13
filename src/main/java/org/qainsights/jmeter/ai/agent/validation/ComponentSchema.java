@@ -86,6 +86,8 @@ public class ComponentSchema {
         private List<String> enumValues;
         private Integer minValue;
         private Integer maxValue;
+        private Double doubleMinValue;  // For Float/Double type ranges
+        private Double doubleMaxValue;  // For Float/Double type ranges
         private String pattern;
         private String description;
         private String className;  // Fully qualified class name for Object type
@@ -152,6 +154,22 @@ public class ComponentSchema {
 
         public void setMaxValue(Integer maxValue) {
             this.maxValue = maxValue;
+        }
+
+        public Double getDoubleMinValue() {
+            return doubleMinValue;
+        }
+
+        public void setDoubleMinValue(Double doubleMinValue) {
+            this.doubleMinValue = doubleMinValue;
+        }
+
+        public Double getDoubleMaxValue() {
+            return doubleMaxValue;
+        }
+
+        public void setDoubleMaxValue(Double doubleMaxValue) {
+            this.doubleMaxValue = doubleMaxValue;
         }
 
         public String getPattern() {
@@ -231,12 +249,20 @@ public class ComponentSchema {
 
     /**
      * Supported property types for validation.
+     * Maps to JMeter property types:
+     * - Integer → intProp
+     * - Long → longProp
+     * - Float → floatProp
+     * - Double → doubleProp
      */
     public enum PropertyType {
         STRING,
-        INTEGER,
+        INTEGER,   // Maps to intProp (32-bit)
+        LONG,      // Maps to longProp (64-bit)
+        FLOAT,     // Maps to FloatProperty (32-bit floating point)
+        DOUBLE,    // Maps to DoubleProperty (64-bit floating point)
         BOOLEAN,
-        NUMBER,
+        NUMBER,    // Generic number (legacy, prefer specific types)
         OBJECT,
         ARRAY,
         ARRAY_2D;  // Nested array (Array of Array) for components like UserParameters.thread_values

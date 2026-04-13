@@ -14,6 +14,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.timers.Timer;
+import org.qainsights.jmeter.ai.utils.JMeterElementManager.ElementClassInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -303,8 +304,6 @@ public class JMeterElementManager {
                 new ElementClassInfo("org.apache.jmeter.timers.poissonarrivals.PreciseThroughputTimer",
                         "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("constantthroughputtimer", new ElementClassInfo(
-                "org.apache.jmeter.timers.ConstantThroughputTimer", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("constthroughputtimer", new ElementClassInfo(
                 "org.apache.jmeter.timers.ConstantThroughputTimer", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("jsr223timer", new ElementClassInfo("org.apache.jmeter.timers.JSR223Timer",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
@@ -878,7 +877,6 @@ public class JMeterElementManager {
             case "constanttimer":
                 return "Constant Timer";
             case "constantthroughputtimer":
-            case "constthroughputtimer":
                 return "Constant Throughput Timer";
             case "uniformrandomtimer":
                 return "Uniform Random Timer";
