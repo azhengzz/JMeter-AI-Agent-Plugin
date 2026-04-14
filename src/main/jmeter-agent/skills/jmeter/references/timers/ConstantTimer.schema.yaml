@@ -1,11 +1,11 @@
 component:
   type: constanttimer
   name: Constant Timer
-  description: Adds a fixed pause before each sampler in its scope
+  description: "Pauses execution for a fixed delay before each affected sampler. Simulates constant user think time or pacing between requests."
 
 properties:
   - name: ConstantTimer.delay
     type: String
     required: true
     default: "300"
-    description: Delay in milliseconds
+    description: "Constant delay in milliseconds applied before each sampler. Example: 1000 means pause for 1 second before each request. Can be a variable reference like ${thinkTime}."

@@ -1,0 +1,19 @@
+component:
+  type: constantthroughputtimer
+  name: Constant Throughput Timer
+  description: "Paces samplers to achieve constant throughput. Controls request rate across threads to maintain target samples per minute."
+
+properties:
+  - name: throughput
+    type: Double
+    required: true
+    default: 0
+    min: 0
+    description: "Target throughput in samples per minute. Example: throughput=60 means 60 samples per minute (1 sample/second). Applies based on calcMode setting."
+
+  - name: calcMode
+    type: Integer
+    required: true
+    default: 0
+    enum: [0, 1, 2, 3, 4]
+    description: "Scope for throughput calculation. Options: 0=This thread only (each thread independently), 1=All active threads (total count), 2=All active threads in current thread group, 3=All active threads shared (synchronized), 4=All active threads in current thread group shared."
