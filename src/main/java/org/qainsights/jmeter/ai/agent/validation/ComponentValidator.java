@@ -59,6 +59,47 @@ public class ComponentValidator {
     }
 
     /**
+     * Validate component parameters for UPDATE operations.
+     * Unlike validate(), this method does NOT check for missing required parameters,
+     * as update operations typically only modify a subset of properties.
+     *
+     * Returns ValidationResult.valid() if:
+     * - No schema exists (skip validation - backward compatibility)
+     * - All validations pass
+     *
+     * @param elementType The component type
+     * @param properties  The properties to validate
+     * @return Validation result with errors if any
+     */
+    public ValidationResult validateUpdate(String elementType, Map<String, Object> properties) {
+        ComponentSchema schema = schemaLoader.loadSchema(elementType);
+
+        // No schema = skip validation (backward compatibility)
+        if (schema == null) {
+            log.debug("No validation schema found for component type: {} (update mode)", elementType);
+            return ValidationResult.valid();
+        }
+
+        log.debug("Validating component type: {} with schema (update mode - skipping required checks)", elementType);
+
+        ValidationResult.Builder builder = ValidationResult.builder();
+
+        // Validate unknown parameters (parameters not defined in schema)
+        validateUnknownParameters(schema, properties, builder);
+
+        // NOTE: Skip validateRequiredParameters() for update operations
+        // Most update scenarios only modify a subset of properties
+
+        // Validate parameter types
+        validateParameterTypes(schema, properties, builder);
+
+        // Validate parameter values (enum, range, pattern)
+        validateParameterValues(schema, properties, builder);
+
+        return builder.build();
+    }
+
+    /**
      * Validate that all provided parameters are defined in the schema.
      * Reports error for unknown parameters. Recursively validates nested objects.
      */

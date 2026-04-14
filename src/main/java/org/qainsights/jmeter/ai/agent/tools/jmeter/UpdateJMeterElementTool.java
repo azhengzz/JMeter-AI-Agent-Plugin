@@ -139,6 +139,8 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
 
     /**
      * Validate properties against component schema.
+     * Uses validateUpdate() which does NOT check for missing required parameters,
+     * as update operations typically only modify a subset of properties.
      */
     private ValidationResult validateProperties(JMeterTreeNode targetNode, Map<String, Object> properties) {
         if (componentValidator == null) {
@@ -152,7 +154,8 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
             return ValidationResult.valid(); // Allow update without schema validation
         }
 
-        ValidationResult validation = componentValidator.validate(elementType, properties);
+        // Use validateUpdate() for update operations - skips required parameter checks
+        ValidationResult validation = componentValidator.validateUpdate(elementType, properties);
         if (!validation.isValid()) {
             log.warn("Property validation failed for {}: {}", elementType, validation.getErrors());
         }
