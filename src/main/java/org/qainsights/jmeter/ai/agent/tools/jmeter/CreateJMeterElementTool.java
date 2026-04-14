@@ -1,5 +1,6 @@
 package org.qainsights.jmeter.ai.agent.tools.jmeter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
@@ -25,6 +26,7 @@ import java.util.Map;
 public class CreateJMeterElementTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(CreateJMeterElementTool.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final ComponentValidator componentValidator;
     private final SchemaBasedPropertyHandler propertyHandler;
 
@@ -92,8 +94,8 @@ public class CreateJMeterElementTool extends AbstractTool {
         String elementName = getStringParameter(parameters, "elementName", null);
         Integer parentId = getIntParameter(parameters, "parentId", -1);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> properties = (Map<String, Object>) parameters.get("properties");
+        // Parse properties parameter - handle both Map and JSON string
+        Map<String, Object> properties = parsePropertiesParameter(parameters.get("properties"));
 
         // Validate required parameters
         if (elementType == null || elementType.isEmpty()) {
@@ -254,6 +256,42 @@ public class CreateJMeterElementTool extends AbstractTool {
         refreshTreeAndSelectNewElement(parentNode);
 
         return ToolResult.success("");
+    }
+
+    /**
+     * Parse the properties parameter, handling both Map and JSON string formats.
+     *
+     * @param propertiesValue The properties value from parameters (could be Map or JSON String)
+     * @return Parsed properties as Map, or empty Map if null/invalid
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parsePropertiesParameter(Object propertiesValue) {
+        if (propertiesValue == null) {
+            return Map.of();
+        }
+
+        // If already a Map, return it directly
+        if (propertiesValue instanceof Map) {
+            return (Map<String, Object>) propertiesValue;
+        }
+
+        // If it's a String, try to parse as JSON
+        if (propertiesValue instanceof String) {
+            String jsonString = (String) propertiesValue;
+            if (jsonString.isEmpty() || jsonString.isBlank()) {
+                return Map.of();
+            }
+
+            try {
+                return OBJECT_MAPPER.readValue(jsonString, Map.class);
+            } catch (Exception e) {
+                log.warn("Failed to parse properties as JSON, treating as empty: {}", e.getMessage());
+                return Map.of();
+            }
+        }
+
+        log.warn("Unexpected properties type: {}, expected Map or String", propertiesValue.getClass());
+        return Map.of();
     }
 
     /**
