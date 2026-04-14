@@ -98,7 +98,7 @@ public class SchemaBasedPropertyHandler {
     }
 
     /**
-     * Handle nested object property (e.g., ThreadGroup.main_controller).
+     * Handle nested object property (e.g., ThreadGroup.main_controller, SampleSaveConfiguration).
      */
     @SuppressWarnings("unchecked")
     private void handleNestedObjectProperty(TestElement element, String propName,
@@ -114,6 +114,12 @@ public class SchemaBasedPropertyHandler {
 
         if (className == null || className.isEmpty()) {
             log.warn("Property {} has nested properties but no class specified", propName);
+            return;
+        }
+
+        // Special handling for SampleSaveConfiguration (not a TestElement)
+        if (className.contains("SampleSaveConfiguration")) {
+            handleSampleSaveConfiguration(element, propName, nestedProps);
             return;
         }
 
@@ -153,6 +159,72 @@ public class SchemaBasedPropertyHandler {
 
         } catch (Exception e) {
             log.warn("Failed to create/set nested object for property: {}", propName, e);
+        }
+    }
+
+    /**
+     * Handle SampleSaveConfiguration property.
+     * SampleSaveConfiguration is not a TestElement, so it needs special handling.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSampleSaveConfiguration(TestElement element, String propName,
+                                               Map<String, Object> configProps) {
+        try {
+            Class<?> saveConfigClass = Class.forName("org.apache.jmeter.samplers.SampleSaveConfiguration");
+            Object saveConfig = saveConfigClass.getDeclaredConstructor().newInstance();
+
+            // Map of property names to actual setter method names for non-standard naming
+            java.util.Map<String, String> setterNameMap = new java.util.HashMap<>();
+            setterNameMap.put("xml", "setAsXml");
+            setterNameMap.put("saveAssertionResultsFailureMessage", "setAssertionResultsFailureMessage");
+            // Note: responseDataOnError and assertionsResultsToSave have no setters (read-only or final)
+
+            // Set boolean properties using reflection
+            for (Map.Entry<String, Object> entry : configProps.entrySet()) {
+                String configPropName = entry.getKey();
+                Object configPropValue = entry.getValue();
+
+                if (configPropValue == null) {
+                    continue;
+                }
+
+                // Skip read-only properties
+                if ("responseDataOnError".equals(configPropName) || "assertionsResultsToSave".equals(configPropName)) {
+                    log.debug("Skipping read-only property: {}", configPropName);
+                    continue;
+                }
+
+                // Convert to Boolean if needed
+                Boolean boolValue = null;
+                if (configPropValue instanceof Boolean) {
+                    boolValue = (Boolean) configPropValue;
+                } else if (configPropValue instanceof String) {
+                    boolValue = Boolean.parseBoolean((String) configPropValue);
+                }
+
+                if (boolValue != null) {
+                    try {
+                        // Use mapped setter name if available, otherwise build standard name
+                        String setterName = setterNameMap.get(configPropName);
+                        if (setterName == null) {
+                            setterName = "set" + configPropName.substring(0, 1).toUpperCase()
+                                    + configPropName.substring(1);
+                        }
+                        java.lang.reflect.Method setter = saveConfigClass.getMethod(setterName, boolean.class);
+                        setter.invoke(saveConfig, boolValue);
+                        log.info("Set SampleSaveConfiguration.{} = {}", configPropName, boolValue);
+                    } catch (NoSuchMethodException e) {
+                        log.warn("No setter found for SampleSaveConfiguration property: {}", configPropName);
+                    }
+                }
+            }
+
+            // Use ObjectProperty to wrap SampleSaveConfiguration (not TestElementProperty)
+            element.setProperty(new org.apache.jmeter.testelement.property.ObjectProperty(propName, saveConfig));
+            log.info("Successfully set SampleSaveConfiguration with {} properties", configProps.size());
+
+        } catch (Exception e) {
+            log.warn("Failed to create/set SampleSaveConfiguration", e);
         }
     }
 

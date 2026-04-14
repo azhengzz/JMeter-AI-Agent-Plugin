@@ -1,0 +1,200 @@
+component:
+  type: viewresultstree
+  name: View Results Tree
+  description: Displays detailed results of samplers including requests, responses, headers, and assertion results
+  class: org.apache.jmeter.visualizers.ViewResultsFullVisualizer
+
+properties:
+  # ResultCollector base class properties
+  - name: filename
+    type: String
+    required: false
+    description: File path to save test results
+
+  - name: ResultCollector.error_logging
+    type: Boolean
+    required: false
+    default: false
+    description: Log errors to file
+
+  - name: ResultCollector.success_only_logging
+    type: Boolean
+    required: false
+    default: false
+    description: Only log successful samples
+
+  # Save configuration (SampleSaveConfiguration)
+  # Controls which data fields are saved to the results file
+  - name: saveConfig
+    type: Object
+    required: false
+    class: org.apache.jmeter.samplers.SampleSaveConfiguration
+    description: Configuration for which fields to save in results (XML/CSV format)
+    properties:
+      - name: time
+        type: Boolean
+        required: false
+        default: true
+        description: Save elapsed time
+
+      - name: latency
+        type: Boolean
+        required: false
+        default: true
+        description: Save latency
+
+      - name: timestamp
+        type: Boolean
+        required: false
+        default: true
+        description: Save timestamp
+
+      - name: success
+        type: Boolean
+        required: false
+        default: true
+        description: Save success flag
+
+      - name: label
+        type: Boolean
+        required: false
+        default: true
+        description: Save sample label
+
+      - name: code
+        type: Boolean
+        required: false
+        default: true
+        description: Save response code
+
+      - name: message
+        type: Boolean
+        required: false
+        default: true
+        description: Save response message
+
+      - name: threadName
+        type: Boolean
+        required: false
+        default: true
+        description: Save thread name
+
+      - name: dataType
+        type: Boolean
+        required: false
+        default: true
+        description: Save data type
+
+      - name: encoding
+        type: Boolean
+        required: false
+        default: false
+        description: Save encoding
+
+      - name: assertions
+        type: Boolean
+        required: false
+        default: true
+        description: Save assertion results (XML only)
+
+      - name: subresults
+        type: Boolean
+        required: false
+        default: true
+        description: Save sub-results (XML only)
+      
+      - name: responseData
+        type: Boolean
+        required: false
+        default: false
+        description: Save response data (XML only)
+
+      - name: samplerData
+        type: Boolean
+        required: false
+        default: false
+        description: Save sampler data (XML only)
+
+      - name: xml
+        type: Boolean
+        required: false
+        default: false
+        description: Save in XML format (false = CSV)
+
+      - name: fieldNames
+        type: Boolean
+        required: false
+        default: true
+        description: Print field names in CSV header
+
+      - name: responseHeaders
+        type: Boolean
+        required: false
+        default: false
+        description: Save response headers (XML only)
+
+      - name: requestHeaders
+        type: Boolean
+        required: false
+        default: false
+        description: Save request headers (XML only)
+
+      - name: assertionResultsFailureMessage
+        type: Boolean
+        required: false
+        default: true
+        description: Save assertion failure messages
+
+      - name: bytes
+        type: Boolean
+        required: false
+        default: true
+        description: Save bytes read
+
+      - name: sentBytes
+        type: Boolean
+        required: false
+        default: true
+        description: Save bytes sent
+
+      - name: url
+        type: Boolean
+        required: false
+        default: true
+        description: Save URL
+
+      - name: fileName
+        type: Boolean
+        required: false
+        default: false
+        description: Save file name (for ResultSaver)
+
+      - name: hostname
+        type: Boolean
+        required: false
+        default: false
+        description: Save hostname
+
+      - name: threadCounts
+        type: Boolean
+        required: false
+        default: true
+        description: Save active/total thread counts
+
+      - name: sampleCount
+        type: Boolean
+        required: false
+        default: false
+        description: Save sample and error count
+
+      - name: idleTime
+        type: Boolean
+        required: false
+        default: true
+        description: Save idle time
+
+      - name: connectTime
+        type: Boolean
+        required: false
+        default: true
+        description: Save connect time
