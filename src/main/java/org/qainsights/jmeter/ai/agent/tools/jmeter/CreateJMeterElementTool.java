@@ -1,50 +1,26 @@
 package org.qainsights.jmeter.ai.agent.tools.jmeter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.util.JMeterUtils;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
-import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
 import org.qainsights.jmeter.ai.agent.tools.ValidationResult;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
-import org.qainsights.jmeter.ai.agent.validation.ComponentSchemaLoader;
 import org.qainsights.jmeter.ai.agent.validation.ComponentValidator;
 import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.tree.TreePath;
-import java.nio.file.Path;
 import java.util.Map;
 
 /**
  * Tool to create new JMeter elements in the test plan with optional properties.
  */
-public class CreateJMeterElementTool extends AbstractTool {
+public class CreateJMeterElementTool extends AbstractJMeterElementTool {
 
     private static final Logger log = LoggerFactory.getLogger(CreateJMeterElementTool.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final ComponentValidator componentValidator;
-    private final SchemaBasedPropertyHandler propertyHandler;
-
-    public CreateJMeterElementTool() {
-        // Initialize validator with schema loader
-        String jmeterHome = JMeterUtils.getJMeterHome();
-        if (jmeterHome != null) {
-            Path skillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
-            ComponentSchemaLoader schemaLoader = new ComponentSchemaLoader(skillsDir);
-            this.componentValidator = new ComponentValidator(schemaLoader);
-        } else {
-            log.warn("JMeter home not found, component validation will be disabled");
-            this.componentValidator = null;
-        }
-
-        // Initialize schema-based property handler
-        this.propertyHandler = new SchemaBasedPropertyHandler();
-    }
 
     @Override
     public String getName() {
@@ -259,42 +235,6 @@ public class CreateJMeterElementTool extends AbstractTool {
     }
 
     /**
-     * Parse the properties parameter, handling both Map and JSON string formats.
-     *
-     * @param propertiesValue The properties value from parameters (could be Map or JSON String)
-     * @return Parsed properties as Map, or empty Map if null/invalid
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parsePropertiesParameter(Object propertiesValue) {
-        if (propertiesValue == null) {
-            return Map.of();
-        }
-
-        // If already a Map, return it directly
-        if (propertiesValue instanceof Map) {
-            return (Map<String, Object>) propertiesValue;
-        }
-
-        // If it's a String, try to parse as JSON
-        if (propertiesValue instanceof String) {
-            String jsonString = (String) propertiesValue;
-            if (jsonString.isEmpty() || jsonString.isBlank()) {
-                return Map.of();
-            }
-
-            try {
-                return OBJECT_MAPPER.readValue(jsonString, Map.class);
-            } catch (Exception e) {
-                log.warn("Failed to parse properties as JSON, treating as empty: {}", e.getMessage());
-                return Map.of();
-            }
-        }
-
-        log.warn("Unexpected properties type: {}, expected Map or String", propertiesValue.getClass());
-        return Map.of();
-    }
-
-    /**
      * Build a success result message.
      *
      * @param elementName The element name
@@ -444,26 +384,6 @@ public class CreateJMeterElementTool extends AbstractTool {
                 elementType.equals("ajpsampler") ||
                 elementType.equals("graphqlhttprequest") ||
                 elementType.equals("httptestsample");
-    }
-
-    /**
-     * Build a user-friendly error message for validation failures.
-     *
-     * @param elementType  The component type
-     * @param validation   The validation result
-     * @return Formatted error message
-     */
-    private String buildValidationErrorMessage(String elementType, ValidationResult validation) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("**Component Parameter Validation Failed**\n\n");
-        sb.append("Component Type: ").append(elementType).append("\n\n");
-        sb.append("Errors:\n");
-        for (String error : validation.getErrors()) {
-            sb.append("  - ").append(error).append("\n");
-        }
-        sb.append("\n**Solution**: Please provide all required parameters with correct values.\n");
-        sb.append("Refer to component documentation for parameter details.");
-        return sb.toString();
     }
 
     /**

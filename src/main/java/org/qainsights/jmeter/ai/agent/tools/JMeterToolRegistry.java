@@ -31,6 +31,7 @@ public class JMeterToolRegistry {
         registry.register(new GetTestPlanTreeTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
+        registry.register(new UpdateJMeterElementTool());
         registry.register(new DeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
 
@@ -97,6 +98,7 @@ public class JMeterToolRegistry {
         registry.register(new GetTestPlanTreeTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
+        registry.register(new UpdateJMeterElementTool());
         registry.register(new DeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
         registry.register(new WrapSamplersTool());

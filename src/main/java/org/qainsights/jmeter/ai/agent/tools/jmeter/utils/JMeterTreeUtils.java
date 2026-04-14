@@ -5,6 +5,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.testelement.property.TestElementProperty;
+import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 
 import javax.swing.tree.TreePath;
 import java.util.ArrayList;
@@ -384,5 +385,39 @@ public class JMeterTreeUtils {
             return str;
         }
         return str.substring(0, max) + "...";
+    }
+
+    /**
+     * Find the element type for a given node by looking up the GUI class name.
+     * This performs a reverse lookup in the ELEMENT_CLASS_MAP to find the element type.
+     *
+     * @param node The node to get element type for
+     * @return The normalized element type, or null if not found
+     */
+    public static String getElementType(JMeterTreeNode node) {
+        if (node == null) {
+            return null;
+        }
+
+        TestElement element = node.getTestElement();
+        if (element == null) {
+            return null;
+        }
+
+        // Get the GUI class name to determine element type
+        String guiClass = element.getPropertyAsString(TestElement.GUI_CLASS);
+        if (guiClass == null || guiClass.isEmpty()) {
+            return null;
+        }
+
+        // Reverse lookup from ELEMENT_CLASS_MAP to find element type
+        for (Map.Entry<String, JMeterElementManager.ElementClassInfo> entry :
+                JMeterElementManager.getElementClassMap().entrySet()) {
+            if (guiClass.equals(entry.getValue().getGuiClassName())) {
+                return entry.getKey();
+            }
+        }
+
+        return null;
     }
 }
