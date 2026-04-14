@@ -351,23 +351,31 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
         }
 
         try {
-            // Refresh the tree to show the new element
-            guiPackage.getTreeModel().nodeStructureChanged(parentNode);
-            log.info("Successfully refreshed the tree");
+            // Use SwingUtilities.invokeLater to ensure tree operations happen on EDT
+            // This ensures thread safety and prevents potential GUI update issues
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                try {
+                    // Refresh the tree to show the new element
+                    guiPackage.getTreeModel().nodeStructureChanged(parentNode);
+                    log.info("Successfully refreshed the tree");
 
-            // Expand the parent node to show the new element
-            guiPackage.getMainFrame().getTree()
-                    .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
+                    // Expand the parent node to show the new element
+                    guiPackage.getMainFrame().getTree()
+                            .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
 
-            // Select the newly added element (last child of parent node)
-            if (parentNode.getChildCount() > 0) {
-                JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
-                guiPackage.getTreeListener().getJTree()
-                        .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
-                log.info("Selected newly added element: {}", lastChild.getName());
-            }
+                    // Select the newly added element (last child of parent node)
+                    if (parentNode.getChildCount() > 0) {
+                        JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
+                        guiPackage.getTreeListener().getJTree()
+                                .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
+                        log.info("Selected newly added element: {}", lastChild.getName());
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to refresh tree or select element on EDT", e);
+                }
+            });
         } catch (Exception e) {
-            log.error("Failed to refresh tree or select element", e);
+            log.error("Failed to schedule tree refresh on EDT", e);
         }
     }
 
