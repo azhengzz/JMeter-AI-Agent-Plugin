@@ -1,0 +1,47 @@
+component:
+  type: backendlistener
+  name: Backend Listener
+  description: Sends test results to external backends (Graphite, InfluxDB) for real-time monitoring and analysis
+  class: org.apache.jmeter.visualizers.backend.BackendListener
+
+properties:
+  # BackendListener core properties
+  - name: classname
+    type: String
+    required: true
+    enum: ["org.apache.jmeter.visualizers.backend.graphite.GraphiteBackendListenerClient", "org.apache.jmeter.visualizers.backend.influxdb.InfluxDBRawBackendListenerClient", "org.apache.jmeter.visualizers.backend.influxdb.InfluxdbBackendListenerClient"]
+    default: "org.apache.jmeter.visualizers.backend.graphite.GraphiteBackendListenerClient"
+    description: Backend listener client class name (e.g., GraphiteBackendListenerClient, InfluxdbBackendListenerClient, InfluxDBRawBackendListenerClient)
+
+  - name: QUEUE_SIZE
+    type: String
+    required: false
+    default: "5000"
+    description: Queue size for batching samples before sending to backend
+
+  # Arguments object - contains backend-specific parameters
+  # Note: Arguments.arguments is an array format in JMeter
+  - name: Arguments.arguments
+    type: Array
+    required: true
+    class: org.apache.jmeter.config.Arguments
+    description: Backend-specific configuration parameters
+    itemClass: org.apache.jmeter.config.Argument
+    properties:
+      - name: Argument.name
+        type: String
+        required: false
+        default: ""
+        description: backend-specific parameters name
+
+      - name: Argument.value
+        type: String
+        required: false
+        default: ""
+        description: backend-specific parameters value
+
+      - name: Argument.metadata
+        type: String
+        required: false
+        default: "="
+        description: metadata alway is '='
