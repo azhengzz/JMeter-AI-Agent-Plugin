@@ -17,7 +17,7 @@ Summary Report provides basic statistics for each sampler in a tabular format. S
 
 ```
 create_jmeter_element with:
-- elementType: "statvisualizer"
+- elementType: "summaryreport"
 - elementName: "汇总报告"
 - properties:
   - ResultCollector.error_logging: "false"
@@ -27,7 +27,7 @@ create_jmeter_element with:
 
 ```
 create_jmeter_element with:
-- elementType: "statvisualizer"
+- elementType: "summaryreport"
 - elementName: "汇总报告-保存"
 - properties:
   - filename: "results/summary_results.jtl"
