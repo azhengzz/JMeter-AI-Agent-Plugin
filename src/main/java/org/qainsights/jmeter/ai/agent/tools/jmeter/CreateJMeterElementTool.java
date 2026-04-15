@@ -351,14 +351,15 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
         }
 
         try {
-            // Use SwingUtilities.invokeLater to ensure tree operations happen on EDT
-            // This ensures thread safety and prevents potential GUI update issues
+            // Notify tree model of structure change (outside EDT to avoid validation issues)
+            // This must be called before the EDT operations to ensure the tree model is updated
+            guiPackage.getTreeModel().nodeStructureChanged(parentNode);
+            log.info("Tree structure changed notification sent for parent: {}", parentNode.getName());
+
+            // Use SwingUtilities.invokeLater for UI operations (expand and select)
+            // These must happen on EDT for thread safety
             javax.swing.SwingUtilities.invokeLater(() -> {
                 try {
-                    // Refresh the tree to show the new element
-                    guiPackage.getTreeModel().nodeStructureChanged(parentNode);
-                    log.info("Successfully refreshed the tree");
-
                     // Expand the parent node to show the new element
                     guiPackage.getMainFrame().getTree()
                             .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
@@ -371,11 +372,14 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
                         log.info("Selected newly added element: {}", lastChild.getName());
                     }
                 } catch (Exception e) {
-                    log.error("Failed to refresh tree or select element on EDT", e);
+                    log.error("Failed to expand tree or select element on EDT", e);
                 }
             });
+
+            log.info("Successfully initiated tree refresh and element selection");
+
         } catch (Exception e) {
-            log.error("Failed to schedule tree refresh on EDT", e);
+            log.error("Failed to refresh tree after element creation", e);
         }
     }
 
