@@ -143,7 +143,7 @@ public class ChatUIManager {
         headerPanel.setBackground(UIManager.getColor("Panel.background"));
         
         // Add a title to the left side of the header panel
-        JLabel titleLabel = new JLabel("Feather Wand - JMeter Agent v" + VersionUtils.getVersion());
+        JLabel titleLabel = new JLabel("GiteeAi - JMeter Agent v" + VersionUtils.getVersion());
         titleLabel.setFont(new Font(titleLabel.getFont().getName(), Font.BOLD, 14));
         headerPanel.add(titleLabel, BorderLayout.WEST);
         

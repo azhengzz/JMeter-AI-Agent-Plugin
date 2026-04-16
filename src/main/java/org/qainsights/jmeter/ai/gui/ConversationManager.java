@@ -89,7 +89,7 @@ public class ConversationManager {
     public void displayWelcomeMessage() {
         log.info("Displaying welcome message");
 
-        String welcomeMessage = "# Welcome to Feather Wand - JMeter Agent\n\n" +
+        String welcomeMessage = "# Welcome to GiteeAi - JMeter Agent\n\n" +
                 "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
                 "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
                 "**Special commands:**\n" +

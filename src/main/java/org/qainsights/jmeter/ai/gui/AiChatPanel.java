@@ -358,7 +358,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         headerPanel.setBackground(UIManager.getColor("Panel.background"));
 
         // Add a title to the left side of the header panel
-        JLabel titleLabel = new JLabel("Feather Wand - JMeter Agent v" + VersionUtils.getVersion());
+        JLabel titleLabel = new JLabel("GiteeAi - JMeter Agent v" + VersionUtils.getVersion());
         titleLabel.setFont(new Font(titleLabel.getFont().getName(), Font.BOLD, 14));
         headerPanel.add(titleLabel, BorderLayout.WEST);
 
@@ -682,7 +682,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private void displayWelcomeMessage() {
         log.info("Displaying welcome message");
 
-        String welcomeMessage = "# Welcome to Feather Wand - JMeter Agent\n\n" +
+        String welcomeMessage = "# Welcome to GiteeAi - JMeter Agent\n\n" +
                 "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
                 "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
                 "**Special commands:**\n" +
