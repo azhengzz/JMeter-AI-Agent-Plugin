@@ -78,6 +78,10 @@ public class SchemaBasedPropertyHandler {
                     handleHttpArgumentsProperty(element, propName, propValue);
                 } else if ("Arguments.arguments".equals(propName) && propDef.hasItemProperties()) {
                     handleArgumentsProperty(element, propName, propValue);
+                } else if ("SystemSampler.arguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleSystemSamplerArgumentsProperty(element, propName, propValue);
+                } else if ("SystemSampler.environment".equals(propName) && propDef.hasItemProperties()) {
+                    handleSystemSamplerEnvironmentProperty(element, propName, propValue);
                 } else if ("HeaderManager.headers".equals(propName) && propDef.hasItemProperties()) {
                     handleHeaderManagerProperty(element, propName, propValue);
                 } else if ("CookieManager.cookies".equals(propName) && propDef.hasItemProperties()) {
@@ -692,5 +696,74 @@ public class SchemaBasedPropertyHandler {
             }
         }
         return defaultValue;
+    }
+
+    /**
+     * Handle SystemSampler.arguments property with itemProperties schema.
+     * Supports both array of strings and array of objects with Argument.value.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSystemSamplerArgumentsProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        for (Object argItem : convertToList(propValue)) {
+            if (argItem == null) {
+                continue;
+            }
+
+            String argValue;
+            if (argItem instanceof Map) {
+                // Array of objects format: [{"Argument.value": "-c"}, {"Argument.value": "echo hello"}]
+                argValue = getStringValue((Map<String, Object>) argItem, "Argument.value");
+                if (argValue == null) {
+                    log.warn("Missing Argument.value in: {}", argItem);
+                    continue;
+                }
+            } else if (argItem instanceof String) {
+                // Simple array format: ["-c", "echo hello"]
+                argValue = (String) argItem;
+            } else {
+                log.warn("Unsupported argument type: {}, expected String or Map", argItem.getClass());
+                continue;
+            }
+
+            // For SystemSampler, arguments are value-only (like command line args)
+            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument();
+            argument.setValue(argValue);
+            args.addArgument(argument);
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set SystemSampler.arguments with {} arguments", args.getArguments().size());
+    }
+
+    /**
+     * Handle SystemSampler.environment property with itemProperties schema.
+     * Environment variables are name-value pairs.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSystemSamplerEnvironmentProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments envVars = new org.apache.jmeter.config.Arguments();
+
+        for (Object envItem : convertToList(propValue)) {
+            if (!(envItem instanceof Map)) {
+                log.warn("Environment item must be a map, got: {}", envItem.getClass());
+                continue;
+            }
+
+            Map<String, Object> envProps = (Map<String, Object>) envItem;
+            String envName = getStringValue(envProps, "Argument.name");
+            if (envName == null) {
+                log.warn("Missing Argument.name in: {}", envProps);
+                continue;
+            }
+
+            String envValue = getStringValue(envProps, "Argument.value", "");
+            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(envName, envValue);
+            envVars.addArgument(argument);
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, envVars));
+        log.info("Set SystemSampler.environment with {} variables", envVars.getArguments().size());
     }
 }
