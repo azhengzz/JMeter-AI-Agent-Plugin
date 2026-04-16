@@ -215,21 +215,39 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
      */
     private ToolResult addElementToTestPlan(GuiPackage guiPackage, TestElement newElement,
                                              JMeterTreeNode parentNode) {
-        // Fix: use JMeter's classloader so ClassFinder can scan all jars (e.g., ResultRenderer in ApacheJMeter_components.jar)
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        try {
-            Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
-            guiPackage.getTreeModel().addComponent(newElement, parentNode);
-            log.info("Successfully added element to the tree model");
-        } catch (Exception e) {
-            log.error("Failed to add element to tree model", e);
-            return ToolResult.error("Failed to add element to test plan: " + e.getMessage());
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+        // The addComponent() call must be on EDT because it configures GUI components
+        // Use invokeLater to schedule on EDT
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            try {
+                // Fix: use JMeter's classloader so ClassFinder can scan all jars (e.g., ResultRenderer in ApacheJMeter_components.jar)
+                ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+                try {
+                    Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
+                    guiPackage.getTreeModel().addComponent(newElement, parentNode);
+                    log.info("Successfully added element to the tree model");
 
-        // Refresh the tree and select the newly added element
-        refreshTreeAndSelectNewElement(parentNode);
+                    // After adding, refresh and select the new element
+                    // Do this immediately in the same invokeLater to ensure proper ordering
+                    try {
+                        guiPackage.getMainFrame().getTree()
+                                .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
+
+                        if (parentNode.getChildCount() > 0) {
+                            JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
+                            guiPackage.getTreeListener().getJTree()
+                                    .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
+                            log.info("Selected newly added element: {}", lastChild.getName());
+                        }
+                    } catch (Exception e) {
+                        log.error("Failed to expand tree or select element on EDT", e);
+                    }
+                } finally {
+                    Thread.currentThread().setContextClassLoader(originalClassLoader);
+                }
+            } catch (Exception e) {
+                log.error("Failed to add element to tree model on EDT", e);
+            }
+        });
 
         return ToolResult.success("");
     }
@@ -337,50 +355,6 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
 
         // Use schema-based property handler to set all properties
         propertyHandler.setProperties(element, properties, schema);
-    }
-
-    /**
-     * Refresh the tree and select the newly added element.
-     *
-     * @param parentNode The parent node where the element was added
-     */
-    private void refreshTreeAndSelectNewElement(JMeterTreeNode parentNode) {
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return;
-        }
-
-        try {
-            // Notify tree model of structure change (outside EDT to avoid validation issues)
-            // This must be called before the EDT operations to ensure the tree model is updated
-            guiPackage.getTreeModel().nodeStructureChanged(parentNode);
-            log.info("Tree structure changed notification sent for parent: {}", parentNode.getName());
-
-            // Use SwingUtilities.invokeLater for UI operations (expand and select)
-            // These must happen on EDT for thread safety
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                try {
-                    // Expand the parent node to show the new element
-                    guiPackage.getMainFrame().getTree()
-                            .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
-
-                    // Select the newly added element (last child of parent node)
-                    if (parentNode.getChildCount() > 0) {
-                        JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
-                        guiPackage.getTreeListener().getJTree()
-                                .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
-                        log.info("Selected newly added element: {}", lastChild.getName());
-                    }
-                } catch (Exception e) {
-                    log.error("Failed to expand tree or select element on EDT", e);
-                }
-            });
-
-            log.info("Successfully initiated tree refresh and element selection");
-
-        } catch (Exception e) {
-            log.error("Failed to refresh tree after element creation", e);
-        }
     }
 
     /**
