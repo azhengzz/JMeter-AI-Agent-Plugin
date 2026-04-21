@@ -54,17 +54,38 @@ public class DarkTerminalSettingsProvider extends DefaultSettingsProvider {
         String osName = System.getProperty("os.name").toLowerCase();
         String fontName = "Monospaced";
         if (osName.contains("win")) {
-            // Use JetBrains Mono if available, or a good monospace that supports emojis
-            fontName = "JetBrains Mono";
-            java.awt.Font font = new java.awt.Font(fontName, java.awt.Font.PLAIN, (int) getTerminalFontSize());
-            if (!font.getFamily().equals(fontName)) {
-                fontName = "Consolas";
+            // On Windows, use a font that supports Chinese characters well
+            // Try JetBrains Mono first, then fall back to Chinese-friendly fonts
+            String[] preferredFonts = {
+                "JetBrains Mono",
+                "Microsoft YaHei UI",
+                "SimHei",
+                "Consolas",
+                "NSimSun",
+                "Cascadia Mono",
+                "Monospaced"
+            };
+            for (String preferred : preferredFonts) {
+                java.awt.Font font = new java.awt.Font(preferred, java.awt.Font.PLAIN, (int) getTerminalFontSize());
+                if (font.getFamily().equals(preferred) || canDisplayChinese(font)) {
+                    return font;
+                }
             }
+            fontName = "Microsoft YaHei UI";
         } else if (osName.contains("mac")) {
             fontName = "Menlo";
         } else {
             fontName = "DejaVu Sans Mono";
         }
         return new java.awt.Font(fontName, java.awt.Font.PLAIN, (int) getTerminalFontSize());
+    }
+
+    /**
+     * Check if the font can display Chinese characters.
+     */
+    private boolean canDisplayChinese(java.awt.Font font) {
+        // Test a few common Chinese characters
+        String testChars = "中文测试测试";
+        return font.canDisplayUpTo(testChars) == -1;
     }
 }

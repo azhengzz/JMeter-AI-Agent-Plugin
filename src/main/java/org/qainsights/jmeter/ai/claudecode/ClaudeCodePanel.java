@@ -217,9 +217,21 @@ public class ClaudeCodePanel extends JPanel {
                         // Set up environment
                         Map<String, String> env = new HashMap<>(System.getenv());
                         env.put("TERM", "xterm-256color");
-                        env.put("LANG", "en_US.UTF-8");
-                        env.put("LC_ALL", "en_US.UTF-8");
-                        env.put("PYTHONIOENCODING", "utf-8"); // Just in case
+                        // Use UTF-8 encoding without specific locale to support Chinese characters
+                        env.put("LANG", "C.UTF-8");
+                        env.put("LC_ALL", "C.UTF-8");
+                        env.put("LC_CTYPE", "C.UTF-8");
+                        env.put("PYTHONIOENCODING", "utf-8");
+                        env.put("NODE_PRESERVE_SYMLINKS", "1");
+
+                        // Windows-specific: ensure UTF-8 encoding
+                        String osName = System.getProperty("os.name").toLowerCase();
+                        if (osName.contains("win")) {
+                            // On Windows 10 1903+, this can be set to enable UTF-8 console
+                            env.put("PYTHONUTF8", "1");
+                            // Force UTF-8 for Node.js applications
+                            env.put("NODE_OPTIONS", "--enable-source-maps");
+                        }
 
                         // Pass JMETER_HOME so Claude Code can run JMeter CLI for non-GUI mode
                         String jmeterHome = org.apache.jmeter.util.JMeterUtils.getJMeterHome();
@@ -241,9 +253,24 @@ public class ClaudeCodePanel extends JPanel {
 
                         ptyProcess = processBuilder.start();
 
-                        // Create TTY connector
+                        // On Windows, force UTF-8 code page for proper Chinese character display
+                        if (osName.contains("win")) {
+                            try {
+                                // Send chcp 65001 to switch to UTF-8 code page
+                                Thread.sleep(100); // Small delay to ensure PTY is ready
+                                ptyProcess.getOutputStream().write("chcp 65001\n".getBytes(StandardCharsets.UTF_8));
+                                ptyProcess.getOutputStream().flush();
+                                Thread.sleep(200); // Wait for code page change to take effect
+                            } catch (Exception e) {
+                                log.warn("Failed to set UTF-8 code page on Windows", e);
+                            }
+                        }
+
+                        // Create TTY connector with explicit UTF-8 encoding
                         TtyConnector connector = new PtyProcessTtyConnector(
-                                ptyProcess, StandardCharsets.UTF_8);
+                                ptyProcess,
+                                StandardCharsets.UTF_8
+                        );
 
                         // Connect to the terminal widget
                         SwingUtilities.invokeLater(() -> {
