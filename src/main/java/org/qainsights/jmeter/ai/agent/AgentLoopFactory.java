@@ -62,8 +62,8 @@ public class AgentLoopFactory {
         // Create components
         ToolRegistry toolRegistry = new ToolRegistry();
         MemoryStore memoryStore = new MemoryStore(config.getWorkspacePath());
-        MemoryConsolidator consolidator = new MemoryConsolidator(memoryStore, aiService);
         SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
+        MemoryConsolidator consolidator = new MemoryConsolidator(memoryStore, aiService, sessionManager);
 
         ContextBuilder contextBuilder = new ContextBuilder(
                 memoryStore,

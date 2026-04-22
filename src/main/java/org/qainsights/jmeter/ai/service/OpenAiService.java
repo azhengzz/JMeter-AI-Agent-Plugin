@@ -493,7 +493,44 @@ public class OpenAiService implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
-        log.info("Generating response with tools: {} tools provided", tools != null ? tools.size() : 0);
+        return doGenerateWithTools(messages, tools, null);
+    }
+
+    @Override
+    public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
+        log.info("Forced tool calling: {}", forcedToolName);
+        try {
+            LLMResponse response = doGenerateWithTools(messages, tools, forcedToolName);
+            if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
+                log.warn("Forced tool_choice unsupported, retrying with auto");
+                return doGenerateWithTools(messages, tools, null);
+            }
+            return response;
+        } catch (Exception e) {
+            if (isToolChoiceUnsupported(e)) {
+                log.warn("Forced tool_choice unsupported, retrying with auto");
+                return doGenerateWithTools(messages, tools, null);
+            }
+            return LLMResponse.error("Error in forced tool calling: " + e.getMessage());
+        }
+    }
+
+    private boolean isToolChoiceUnsupported(Throwable e) {
+        if (e == null) return false;
+        String msg = (e.getMessage() != null ? e.getMessage() : "").toLowerCase();
+        return msg.contains("tool_choice") || msg.contains("does not support")
+                || msg.contains("should be [\"none\", \"auto\"]");
+    }
+
+    private boolean isToolChoiceUnsupported(String msg) {
+        if (msg == null) return false;
+        String lower = msg.toLowerCase();
+        return lower.contains("tool_choice") || lower.contains("does not support")
+                || lower.contains("should be [\"none\", \"auto\"]");
+    }
+
+    private LLMResponse doGenerateWithTools(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
+        log.info("Generating response: {} tools, forcedTool={}", tools != null ? tools.size() : 0, forcedToolName);
 
         String modelNameForApi = extractModelName(currentModelId);
 
@@ -608,17 +645,54 @@ public class OpenAiService implements AiService {
             }
 
             // 构建并发送请求
+            if (forcedToolName != null) {
+                paramsBuilder.toolChoice(
+                    com.openai.models.chat.completions.ChatCompletionNamedToolChoice.builder()
+                        .type(com.openai.core.JsonValue.from("function"))
+                        .function(com.openai.models.chat.completions.ChatCompletionNamedToolChoice.Function.builder()
+                            .name(forcedToolName)
+                            .build())
+                        .build()
+                );
+            }
             ChatCompletionCreateParams params = paramsBuilder.build();
             log.info("Sending request to OpenAI with {} tools", tools != null ? tools.size() : 0);
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
             log.info("Received response from OpenAI");
 
-            // 记录使用量
+            // 记录使用量（供 @usage 命令使用）
             try {
                 OpenAiUsage.getInstance().recordUsage(chatCompletion, currentModelId);
             } catch (Exception ex) {
                 log.error("Failed to record token usage", ex);
+            }
+
+            // Extract usage directly from ChatCompletion for LLMResponse
+            long extractedPTokens = 0;
+            long extractedCTokens = 0;
+            try {
+                var usageOpt = chatCompletion.usage();
+                if (usageOpt != null && usageOpt.isPresent()) {
+                    var usage = usageOpt.get();
+                    extractedPTokens = usage.promptTokens();
+                    extractedCTokens = usage.completionTokens();
+                    log.info("Usage from API response: promptTokens={}, completionTokens={}, totalTokens={}",
+                            extractedPTokens, extractedCTokens, usage.totalTokens());
+                } else {
+                    log.debug("No usage data in ChatCompletion response");
+                }
+            } catch (Exception e) {
+                log.warn("Could not extract usage from ChatCompletion: {}", e.getMessage());
+            }
+
+            Map<String, Integer> usageMap;
+            if (extractedPTokens > 0 || extractedCTokens > 0) {
+                usageMap = java.util.Map.of("prompt_tokens", (int) extractedPTokens,
+                        "completion_tokens", (int) extractedCTokens);
+            } else {
+                usageMap = java.util.Map.of();
+                log.debug("Usage extraction returned 0/0 for model: {}", currentModelId);
             }
 
             // 解析响应
@@ -668,7 +742,8 @@ public class OpenAiService implements AiService {
             // 构建响应
             LLMResponse.Builder responseBuilder = LLMResponse.builder()
                     .content(content)
-                    .finishReason(finishReason);
+                    .finishReason(finishReason)
+                    .usage(usageMap);
 
             if (!toolCalls.isEmpty()) {
                 responseBuilder.toolCalls(toolCalls);

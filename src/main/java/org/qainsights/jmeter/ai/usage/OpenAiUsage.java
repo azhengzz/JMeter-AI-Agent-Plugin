@@ -69,45 +69,32 @@ public class OpenAiUsage {
      * @param model      The model used for the completion
      */
     public void recordUsage(ChatCompletion completion, String model) {
-        if (completion == null || completion.usage() == null) {
-            log.warn("Unable to record usage - completion or usage data is null");
+        if (completion == null) {
+            log.warn("Unable to record usage - completion is null");
             return;
         }
 
         try {
-            // Get the usage from the Optional (4.x may use different type)
-            Optional<?> usageOptional = completion.usage();
-            if (!usageOptional.isPresent()) {
+            var usageOpt = completion.usage();
+            if (usageOpt == null || !usageOpt.isPresent()) {
                 log.warn("Usage is not present in the response");
                 return;
             }
 
-            Object usage = usageOptional.get();
+            var usage = usageOpt.get();
+            long promptTokens = usage.promptTokens();
+            long completionTokens = usage.completionTokens();
+            long totalTokens = usage.totalTokens();
 
-            // Use reflection to get token counts (compatible across versions)
-            long promptTokens = 0;
-            long completionTokens = 0;
-            long totalTokens = 0;
-
-            try {
-                // Try to access using reflection for version compatibility
-                java.lang.reflect.Method promptTokensMethod = usage.getClass().getMethod("promptTokens");
-                promptTokens = (long) promptTokensMethod.invoke(usage);
-
-                java.lang.reflect.Method completionTokensMethod = usage.getClass().getMethod("completionTokens");
-                completionTokens = (long) completionTokensMethod.invoke(usage);
-
-                java.lang.reflect.Method totalTokensMethod = usage.getClass().getMethod("totalTokens");
-                totalTokens = (long) totalTokensMethod.invoke(usage);
-            } catch (Exception e) {
-                log.warn("Could not extract usage via reflection: {}", e.getMessage());
-                // Try alternative method names
+            // Clean up model name (remove potential provider prefix)
+            String cleanModelName = model;
+            for (String prefix : new String[]{"openai:", "minimax:", "deepseek:", "zhipu:", "moonshot:"}) {
+                if (cleanModelName.startsWith(prefix)) {
+                    cleanModelName = cleanModelName.substring(prefix.length());
+                    break;
+                }
             }
 
-            // Clean up model name (remove potential "openai:" prefix)
-            String cleanModelName = model.startsWith("openai:") ? model.substring(7) : model;
-
-            // Record usage without cost calculation
             UsageRecord record = new UsageRecord(
                     new Date(),
                     cleanModelName,
@@ -130,6 +117,18 @@ public class OpenAiUsage {
     public void setClient(OpenAIClient client) {
         this.client = client;
         log.info("OpenAI client set for usage tracking");
+    }
+
+    /**
+     * Get the last recorded prompt and completion tokens.
+     * Returns [promptTokens, completionTokens] or [0, 0] if no history.
+     */
+    public long[] getLastRecordedUsage() {
+        if (usageHistory.isEmpty()) {
+            return new long[]{0, 0};
+        }
+        UsageRecord last = usageHistory.get(usageHistory.size() - 1);
+        return new long[]{last.promptTokens, last.completionTokens};
     }
 
     /**

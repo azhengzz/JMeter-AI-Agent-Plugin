@@ -50,6 +50,14 @@ public class Session {
         this.lastConsolidatedIndex = index;
     }
 
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
     /**
      * Add a message to the session
      */
@@ -90,6 +98,16 @@ public class Session {
             return Collections.emptyList();
         }
         return new ArrayList<>(messages.subList(lastConsolidatedIndex, messages.size()));
+    }
+
+    /**
+     * Get messages in a specific index range [from, to).
+     */
+    public List<Message> getMessagesInRange(int from, int to) {
+        if (from >= messages.size() || from >= to) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(messages.subList(from, Math.min(to, messages.size())));
     }
 
     /**

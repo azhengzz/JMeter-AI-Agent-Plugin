@@ -94,6 +94,13 @@ public class Message {
         return toolCalls != null && !toolCalls.isEmpty();
     }
 
+    public String getToolName() {
+        if (metadata != null && metadata.containsKey("toolName")) {
+            return String.valueOf(metadata.get("toolName"));
+        }
+        return null;
+    }
+
     @Override
     public String toString() {
         return "Message{" +

@@ -106,6 +106,18 @@ public class AnthropicUsage {
     }
 
     /**
+     * Get the last recorded prompt and completion tokens.
+     * Returns [promptTokens, completionTokens] or [0, 0] if no history.
+     */
+    public long[] getLastRecordedUsage() {
+        if (usageHistory.isEmpty()) {
+            return new long[]{0, 0};
+        }
+        UsageRecord last = usageHistory.get(usageHistory.size() - 1);
+        return new long[]{last.promptTokens, last.completionTokens};
+    }
+
+    /**
      * Get usage summary as a formatted string.
      *
      * @return The usage summary

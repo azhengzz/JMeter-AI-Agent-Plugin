@@ -192,30 +192,31 @@ public class ClaudeService implements AiService {
 
             log.info(message.content().toString());
 
-            // Estimate token usage (Anthropic doesn't provide exact usage in the response)
-            // We can estimate based on characters - this is a rough estimate
-            long estimatedPromptTokens = 0;
-            for (String msg : limitedConversation) {
-                estimatedPromptTokens += estimateTokens(msg);
-            }
-
-            if (isFirstMessage && systemPrompt != null && !systemPrompt.isEmpty()) {
-                estimatedPromptTokens += estimateTokens(systemPrompt);
-            }
-
-            // Estimate response tokens
             String responseText = String.valueOf(message.content().get(0).text().get().text());
-            long estimatedCompletionTokens = estimateTokens(responseText);
 
-            // Record the estimated usage
+            // Extract real token usage from the API response
+            long inputTokens = 0;
+            long outputTokens = 0;
+            try {
+                var usage = message.usage();
+                if (usage != null) {
+                    inputTokens = usage.inputTokens();
+                    outputTokens = usage.outputTokens();
+                }
+            } catch (Exception e) {
+                log.warn("Could not extract real usage from response, using estimates: {}", e.getMessage());
+                inputTokens = estimateTokens(String.join(" ", limitedConversation));
+                outputTokens = estimateTokens(responseText);
+            }
+
+            // Record usage
             try {
                 AnthropicUsage.getInstance().recordUsage(
                         message,
                         currentModelId,
-                        estimatedPromptTokens,
-                        estimatedCompletionTokens);
-                log.info("Recorded estimated token usage: {} input, {} output",
-                        estimatedPromptTokens, estimatedCompletionTokens);
+                        inputTokens,
+                        outputTokens);
+                log.info("Recorded token usage: {} input, {} output", inputTokens, outputTokens);
             } catch (Exception e) {
                 log.error("Failed to record token usage", e);
             }
@@ -382,7 +383,24 @@ public class ClaudeService implements AiService {
         // TODO: Implement full tool calling support with anthropic-java SDK
         // For now, convert to simple text-based response
         log.info("Tool calling requested - using fallback to text generation");
-        return LLMResponse.text(generateResponse(convertToStringList(messages)));
+        String text = generateResponse(convertToStringList(messages));
+
+        // Get usage from tracker (recorded by generateResponse)
+        Map<String, Integer> usageMap = java.util.Map.of();
+        try {
+            long[] tokens = AnthropicUsage.getInstance().getLastRecordedUsage();
+            if (tokens[0] > 0 || tokens[1] > 0) {
+                usageMap = java.util.Map.of("prompt_tokens", (int) tokens[0], "completion_tokens", (int) tokens[1]);
+            }
+        } catch (Exception e) {
+            log.debug("Could not extract usage from usage tracker", e);
+        }
+
+        return LLMResponse.builder()
+                .content(text)
+                .finishReason("stop")
+                .usage(usageMap)
+                .build();
     }
 
     /**

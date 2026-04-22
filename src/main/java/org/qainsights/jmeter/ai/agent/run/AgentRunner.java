@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -159,6 +160,14 @@ public class AgentRunner {
             LLMResponse response = callLLM(currentMessages);
             context.setLastLlmResponse(response);
 
+            // Accumulate usage from LLM response
+            Map<String, Integer> respUsage = response.getUsage();
+            if (respUsage != null && !respUsage.isEmpty()) {
+                for (Map.Entry<String, Integer> entry : respUsage.entrySet()) {
+                    context.addUsage(entry.getKey(), entry.getValue());
+                }
+            }
+
             if (response.isError()) {
                 log.error("LLM returned error: {}", response.getErrorMessage());
                 finalContent = "I encountered an error: " + response.getErrorMessage();
@@ -301,12 +310,17 @@ public class AgentRunner {
         }
 
         // Save messages to session
-        saveMessagesToSession(session, currentMessages, messages.size());
+        // Include user message (last of initial messages) and all new messages
+        int skipCount = Math.max(0, messages.size() - 1);
+        saveMessagesToSession(session, currentMessages, skipCount);
 
         // Trigger background memory consolidation
         memoryConsolidator.maybeConsolidate(session);
 
         // Build result
+        java.util.Map<String, Object> resultMetadata = new java.util.HashMap<>();
+        resultMetadata.put("usage", context.getUsage());
+
         return AgentRunResult.builder()
             .runId(context.getRunId())
             .content(finalContent)
@@ -317,6 +331,7 @@ public class AgentRunner {
             .endTime(Instant.now())
             .session(session)
             .toolEvents(context.getToolEvents())
+            .metadata(resultMetadata)
             .build();
     }
 

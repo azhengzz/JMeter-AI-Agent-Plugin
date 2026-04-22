@@ -275,7 +275,50 @@ public class OpenAICompatibleProvider implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
-        log.info("Generating response with tools for {}: {} tools provided", providerName, tools != null ? tools.size() : 0);
+        return doGenerateWithTools(messages, tools, null);
+    }
+
+    @Override
+    public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
+        log.info("Forced tool calling for {}: {}", providerName, forcedToolName);
+        try {
+            LLMResponse response = doGenerateWithTools(messages, tools, forcedToolName);
+            // If the response indicates tool_choice is unsupported, retry with auto
+            if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
+                log.warn("Forced tool_choice unsupported by {}, retrying with auto", providerName);
+                return doGenerateWithTools(messages, tools, null);
+            }
+            return response;
+        } catch (Exception e) {
+            if (isToolChoiceUnsupported(e)) {
+                log.warn("Forced tool_choice unsupported by {}, retrying with auto", providerName);
+                return doGenerateWithTools(messages, tools, null);
+            }
+            return LLMResponse.error("Error in forced tool calling: " + e.getMessage());
+        }
+    }
+
+    private boolean isToolChoiceUnsupported(Throwable e) {
+        if (e == null) return false;
+        String msg = (e.getMessage() != null ? e.getMessage() : "").toLowerCase();
+        return msg.contains("tool_choice") || msg.contains("does not support")
+                || msg.contains("should be [\"none\", \"auto\"]");
+    }
+
+    private boolean isToolChoiceUnsupported(String msg) {
+        if (msg == null) return false;
+        String lower = msg.toLowerCase();
+        return lower.contains("tool_choice") || lower.contains("does not support")
+                || lower.contains("should be [\"none\", \"auto\"]");
+    }
+
+    /**
+     * Core implementation: generates response with optional forced tool choice.
+     * @param forcedToolName if non-null, forces the LLM to call this specific tool
+     */
+    private LLMResponse doGenerateWithTools(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
+        log.info("Generating response for {}: {} tools, forcedTool={}", providerName,
+                tools != null ? tools.size() : 0, forcedToolName);
 
         String modelName = stripProviderPrefix(currentModelId);
 
@@ -389,12 +432,49 @@ public class OpenAICompatibleProvider implements AiService {
             }
 
             // 构建并发送请求
+            if (forcedToolName != null) {
+                paramsBuilder.toolChoice(
+                    com.openai.models.chat.completions.ChatCompletionNamedToolChoice.builder()
+                        .type(com.openai.core.JsonValue.from("function"))
+                        .function(com.openai.models.chat.completions.ChatCompletionNamedToolChoice.Function.builder()
+                            .name(forcedToolName)
+                            .build())
+                        .build()
+                );
+            }
             ChatCompletionCreateParams params = paramsBuilder.build();
             log.info("Sending request to {} with {} tools", providerName, tools != null ? tools.size() : 0);
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
             log.info("Received response from {}, chatCompletion object type: {}",
                     providerName, chatCompletion.getClass().getName());
+
+            // Extract usage directly from ChatCompletion for LLMResponse
+            long extractedPTokens = 0;
+            long extractedCTokens = 0;
+            try {
+                var usageOpt = chatCompletion.usage();
+                if (usageOpt != null && usageOpt.isPresent()) {
+                    var usage = usageOpt.get();
+                    extractedPTokens = usage.promptTokens();
+                    extractedCTokens = usage.completionTokens();
+                    log.info("Usage from {} API: promptTokens={}, completionTokens={}, totalTokens={}",
+                            providerName, extractedPTokens, extractedCTokens, usage.totalTokens());
+                } else {
+                    log.debug("No usage data in {} ChatCompletion response", providerName);
+                }
+            } catch (Exception e) {
+                log.warn("Could not extract usage from {} ChatCompletion: {}", providerName, e.getMessage());
+            }
+
+            java.util.Map<String, Integer> usageMap;
+            if (extractedPTokens > 0 || extractedCTokens > 0) {
+                usageMap = java.util.Map.of("prompt_tokens", (int) extractedPTokens,
+                        "completion_tokens", (int) extractedCTokens);
+            } else {
+                usageMap = java.util.Map.of();
+                log.debug("Usage extraction returned 0/0 for provider: {}", providerName);
+            }
 
             // 解析响应
             // 检查 choices 是否为 null 或空 - 需要捕获异常因为 openai-java SDK 的 choices() 方法在字段为 null 时会抛出异常
@@ -453,7 +533,8 @@ public class OpenAICompatibleProvider implements AiService {
             // 构建响应
             LLMResponse.Builder responseBuilder = LLMResponse.builder()
                     .content(content)
-                    .finishReason(finishReason);
+                    .finishReason(finishReason)
+                    .usage(usageMap);
 
             if (!toolCalls.isEmpty()) {
                 responseBuilder.toolCalls(toolCalls);
@@ -476,22 +557,12 @@ public class OpenAICompatibleProvider implements AiService {
     }
 
     @Override
-    public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
-        log.info("Forced tool calling requested for {}: {}", providerName, forcedToolName);
-        // TODO: Implement forced tool choice
-        // For now, just use normal tool calling
-        return generateResponseWithTools(messages, tools);
-    }
-
-    @Override
     public boolean supportsToolCalling() {
-        // Most OpenAI-compatible providers support tool calling
         return true;
     }
 
     @Override
     public boolean supportsForcedToolChoice() {
-        // Most providers support forced tool choice
         return true;
     }
 
