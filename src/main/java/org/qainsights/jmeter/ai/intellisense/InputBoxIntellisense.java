@@ -94,20 +94,21 @@ public class InputBoxIntellisense {
     
     /**
      * Updates the intellisense popup based on the current text and caret position.
+     * Triggers on both @ and / prefix characters.
      */
     private void updateIntellisense() {
         int caret = textArea.getCaretPosition();
         String text = textArea.getText();
-        int atIdx = text.lastIndexOf("@", caret - 1);
-        
-        if (atIdx >= 0 && (atIdx == 0 || !Character.isLetterOrDigit(text.charAt(atIdx - 1)))) {
-            String prefix = text.substring(atIdx, caret);
+        int triggerIdx = findTriggerIndex(text, caret);
+
+        if (triggerIdx >= 0) {
+            String prefix = text.substring(triggerIdx, caret);
             List<String> suggestions = intellisenseProvider.getSuggestions(prefix);
-            
+
             if (!suggestions.isEmpty()) {
                 Point pt;
                 try {
-                    Rectangle2D rect = textArea.modelToView2D(atIdx);
+                    Rectangle2D rect = textArea.modelToView2D(triggerIdx);
                     pt = new Point((int)rect.getX(), (int)(rect.getY() + rect.getHeight()));
                 } catch (Exception ex) {
                     pt = new Point(0, textArea.getHeight());
@@ -120,7 +121,28 @@ public class InputBoxIntellisense {
             intellisensePopup.hide();
         }
     }
-    
+
+    /**
+     * Find the trigger character index (@ or /) closest to the caret.
+     * Returns -1 if no valid trigger is found.
+     */
+    private int findTriggerIndex(String text, int caret) {
+        int atIdx = text.lastIndexOf("@", caret - 1);
+        int slashIdx = text.lastIndexOf("/", caret - 1);
+
+        // Pick the closest trigger to the caret
+        int best = -1;
+        if (atIdx >= 0 && (atIdx == 0 || !Character.isLetterOrDigit(text.charAt(atIdx - 1)))) {
+            best = atIdx;
+        }
+        if (slashIdx >= 0 && (slashIdx == 0 || !Character.isLetterOrDigit(text.charAt(slashIdx - 1)))) {
+            if (best < 0 || slashIdx > best) {
+                best = slashIdx;
+            }
+        }
+        return best;
+    }
+
     /**
      * Inserts the currently selected command from the intellisense popup into the text area.
      */
@@ -130,9 +152,9 @@ public class InputBoxIntellisense {
             try {
                 int pos = textArea.getCaretPosition();
                 String text = textArea.getText();
-                int atIdx = text.lastIndexOf("@", pos - 1);
-                if (atIdx >= 0) {
-                    String before = text.substring(0, atIdx);
+                int triggerIdx = findTriggerIndex(text, pos);
+                if (triggerIdx >= 0) {
+                    String before = text.substring(0, triggerIdx);
                     String after = text.substring(pos);
                     textArea.setText(before + selected + after);
                     textArea.setCaretPosition((before + selected).length());

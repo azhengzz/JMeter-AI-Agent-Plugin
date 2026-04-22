@@ -4,21 +4,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Provides intellisense/autocomplete for AI chat commands (e.g., @code, @wrap).
+ * Provides intellisense/autocomplete for AI chat commands.
  */
 public class CommandIntellisenseProvider {
     private final List<String> commands;
 
     public CommandIntellisenseProvider() {
         commands = new ArrayList<>();
+        // Slash commands
+        commands.add("/stop");
+        commands.add("/new");
+        commands.add("/status");
+        commands.add("/help");
+        // Agent commands
         commands.add("@code");
         commands.add("@wrap");
         commands.add("@lint");
         commands.add("@usage");
         commands.add("@optimize");
         commands.add("@this");
-
-        // Add more commands here as needed
     }
 
     public List<String> getSuggestions(String prefix) {

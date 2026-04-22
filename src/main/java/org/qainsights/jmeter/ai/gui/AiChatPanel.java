@@ -67,6 +67,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private final MessageProcessor messageProcessor;
     private final ElementSuggestionManager elementSuggestionManager;
 
+    // Track active worker for /stop support
+    private AgentSwingWorker activeWorker;
+
     /**
      * Constructs a new AiChatPanel.
      */
@@ -685,7 +688,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         String welcomeMessage = "# Welcome to GiteeAi - JMeter Agent\n\n" +
                 "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
                 "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
-                "**Special commands:**\n" +
+                "**Slash commands:**\n" +
+                "- `/new` — Start a new conversation\n" +
+                "- `/stop` — Stop the current task\n" +
+                "- `/status` — Show bot status\n" +
+                "- `/help` — Show available commands\n\n" +
+                "**Agent commands:**\n" +
                 "- Use `@this` to get information about the currently selected element\n" +
                 "- Use `@optimize` to get optimization suggestions for your test plan\n" +
                 "- Use `@lint` to rename elements in your test plan with meaningful names\n" +
@@ -746,6 +754,28 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.error("Error adding loading indicator", e);
         }
 
+        // Check for /stop command to cancel active worker immediately
+        if (message.trim().equalsIgnoreCase("/stop")) {
+            if (activeWorker != null && !activeWorker.isDone()) {
+                activeWorker.cancel(true);
+                activeWorker = null;
+            }
+            // Also cancel at AgentLoop level
+            if (agentLoop != null) {
+                agentLoop.cancelActiveTask(CHAT_SESSION_KEY);
+            }
+            removeLoadingIndicator();
+            try {
+                messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                        "Stopped.", getThemeColor("Label.disabledForeground", Color.GRAY), false);
+            } catch (BadLocationException e) {
+                log.error("Error displaying stop message", e);
+            }
+            sendButton.setEnabled(true);
+            messageField.requestFocusInWindow();
+            return;
+        }
+
         // Check for special commands that don't go through AgentLoop
         if (message.trim().startsWith("@code")) {
             // @code command is disabled - use right-click context menu instead
@@ -754,7 +784,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         "The @code command is disabled. Please use the right-click context menu in the JSR223 editor instead.",
                         Color.RED, false);
                 removeLoadingIndicator();
-                messageField.setEnabled(true);
                 sendButton.setEnabled(true);
                 messageField.requestFocusInWindow();
             } catch (BadLocationException e) {
@@ -773,7 +802,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                             "Agent Loop is not available. Please check your configuration.",
                             Color.RED, false);
                     removeLoadingIndicator();
-                    messageField.setEnabled(true);
                     sendButton.setEnabled(true);
                     return;
                 } catch (BadLocationException e) {
@@ -782,24 +810,27 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         }
 
-        // Disable input while processing
-        messageField.setEnabled(false);
+        // Disable send button while processing (keep messageField enabled for /stop)
         sendButton.setEnabled(false);
 
         // Use AgentSwingWorker to process the message through AgentLoop
-        new AgentSwingWorker(
+        activeWorker = new AgentSwingWorker(
                 agentLoop,
                 message,
                 CHAT_SESSION_KEY,
                 this::handleAgentResponse,
                 this::handleProgress
-        ).execute();
+        );
+        activeWorker.execute();
     }
 
     /**
      * Handle AgentLoop response callback.
      */
     private void handleAgentResponse(AgentResponse response) {
+        // Clear active worker reference
+        activeWorker = null;
+
         // Remove the loading indicator
         removeLoadingIndicator();
 
