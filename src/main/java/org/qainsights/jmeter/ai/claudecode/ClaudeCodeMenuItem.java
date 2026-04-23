@@ -17,7 +17,7 @@ import java.awt.image.BufferedImage;
  * Menu item and toolbar button for launching Claude Code terminal panel.
  * <p>
  * Adds a terminal icon (">_") to the JMeter toolbar, next to the
- * Feather Wand button. Clicking toggles a split pane with the
+ * Gitee Ai button. Clicking toggles a split pane with the
  * {@link ClaudeCodePanel} on the right side.
  */
 public class ClaudeCodeMenuItem extends JMenuItem implements ActionListener {
@@ -94,7 +94,7 @@ public class ClaudeCodeMenuItem extends JMenuItem implements ActionListener {
                         log.debug("Searching for toolbar for Claude Code icon...");
                         toolbar = finder.findComponentIn(mf);
                     }
-                    // Insert right after the last button (which should include the Feather Wand
+                    // Insert right after the last button (which should include the Gitee Ai
                     // button)
                     int pos = getPositionAfterFeatherWand(toolbar.getComponents());
                     log.debug("Claude Code icon position: {}", pos);
@@ -119,7 +119,7 @@ public class ClaudeCodeMenuItem extends JMenuItem implements ActionListener {
     }
 
     /**
-     * Finds the position right after the Feather Wand button (or before the
+     * Finds the position right after the Gitee Ai button (or before the
      * "start" button as fallback).
      */
     private int getPositionAfterFeatherWand(Component[] toolbarComponents) {
@@ -133,7 +133,7 @@ public class ClaudeCodeMenuItem extends JMenuItem implements ActionListener {
                 String actionCommand = btn.getModel().getActionCommand();
                 String tooltip = btn.getToolTipText();
 
-                // Find the Feather Wand button
+                // Find the Gitee Ai button
                 if ("toggle_ai_panel".equals(actionCommand) ||
                         (tooltip != null && tooltip.contains("FeatherWand"))) {
                     featherWandPos = i;
@@ -146,7 +146,7 @@ public class ClaudeCodeMenuItem extends JMenuItem implements ActionListener {
             }
         }
 
-        // Place right after Feather Wand if found, otherwise before start
+        // Place right after Gitee Ai if found, otherwise before start
         return featherWandPos >= 0 ? featherWandPos + 1 : startPos;
     }
 
