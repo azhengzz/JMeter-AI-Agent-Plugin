@@ -8,7 +8,7 @@
 
 | 类别 | 组件数量 |
 |------|----------|
-| 采样器 (Samplers) | 6 |
+| 采样器 (Samplers) | 7 |
 | 逻辑控制器 (Controllers) | 8 |
 | 配置元件 (Config Elements) | 4 |
 | 断言 (Assertions) | 5 |
@@ -16,7 +16,8 @@
 | 前置处理器 (Pre Processors) | 3 |
 | 线程组 (Thread Groups) | 4 |
 | 定时器 (Timers) | 4 |
-| **总计** | **40** |
+| 监听器 (Listeners) | 4 |
+| **总计** | **45** |
 
 ---
 
@@ -26,6 +27,7 @@
 |----------|----------|------|
 | HTTP Request | `httpsampler` | 发送 HTTP/HTTPS 请求到 Web 服务器 |
 | JDBC Sampler | `jdbcsampler` | 执行 SQL 查询和数据库操作 |
+| OS Process Sampler | `osprocesssampler` | 执行系统命令或本地可执行程序 |
 | JSR223 Sampler | `jsr223sampler` | 使用 JSR223 脚本编写自定义采样逻辑 |
 | BeanShell Sampler | `beanshellsampler` | 使用 BeanShell 脚本编写自定义采样逻辑 |
 | Debug Sampler | `debugsampler` | 调试用途，显示 JMeter 变量和属性 |
@@ -116,36 +118,25 @@
 
 ---
 
+## 监听器 (Listeners)
+
+| 组件名称 | 类型标识 | 说明 |
+|----------|----------|------|
+| View Results Tree | `viewresultstree` | 查看结果树，展示采样器请求和响应详情 |
+| Aggregate Report | `aggregatereport` | 聚合报告，统计响应时间和吞吐量 |
+| Summary Report | `summaryreport` | 汇总报告，表格形式展示统计数据 |
+| Backend Listener | `backendlistener` | 后端监听器，将结果发送到外部系统（如 InfluxDB） |
+
+---
+
 ## 待提交组件
 
-以下组件的 Schema 定义已在本地创建，但尚未提交到代码仓库（共 17 个）：
+以下组件的 Schema 定义已在本地创建或修改，但尚未提交到代码仓库（共 2 个）：
 
-### 断言 (6 个)
-- Duration Assertion - 验证响应时间
-- Size Assertion - 验证响应大小
-- Compare Assertion - 比较两个样本
-- HTML Assertion - 验证 HTML 响应
-- MD5Hex Assertion - 验证响应的 MD5 哈希值
-- JSR223 Assertion - JSR223 脚本断言
-
-### 定时器 (2 个)
-- Gaussian Random Timer - 高斯随机延迟
-- Poisson Random Timer - 泊松随机延迟
-
-### 监听器 (5 个)
-- View Results Tree - 查看结果树
-- Aggregate Report - 聚合报告
-- Summary Report - 汇总报告
-- Backend Listener - 后端监听器
-- Summariser - 摘要报告
-
-### 后置处理器 (3 个)
-- XPath Extractor - XPath 提取器
-- Boundary Extractor - 边界提取器
-- JMESPath Extractor - JMESPath 提取器
-
-### 配置元件 (1 个)
-- CSV Data Set - CSV 数据文件参数化
+| 组件名称 | 类别 | 状态 |
+|----------|------|------|
+| Thread Group | 线程组 | 已提交版本有修改 |
+| CSV Data Set | 配置元件 | 新增，未跟踪 |
 
 ---
 

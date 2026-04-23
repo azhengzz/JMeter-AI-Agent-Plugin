@@ -22,7 +22,7 @@ properties:
 
   - name: ThreadGroup.ramp_time
     type: Integer
-    required: true
+    required: false
     min: 0
     default: 1
     description: Time (seconds) to start all threads
@@ -48,7 +48,7 @@ properties:
 
   - name: ThreadGroup.same_user_on_next_iteration
     type: Boolean
-    required: true
+    required: false
     default: true
     description: Same user on each iteration
 
