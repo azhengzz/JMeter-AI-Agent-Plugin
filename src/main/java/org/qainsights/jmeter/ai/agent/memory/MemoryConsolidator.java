@@ -180,7 +180,8 @@ public class MemoryConsolidator {
 
     /**
      * Nanobot-mode: use forced tool calling to get structured save_memory output.
-     * If forced fails (provider doesn't respect tool_choice), retries with auto immediately.
+     * Aligned with Nanobot: only retries with auto if forced returns error about unsupported tool_choice.
+     * If LLM ignores tool_choice (finishReason=stop, no tool calls), returns failure for outer retry loop.
      */
     private boolean consolidateViaToolCall(String currentMemory, String messagesText, List<Message> originalMessages) {
         List<Message> chatMessages = List.of(
@@ -188,29 +189,34 @@ public class MemoryConsolidator {
                 Message.user(buildConsolidationPrompt(currentMemory, messagesText))
         );
 
-        LLMResponse response = aiService.generateResponseWithForcedTool(
-                chatMessages, List.of(SAVE_MEMORY_TOOL_DEF), "save_memory");
+        try {
+            // Nanobot line 139-145: try forced tool_choice first
+            LLMResponse response = aiService.generateResponseWithForcedTool(
+                    chatMessages, List.of(SAVE_MEMORY_TOOL_DEF), "save_memory");
 
-        // Nanobot: if forced returned error about unsupported tool_choice, retry with auto immediately
-        if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
-            log.warn("Forced tool_choice unsupported, retrying with auto");
-            response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
-        }
+            // Nanobot line 147-156: if error about unsupported tool_choice, retry with auto
+            if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
+                log.warn("Forced tool_choice unsupported, retrying with auto");
+                response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
+            }
 
-        // Nanobot: if LLM didn't call save_memory at all, count as failure
-        if (response.isError()) {
-            log.warn("Tool call returned error: {}", response.getErrorMessage());
+            // Nanobot line 158-166: if no tool calls, fail
+            if (!response.hasToolCalls()) {
+                log.warn("LLM did not call save_memory tool (finishReason={}, content_len={}, content_preview={})",
+                        response.getFinishReason(),
+                        response.getContent() != null ? response.getContent().length() : 0,
+                        response.getContent() != null ? response.getContent().substring(0, Math.min(200, response.getContent().length())) : "");
+                return handleConsolidationFailure(originalMessages);
+            }
+
+            // Nanobot line 168-196: validate args and save
+            return extractAndSaveToolCallResult(response, currentMemory, originalMessages);
+
+        } catch (Exception e) {
+            // Nanobot line 197-199: exception → fail_or_raw_archive
+            log.error("Memory consolidation failed", e);
             return handleConsolidationFailure(originalMessages);
         }
-
-        if (!response.hasToolCalls()) {
-            log.warn("LLM did not call save_memory tool (finishReason={}, content_len={})",
-                    response.getFinishReason(),
-                    response.getContent() != null ? response.getContent().length() : 0);
-            return handleConsolidationFailure(originalMessages);
-        }
-
-        return extractAndSaveToolCallResult(response, currentMemory, originalMessages);
     }
 
     /**

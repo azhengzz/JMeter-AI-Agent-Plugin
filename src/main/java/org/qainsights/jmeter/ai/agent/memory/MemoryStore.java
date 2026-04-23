@@ -9,8 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+
 
 /**
  * Two-layer memory storage for Agent.
@@ -19,7 +18,6 @@ import java.time.format.DateTimeFormatter;
  */
 public class MemoryStore {
     private static final Logger log = LoggerFactory.getLogger(MemoryStore.class);
-    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final Path memoryDir;
     private final Path memoryFile;
@@ -87,12 +85,12 @@ public class MemoryStore {
     }
 
     /**
-     * Append an entry to HISTORY.md
+     * Append an entry to HISTORY.md.
+     * Callers are responsible for including a [YYYY-MM-DD HH:MM] timestamp prefix.
      */
     public void appendHistory(String entry) {
         try {
-            String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-            String formattedEntry = "[" + timestamp + "] " + entry + "\n\n";
+            String formattedEntry = entry + "\n\n";
             Files.writeString(historyFile, formattedEntry,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.debug("Appended to history: {} characters", formattedEntry.length());
