@@ -714,13 +714,24 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private void startNewConversation() {
         log.info("Starting new conversation");
 
+        // Archive current session messages via AI consolidation (Nanobot alignment)
+        if (agentLoop != null) {
+            var session = agentLoop.getSessionManager().getOrCreate(CHAT_SESSION_KEY);
+            var snapshot = session.getUnconsolidatedMessages();
+
+            session.clear();
+            agentLoop.getSessionManager().saveSession(session);
+            agentLoop.getSessionManager().invalidate(session.getKey());
+
+            if (!snapshot.isEmpty()) {
+                agentLoop.getMemoryConsolidator().archiveMessagesAsync(snapshot);
+            }
+
+            log.info("Session archived {} messages", snapshot.size());
+        }
+
         // Clear the chat area
         chatArea.setText("");
-
-        // Clear the AgentLoop session
-        if (agentLoop != null) {
-            agentLoop.getSessionManager().clearSession(CHAT_SESSION_KEY);
-        }
 
         // Display welcome message
         displayWelcomeMessage();

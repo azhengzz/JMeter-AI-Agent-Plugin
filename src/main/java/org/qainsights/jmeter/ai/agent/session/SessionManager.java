@@ -19,9 +19,6 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Manages conversation sessions.
@@ -34,8 +31,6 @@ public class SessionManager {
 
     private final Map<String, Session> sessions;
     private final Path sessionStorage;
-    private final ScheduledExecutorService cleanupExecutor;
-    private final long sessionTimeoutMillis;
 
     public SessionManager() {
         this(getDefaultWorkspace());
@@ -44,18 +39,9 @@ public class SessionManager {
     public SessionManager(Path workspace) {
         this.sessionStorage = workspace.resolve("sessions");
         this.sessions = new ConcurrentHashMap<>();
-        this.sessionTimeoutMillis = Long.parseLong(AiConfig.getProperty("agent.session.timeout", "3600000"));
 
         ensureDirectories();
         loadSessions();
-
-        // Schedule periodic cleanup
-        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "session-cleanup");
-            thread.setDaemon(true);
-            return thread;
-        });
-        this.cleanupExecutor.scheduleAtFixedRate(this::cleanupExpiredSessions, 5, 5, TimeUnit.MINUTES);
 
         log.info("SessionManager initialized with workspace: {}", sessionStorage);
     }
@@ -118,7 +104,6 @@ public class SessionManager {
     public void clearSession(String sessionKey) {
         Session removed = sessions.remove(sessionKey);
         if (removed != null) {
-            deleteSessionFile(removed);
             log.info("Cleared session: {}", sessionKey);
         }
     }
@@ -239,15 +224,6 @@ public class SessionManager {
         return sessionStorage.resolve(safeKey + ".jsonl");
     }
 
-    private void deleteSessionFile(Session session) {
-        Path sessionFile = getSessionFile(session.getKey());
-        try {
-            Files.deleteIfExists(sessionFile);
-        } catch (IOException e) {
-            log.warn("Failed to delete session file: {}", sessionFile, e);
-        }
-    }
-
     /**
      * Serialize a Message to JSON ObjectNode (Nanobot compatible format).
      */
@@ -346,20 +322,6 @@ public class SessionManager {
         }
     }
 
-    private void cleanupExpiredSessions() {
-        long now = System.currentTimeMillis();
-        sessions.entrySet().removeIf(entry -> {
-            Session session = entry.getValue();
-            long ageMillis = session.getAgeMinutes() * 60 * 1000L;
-            if (ageMillis > sessionTimeoutMillis) {
-                log.info("Removing expired session: {} (age: {} minutes)", session.getKey(), session.getAgeMinutes());
-                deleteSessionFile(session);
-                return true;
-            }
-            return false;
-        });
-    }
-
     /**
      * Get active session count
      */
@@ -371,16 +333,6 @@ public class SessionManager {
      * Shutdown the session manager
      */
     public void shutdown() {
-        cleanupExecutor.shutdown();
-        try {
-            if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                cleanupExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            cleanupExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
         // Save all sessions
         for (Session session : sessions.values()) {
             saveSession(session);
