@@ -2,16 +2,18 @@
 
 ## Description
 
-JSON Path Assertion validates JSON responses using JSONPath expressions. It checks if the JSON data exists and optionally validates its value.
+JSON Path Assertion validates JSON responses using JSONPath expressions. It checks if the JSON data exists at the specified path and optionally validates its value against an expected value or regular expression pattern.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `JSON_PATH_ASSERTION.jsonPath` | Yes | JSONPath expression | `$.status` |
-| `JSON_PATH_ASSERTION.expectedValue` | No | Expected value (optional) | `success` |
-| `JSON_PATH_ASSERTION.expectNull` | No | Expect null value | `false` |
-| `JSON_PATH_ASSERTION.validateAsJSON` | No | Validate expected value as JSON | `false` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `JSON_PATH` | Yes | — | JSONPath expression to extract value from JSON response | `$.status` |
+| `EXPECTED_VALUE` | No | — | The expected value to compare against. Used when JSONVALIDATION is true. Can be literal value or regex pattern. | `success` |
+| `JSONVALIDATION` | No | `false` | Enable value validation. When true, validates the extracted value against EXPECTED_VALUE. | `true` |
+| `EXPECT_NULL` | No | `false` | When true, asserts that the JSONPath result is null. | `false` |
+| `INVERT` | No | `false` | Negate the assertion - causes assertion to fail if conditions are met, pass otherwise. | `false` |
+| `ISREGEX` | No | `true` | Treat EXPECTED_VALUE as a regular expression pattern for matching. | `true` |
 
 ## Usage Examples
 
@@ -24,31 +26,35 @@ create_jmeter_element with:
 - elementType: "jsonpathassertion"
 - elementName: "断言_status字段存在"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.status"
+  - JSON_PATH: "$.status"
 ```
 
-### Example 2: Check Field Value
+### Example 2: Check Field Equals Value
 
 ```
 create_jmeter_element with:
 - elementType: "jsonpathassertion"
 - elementName: "断言_status等于success"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.status"
-  - JSON_PATH_ASSERTION.expectedValue: "success"
+  - JSON_PATH: "$.status"
+  - EXPECTED_VALUE: "success"
+  - JSONVALIDATION: "true"
+  - ISREGEX: "false"
 ```
 
-### Example 3: Check Nested Value
+### Example 3: Check Nested Value with Regex
 
 ```
 // Response: {"data":{"user":{"id":123,"name":"Alice"}}}
 
 create_jmeter_element with:
 - elementType: "jsonpathassertion"
-- elementName: "断言_用户ID正确"
+- elementName: "断言_用户ID为数字"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.data.user.id"
-  - JSON_PATH_ASSERTION.expectedValue: "123"
+  - JSON_PATH: "$.data.user.id"
+  - EXPECTED_VALUE: "\\d+"
+  - JSONVALIDATION: "true"
+  - ISREGEX: "true"
 ```
 
 ### Example 4: Check Array Item
@@ -60,24 +66,13 @@ create_jmeter_element with:
 - elementType: "jsonpathassertion"
 - elementName: "断言_第一个用户名"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.users[0].name"
-  - JSON_PATH_ASSERTION.expectedValue: "Alice"
+  - JSON_PATH: "$.users[0].name"
+  - EXPECTED_VALUE: "Alice"
+  - JSONVALIDATION: "true"
+  - ISREGEX: "false"
 ```
 
-### Example 5: Check Array Count
-
-```
-// Response: {"items":[1,2,3,4,5]}
-
-create_jmeter_element with:
-- elementType: "jsonpathassertion"
-- elementName: "断言_项目数量"
-- properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.items.length()"
-  - JSON_PATH_ASSERTION.expectedValue: "5"
-```
-
-### Example 6: Expect Null
+### Example 5: Expect Null
 
 ```
 // Response: {"data":null}
@@ -86,115 +81,35 @@ create_jmeter_element with:
 - elementType: "jsonpathassertion"
 - elementName: "断言_data为null"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.data"
-  - JSON_PATH_ASSERTION.expectNull: "true"
+  - JSON_PATH: "$.data"
+  - EXPECT_NULL: "true"
 ```
 
-### Example 7: Validate JSON Value
+### Example 6: Invert Assertion
 
 ```
-// Response: {"config":{"theme":"dark","lang":"en"}}
+// Assert that error field does NOT exist
 
 create_jmeter_element with:
 - elementType: "jsonpathassertion"
-- elementName: "断言_配置对象"
+- elementName: "断言_无error字段"
 - properties:
-  - JSON_PATH_ASSERTION.jsonPath: "$.config"
-  - JSON_PATH_ASSERTION.expectedValue: '{"theme":"dark"}'
-  - JSON_PATH_ASSERTION.validateAsJSON: "true"
+  - JSON_PATH: "$.error"
+  - INVERT: "true"
 ```
-
-## JSONPath Syntax
-
-| Expression | Description | Result |
-|------------|-------------|--------|
-| `$.field` | Root field | Field value |
-| `$.parent.child` | Nested field | Nested value |
-| `$..field` | Anywhere | All matching fields |
-| `$.array[0]` | First item | First array element |
-| `$.array[*]` | All items | All array elements |
-
-## Common Patterns
-
-### Field Exists
-```
-JSONPath: $.userId
-Expected: (leave empty)
-```
-
-### Field Equals Value
-```
-JSONPath: $.status
-Expected: success
-```
-
-### Nested Field
-```
-JSONPath: $.data.user.email
-Expected: user@example.com
-```
-
-### Array Element
-```
-JSONPath: $.items[0].name
-Expected: First Item
-```
-
-### Number Comparison
-```
-JSONPath: $.count
-Expected: 10
-```
-
-### Boolean Check
-```
-JSONPath: $.active
-Expected: true
-```
-
-## Validation Types
-
-| Type | Description | Use Case |
-|------|-------------|----------|
-| Exist only | Field exists | Check structure |
-| Expected value | Field equals value | Validate content |
-| Null check | Field is null | Check missing data |
-| JSON validation | Compare JSON objects | Complex validation |
 
 ## Best Practices
 
-1. **Test JSONPath first**: Verify expression is correct
-2. **Specific paths**: Use specific paths for reliability
-3. **Type matching**: Ensure expected value type matches JSON
-4. **Array bounds**: Check array length before accessing items
-5. **Descriptive names**: Clear assertion names
-
-## Tips
-
-1. **Debug mode**: Use View Results Tree to test
-2. **Simple first**: Start with existence checks
-3. **Value types**: Numbers and booleans must match
-4. **Array indexes**: Start from 0
-5. **Null handling**: Use expectNull for null checks
-
-## Common Issues
-
-### Issue: Field Not Found
-**Cause**: JSONPath is incorrect
-**Solution**: Test JSONPath in View Results Tree
-
-### Issue: Value Mismatch
-**Cause**: Type or format mismatch
-**Solution**: Match exact value (strings need quotes)
-
-### Issue: Array Index Out of Bounds
-**Cause**: Array smaller than expected
-**Solution**: Check array length first
+1. **Test JSONPath first**: Verify your JSONPath expression in View Results Tree before using it in assertions.
+2. **Use specific paths**: Prefer `$.data.user.id` over `$..id` for reliability.
+3. **Disable ISREGEX for exact matches**: Set `ISREGEX: "false"` when you want exact string comparison.
+4. **Use INVERT for negative checks**: Use `INVERT: "true"` to assert that a field does NOT exist or does NOT match.
+5. **Descriptive names**: Use clear assertion names like "断言_状态码为200".
 
 ## Notes
 
-- JSONPath validates response structure
-- Expected value is string comparison by default
-- Use validateAsJSON for object comparison
-- Assertion fails if path doesn't exist (unless expectNull)
-- More reliable than text assertions for JSON
+- When JSONVALIDATION is false, the assertion only checks if the JSONPath matches any element.
+- When JSONVALIDATION is true, the extracted value is compared against EXPECTED_VALUE.
+- ISREGEX defaults to true, so EXPECTED_VALUE is treated as a regex pattern unless explicitly set to false.
+- EXPECT_NULL is used to specifically check for null values in the JSON response.
+- The assertion fails if the JSONPath does not match any element (unless INVERT is true).

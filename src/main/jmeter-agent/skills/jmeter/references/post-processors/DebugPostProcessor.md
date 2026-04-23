@@ -1,189 +1,64 @@
 # Debug Post-Processor
 
 ## Description
+The Debug PostProcessor creates a subSample with the details of the previous Sampler properties, JMeter variables, properties and/or System Properties.
 
-Debug Post-Processor displays JMeter variables, properties, and sampler information in the View Results Tree listener. It's essential for debugging and troubleshooting test plans.
+The values can be seen in the View Results Tree Listener Response Data pane.
 
 ## Parameters
-
-| Property | Required | Description | Default |
-|----------|----------|-------------|---------|
-| `displayJMeterVariables` | No | Display JMeter variables | `false` |
-| `displayJMeterProperties` | No | Display JMeter properties | `false` |
-| `displaySamplerProperties` | No | Display sampler properties | `false` |
-| `displaySystemProperties` | No | Display system properties | `false` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `displayJMeterVariables` | No | `true` | Whether to show JMeter variables in the sub-sampler results. | `"true"` |
+| `displayJMeterProperties` | No | `false` | Whether to show JMeter properties in the sub-sampler results. | `"false"` |
+| `displaySamplerProperties` | No | `true` | Whether to show sampler properties in the sub-sampler results. | `"true"` |
+| `displaySystemProperties` | No | `false` | Whether to show system properties in the sub-sampler results. | `"false"` |
 
 ## Usage Examples
-
 ### Example 1: Debug JMeter Variables
-
 ```
 create_jmeter_element with:
 - elementType: "debugpostprocessor"
 - elementName: "显示JMeter变量"
 - properties:
-  - displayJMeterVariables: true
-  - displayJMeterProperties: false
-  - displaySamplerProperties: false
-  - displaySystemProperties: false
+  - displayJMeterVariables: "true"
+  - displayJMeterProperties: "false"
+  - displaySamplerProperties: "false"
+  - displaySystemProperties: "false"
 ```
 
-### Example 2: Debug All Information
-
+### Example 2: Show All Debug Information
 ```
 create_jmeter_element with:
 - elementType: "debugpostprocessor"
 - elementName: "完整调试信息"
 - properties:
-  - displayJMeterVariables: true
-  - displayJMeterProperties: true
-  - displaySamplerProperties: true
-  - displaySystemProperties: true
+  - displayJMeterVariables: "true"
+  - displayJMeterProperties: "true"
+  - displaySamplerProperties: "true"
+  - displaySystemProperties: "true"
 ```
 
-### Example 3: Debug Sampler Properties
-
+### Example 3: Debug After Extraction
 ```
+// After a JSON Post Processor or Regex Extractor, verify extraction
 create_jmeter_element with:
 - elementType: "debugpostprocessor"
-- elementName: "显示采样器属性"
+- elementName: "验证提取结果"
 - properties:
-  - displayJMeterVariables: false
-  - displayJMeterProperties: false
-  - displaySamplerProperties: true
-  - displaySystemProperties: false
-```
-
-### Example 4: Combined with Extractor
-
-```
-// First, extract some data
-create_jmeter_element with:
-- elementType: "jsonpostprocessor"
-- elementName: "提取Token"
-- properties:
-  - JSONPostProcessor.referenceNames: "token"
-  - JSONPostProcessor.jsonPathExprs: "$.data.token"
-  - JSONPostProcessor.match_numbers: "1"
-
-// Then debug to verify extraction
-create_jmeter_element with:
-- elementType: "debugpostprocessor"
-- elementName: "调试-检查Token"
-- properties:
-  - displayJMeterVariables: true
-  - displayJMeterProperties: false
-  - displaySamplerProperties: false
-  - displaySystemProperties: false
-```
-
-## Viewing Debug Output
-
-### Steps:
-
-1. Add a **View Results Tree** listener to your test plan
-2. Enable the desired Debug Post-Processor options
-3. Run the test
-4. In View Results Tree, select the sample result
-5. Look for **Sub results** containing the debug output
-
-### Debug Output Sections
-
-#### JMeter Variables
-```
-JMeterVariables:
-base_url=https://api.example.com
-user_id=12345
-auth_token=abc123xyz
-product_count=5
-```
-
-#### JMeter Properties
-```
-JMeterProperties:
-jmeter.engine.remote.mode=false
-jmeter.save.saveservice.response_data=true
-jmeter.threads.uelementtag=complement
-```
-
-#### Sampler Properties
-```
-SamplerProperties:
-TestElement.gui_class=org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui
-TestElement.test_class=org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy
-HTTPSampler.domain=api.example.com
-HTTPSampler.port=443
-```
-
-#### System Properties
-```
-SystemProperties:
-java.version=17.0.1
-os.name=Windows 10
-user.home=C:\Users\TestUser
-file.separator=\
+  - displayJMeterVariables: "true"
+  - displaySamplerProperties: "true"
 ```
 
 ## Best Practices
-
-1. **Use during development**: Enable for debugging, disable for production
-2. **Targeted debugging**: Only enable sections you need
-3. **Remove before load test**: Debug output impacts performance
-4. **Combine with View Results Tree**: Essential for viewing output
-5. **Check variable scope**: Verify variable visibility across thread groups
-
-## Tips
-
-1. **Quick check**: Enable only JMeter Variables for most debugging
-2. **Performance**: Disable all options for actual load testing
-3. **Variable lifecycle**: See when variables are created/destroyed
-4. **Cross-thread issues**: Debug properties for cross-thread variables
-5. **Sub results**: Debug output appears as sub-samples in results
-
-## Common Use Cases
-
-### Verify Extraction
-
-After a JSON/Regex Extractor, verify the variable was created:
-```
-JMeter Variables:
-user_id=123
-```
-
-### Check Property Scope
-
-Verify if a value is stored as variable or property:
-```
-JMeter Variables: (not found)
-JMeter Properties: global_value=test
-```
-
-### Debug Sampler Configuration
-
-Verify sampler properties are set correctly:
-```
-Sampler Properties:
-HTTPSampler.path=/api/users
-HTTPSampler.method=GET
-```
-
-### Trace Variable Changes
-
-Add multiple Debug Post-Processors to track variable changes throughout test flow.
-
-## Performance Impact
-
-| Setting | Performance Impact |
-|---------|-------------------|
-| All enabled | HIGH (avoid in load tests) |
-| Variables only | LOW |
-| Properties only | LOW |
-| System properties | MEDIUM |
+1. **Use during development only**: Disable or remove before production load tests
+2. **Targeted debugging**: Only enable the sections you need to inspect
+3. **Combine with View Results Tree**: Essential for viewing debug output
+4. **Check variable scope**: Use to verify variable visibility across thread groups
+5. **Remove before load test**: Debug output adds overhead and impacts performance
 
 ## Notes
-
-- Output appears as sub-samples in View Results Tree
-- Affects test performance - disable for load testing
-- Only displays data for samplers in same scope
+- Output appears as sub-samples in the View Results Tree listener
+- Affects test performance; disable for load testing
+- Only displays data for samplers in the same scope
 - Useful for troubleshooting variable extraction issues
 - Does not modify any variables or properties

@@ -1,27 +1,46 @@
 # CSS Selector Extractor
 
 ## Description
-
-CSS Selector Extractor uses CSS Selector or jQuery expressions to extract data from HTML responses and store them in variables. Supports both JSOUP and JODD parsing engines.
+Allows the user to extract values from a server HTML response using a CSS Selector syntax. As a post-processor, this element will execute after each Sample request in its scope, applying the CSS/JQuery expression, extracting the requested nodes, extracting the node as text or attribute value and store the result into the given variable name.
 
 ## Parameters
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `Sample.scope` | No | `"parent"` | Scope for extraction. See Scope options below. | `"parent"` |
+| `Scope.variable` | No | -- | JMeter variable name to extract from. Only used when scope is `variable`. | `"response_body"` |
+| `HtmlExtractor.refname` | Yes | -- | The name of the JMeter variable in which to store the result. | `"product_name"` |
+| `HtmlExtractor.expr` | Yes | -- | The CSS/JQuery selector used to select nodes from the response data. | `"div.product > h2.title"` |
+| `HtmlExtractor.attribute` | No | `""` | Name of attribute to extract from matched elements. If empty, the combined text of the element and all its children will be returned. | `"href"` |
+| `HtmlExtractor.match_number` | No | `"1"` | Which match to use. 0=random, 1=first, N=Nth match, -1=all matches. | `"1"` |
+| `HtmlExtractor.default` | No | `""` | Default value if the expression does not match. Particularly useful for debugging. | `"NOT_FOUND"` |
+| `HtmlExtractor.default_empty_value` | No | `false` | If checked and Default Value is empty, sets variable to empty string instead of not setting it. | `"false"` |
+| `HtmlExtractor.extractor_impl` | No | `""` | Extractor implementation. See implementation options below. | `"JSOUP"` |
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `HtmlExtractor.refname` | Yes | Variable name for extracted value | `product_name` |
-| `HtmlExtractor.expr` | Yes | CSS Selector or jQuery expression | `div.product > h2.title` |
-| `HtmlExtractor.attribute` | No | Attribute to extract (empty = text content) | `href`, `src`, `data-id` |
-| `HtmlExtractor.match_number` | No | Which match to use (0=random, 1=first, -1=all) | `1` |
-| `HtmlExtractor.default` | No | Default value if no match found | `NOT_FOUND` |
-| `HtmlExtractor.default_empty_value` | No | Set empty string as default | `false` |
-| `HtmlExtractor.extractor_impl` | No | Extractor implementation (empty=JSOUP, recommended) | `JSOUP` or `JODD` |
-| `Sample.scope` | No | Scope: parent/main/all/children/variable | `parent` |
-| `Scope.variable` | No | Variable name to extract from (when scope=variable) | `response_body` |
+### Scope Options
+| Value | Description |
+|-------|-------------|
+| `parent` | Main sample only (default) |
+| `all` | Main sample and sub-samples |
+| `children` | Sub-samples only |
+| `variable` | JMeter variable (use with `Scope.variable`) |
+
+### Extractor Implementation Options
+| Value | Description |
+|-------|-------------|
+| `""` | Default (JSOUP, recommended) |
+| `JSOUP` | JSoup parser - better HTML tolerance |
+| `JODD` | Jodd-Lagarto (CSSelly) - legacy compatibility |
+
+### Match Number Options
+| Value | Description |
+|-------|-------------|
+| `0` | Random match |
+| `1` | First match (default) |
+| `N` | Nth match |
+| `-1` | All matches (creates `var_1`, `var_2`, etc.) |
 
 ## Usage Examples
-
 ### Example 1: Extract Text Content
-
 ```
 create_jmeter_element with:
 - elementType: "htmlextractor"
@@ -34,7 +53,6 @@ create_jmeter_element with:
 ```
 
 ### Example 2: Extract Attribute Value
-
 ```
 create_jmeter_element with:
 - elementType: "htmlextractor"
@@ -47,7 +65,6 @@ create_jmeter_element with:
 ```
 
 ### Example 3: Extract All Matching Elements
-
 ```
 create_jmeter_element with:
 - elementType: "htmlextractor"
@@ -57,68 +74,13 @@ create_jmeter_element with:
   - HtmlExtractor.expr: "span.price"
   - HtmlExtractor.attribute: ""
   - HtmlExtractor.match_number: "-1"
+  - HtmlExtractor.default: "NO_PRICE"
 
 // Access as ${price_1}, ${price_2}, ${price_3}, etc.
 // ${price_matchNr} contains the count
 ```
 
-### Example 4: Extract Data Attribute
-
-```
-create_jmeter_element with:
-- elementType: "htmlextractor"
-- elementName: "提取产品ID"
-- properties:
-  - HtmlExtractor.refname: "product_id"
-  - HtmlExtractor.expr: "div.product-card"
-  - HtmlExtractor.attribute: "data-product-id"
-  - HtmlExtractor.match_number: "1"
-```
-
-### Example 5: Extract from Sub-samples
-
-```
-create_jmeter_element with:
-- elementType: "htmlextractor"
-- elementName: "提取子请求中的链接"
-- properties:
-  - HtmlExtractor.refname: "sub_link"
-  - HtmlExtractor.expr: "a.next-link"
-  - HtmlExtractor.attribute: "href"
-  - Sample.scope: "children"
-```
-
-### Example 6: Complex CSS Selector
-
-```
-create_jmeter_element with:
-- elementType: "htmlextractor"
-- elementName: "提取特定行数据"
-- properties:
-  - HtmlExtractor.refname: "cell_value"
-  - HtmlExtractor.expr: "table#dataTable tr.row-active td:nth-child(3)"
-  - HtmlExtractor.attribute: ""
-  - HtmlExtractor.match_number: "1"
-```
-
-## CSS Selector Patterns
-
-| Selector | Description | Example |
-|----------|-------------|---------|
-| `element` | Tag name | `div`, `a`, `span` |
-| `#id` | Element by ID | `#username` |
-| `.class` | Element by class | `.btn-primary` |
-| `element.class` | Tag with class | `div.active` |
-| `parent > child` | Direct child | `ul > li` |
-| `ancestor descendant` | Any descendant | `form input` |
-| `[attr]` | Has attribute | `[data-id]` |
-| `[attr=value]` | Attribute equals | `[type="text"]` |
-| `:first-child` | First child | `li:first-child` |
-| `:last-child` | Last child | `li:last-child` |
-| `:nth-child(n)` | Nth child | `td:nth-child(2)` |
-
-### Example 7: Extract from Variable
-
+### Example 4: Extract from JMeter Variable
 ```
 create_jmeter_element with:
 - elementType: "htmlextractor"
@@ -130,89 +92,28 @@ create_jmeter_element with:
   - Scope.variable: "stored_html"
 ```
 
-## Attribute Values
-
-| Attribute | Description |
-|-----------|-------------|
-| (empty) | Extract text content |
-| `href` | Link URL |
-| `src` | Image/source URL |
-| `id` | Element ID |
-| `class` | CSS class names |
-| `data-*` | Custom data attribute |
-| `value` | Input value |
-| `name` | Element name |
-
-## Match Number Options
-
-| Value | Description |
-|-------|-------------|
-| `0` | Random match |
-| `1` | First match (default) |
-| `n` | Nth match |
-| `-1` | All matches |
-
-## Scope Options
-
-| Value | Description |
-|-------|-------------|
-| `parent` | Main sample only (default) |
-| `all` | Main sample and sub-samples |
-| `children` | Sub-samples only |
-| `variable` | JMeter variable (use with `Scope.variable`) |
-
-## Extractor Implementation
-
-| Value | Description |
-|-------|-------------|
-| (empty) | JSOUP (recommended, better compatibility) |
-| `JSOUP` | JSOUP parser |
-| `JODD` | JODD parser (legacy) |
+### Example 5: Extract with JODD Implementation
+```
+create_jmeter_element with:
+- elementType: "htmlextractor"
+- elementName: "使用JODD提取数据"
+- properties:
+  - HtmlExtractor.refname: "title"
+  - HtmlExtractor.expr: "h1.page-title"
+  - HtmlExtractor.extractor_impl: "JODD"
+  - HtmlExtractor.match_number: "1"
+```
 
 ## Best Practices
-
-1. **Use specific selectors**: More specific = more reliable extraction
-2. **Prefer JSOUP**: Better HTML tolerance and performance
-3. **Test with View Results Tree**: Verify selectors match correctly
-4. **Use attributes**: Extract attributes directly when possible
-5. **Handle no match**: Set default value for missing data
-
-## Tips
-
-1. **Debug mode**: Add Debug Sampler to view extracted values
-2. **Text vs attributes**: Leave attribute empty for text content
-3. **Complex selectors**: Combine classes, IDs, and structural selectors
-4. **Multiple matches**: Use -1 to extract all matching elements
-5. **Nth-child**: Use 1-based indexing for nth-child selectors
-
-## Common HTML Patterns
-
-```
-// ID selector
-#submit-button
-
-// Class selector
-.btn-primary
-
-// Attribute selector
-input[name="username"]
-
-// Structural selector
-div.container > ul.menu > li.item
-
-// Multiple classes
-div.card.product.active
-
-// Data attribute
-[data-product-id]
-
-// Comma-separated (OR)
-div.title, h1.title
-```
+1. **Use specific selectors**: More specific selectors yield more reliable extraction
+2. **Prefer JSOUP**: Better HTML tolerance and performance (default implementation)
+3. **Test with View Results Tree**: Verify selectors match correctly before production
+4. **Use attributes**: Extract attributes directly when the attribute value is what you need
+5. **Set default values**: Always set a default value for debugging and to handle missing data
 
 ## Notes
-
 - JSOUP is the default and recommended implementation
-- CSS selectors are more readable than XPath for HTML
-- Use jQuery syntax for complex selectors
-- Attribute names are case-sensitive
+- CSS selectors are generally more readable than XPath for HTML extraction
+- If selector implementation is set to empty, JSOUP will be used
+- When match_number is -1, variables are created as `refname_1`, `refname_2`, etc., and `refname_matchNr` contains the count
+- Attribute extraction uses JSoup `Element#attr(name)` when an attribute is set, or `Element#text()` when empty

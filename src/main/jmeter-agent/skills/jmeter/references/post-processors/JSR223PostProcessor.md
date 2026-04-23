@@ -1,42 +1,51 @@
 # JSR223 Post-Processor
 
 ## Description
-
-JSR223 Post-Processor executes code after a sampler completes. It's commonly used to extract data, modify variables, or perform conditional logic based on response data.
+The JSR223 PostProcessor allows JSR223 script code to be applied after taking a sample.
 
 ## Parameters
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `scriptLanguage` | Yes | `"groovy"` | The JSR223 language to be used. See Language options below. | `"groovy"` |
+| `parameters` | No | `""` | Parameters to pass to the script. Available as `Parameters` string and `args` String array (split on whitespace). | `"value1 value2"` |
+| `filename` | No | `""` | A file containing the script to run. If a relative file path is used, it will be relative to directory referenced by `user.dir` System property. | `"/scripts/process.groovy"` |
+| `cacheKey` | No | `"false"` | Unique string for script compilation caching. If language supports `Compilable` interface (Groovy does), the compiled script will be cached. Set to `"true"` to enable. | `"true"` |
+| `script` | No | `""` | The script to run. Required unless a script file is provided. | `"vars.put(\"key\", \"value\")"` |
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `scriptLanguage` | Yes | Scripting language | `groovy` |
-| `script` | Yes* | Script code to execute | See examples below |
-| `scriptFile` | Yes* | Path to external script file | `/path/to/script.groovy` |
-| `filename` | No | Alias for scriptFile | `/path/to/script.groovy` |
-| `parameters` | No | Parameters to pass to script | `param1=value1,param2=value2` |
-| `cacheKey` | No | Enable script compilation caching | `true` (enabled), `false` (disabled) |
+### Language Options
+| Value | Description |
+|-------|-------------|
+| `groovy` | Groovy (recommended - best performance, supports `Compilable`) |
+| `beanshell` | BeanShell |
+| `bsh` | BeanShell (alias) |
+| `java` | Java |
+| `jexl` | JEXL |
+| `jexl2` | JEXL2 |
+
+### Cache Key Options
+| Value | Description |
+|-------|-------------|
+| `true` | Enable script compilation caching (recommended for Groovy) |
+| `false` | Disable caching (default) |
 
 ## Usage Examples
-
 ### Example 1: Extract Data from JSON Response
-
 ```
 create_jmeter_element with:
 - elementType: "jsr223postprocessor"
 - elementName: "解析JSON响应"
 - properties:
   - scriptLanguage: "groovy"
+  - cacheKey: "true"
   - script: |
-    import groovy.json.JsonSlurper
-
-    def response = prev.getResponseDataAsString()
-    def json = new JsonSlurper().parseText(response)
-
-    vars.put("user_id", json.data.userId.toString())
-    vars.put("user_name", json.data.userName)
+      import groovy.json.JsonSlurper
+      def response = prev.getResponseDataAsString()
+      def json = new JsonSlurper().parseText(response)
+      vars.put("user_id", json.data.userId.toString())
+      vars.put("user_name", json.data.userName)
 ```
 
 ### Example 2: Cross-Thread Variable Sharing
-
 ```
 create_jmeter_element with:
 - elementType: "jsr223postprocessor"
@@ -44,180 +53,55 @@ create_jmeter_element with:
 - properties:
   - scriptLanguage: "groovy"
   - script: |
-    def token = vars.get("access_token")
-    props.put("shared_token", token)
+      def token = vars.get("access_token")
+      props.put("shared_token", token)
 
 // In another thread group, use:
 // ${__P(shared_token)}
 ```
 
-### Example 3: Conditional Logic
-
+### Example 3: Conditional Logic Based on Response Code
 ```
 create_jmeter_element with:
 - elementType: "jsr223postprocessor"
 - elementName: "根据响应设置标志"
 - properties:
   - scriptLanguage: "groovy"
+  - cacheKey: "true"
   - script: |
-    def code = prev.getResponseCode()
-
-    if (code == "200") {
-        vars.put("request_success", "true")
-        vars.put("retry_count", "0")
-    } else {
-        def retryCount = vars.get("retry_count") as Integer ?: 0
-        vars.put("retry_count", (retryCount + 1).toString())
-        vars.put("request_success", "false")
-    }
+      def code = prev.getResponseCode()
+      if (code == "200") {
+          vars.put("request_success", "true")
+          vars.put("retry_count", "0")
+      } else {
+          def retryCount = vars.get("retry_count") as Integer ?: 0
+          vars.put("retry_count", (retryCount + 1).toString())
+          vars.put("request_success", "false")
+      }
 ```
 
-### Example 4: Calculate Response Metrics
-
+### Example 4: Use External Script File
 ```
 create_jmeter_element with:
 - elementType: "jsr223postprocessor"
-- elementName: "计算响应大小"
+- elementName: "使用外部脚本"
 - properties:
   - scriptLanguage: "groovy"
-  - script: |
-    def bytes = prev.getBytesAsLong()
-    def sizeKB = bytes / 1024
-
-    vars.put("response_size_kb", String.format("%.2f", sizeKB))
-
-    if (sizeKB > 100) {
-        log.warn("Large response detected: " + sizeKB + " KB")
-    }
-```
-
-### Example 5: Extract Multiple Values with Regex
-
-```
-create_jmeter_element with:
-- elementType: "jsr223postprocessor"
-- elementName: "正则提取多个值"
-- properties:
-  - scriptLanguage: "groovy"
-  - script: |
-    def response = prev.getResponseDataAsString()
-
-    def idMatcher = (response =~ /"id"\s*:\s*(\d+)/)
-    def nameMatcher = (response =~ /"name"\s*:\s*"([^"]+)"/)
-
-    if (idMatcher.find()) {
-        vars.put("extracted_id", idMatcher.group(1))
-    }
-
-    if (nameMatcher.find()) {
-        vars.put("extracted_name", nameMatcher.group(1))
-    }
-```
-
-### Example 6: Parse HTML Response
-
-```
-create_jmeter_element with:
-- elementType: "jsr223postprocessor"
-- elementName: "解析HTML"
-- properties:
-  - scriptLanguage: "groovy"
-  - script: |
-    import org.jsoup.Jsoup
-
-    def response = prev.getResponseDataAsString()
-    def doc = Jsoup.parse(response)
-
-    def title = doc.title()
-    def firstLink = doc.select("a").first()?.attr("href")
-
-    vars.put("page_title", title)
-    vars.put("first_link", firstLink ?: "")
-```
-
-## Built-in Variables
-
-### Response Access
-- `prev`: SampleResult - access previous sample result
-- `prev.getResponseCode()`: HTTP status code
-- `prev.getResponseDataAsString()`: Response body
-- `prev.getResponseHeaders()`: Response headers
-- `prev.isSuccessful()`: Success status
-- `prev.getTime()`: Response time in ms
-
-### Variable Access
-- `vars`: JMeterVariables - get/set JMeter variables
-- `vars.get(name)`: Get variable value
-- `vars.put(name, value)`: Set variable value
-- `props`: Properties - access JMeter properties
-
-### Logging
-- `log.info(message)`: Info level log
-- `log.warn(message)`: Warning level log
-- `log.error(message)`: Error level log
-
-## Common Patterns
-
-### Parse JSON
-```groovy
-import groovy.json.JsonSlurper
-def json = new JsonSlurper().parseText(prev.getResponseDataAsString())
-vars.put("field", json.field.toString())
-```
-
-### Save Token for Other Threads
-```groovy
-props.put("token", vars.get("access_token"))
-// Use in other thread: ${__P(token)}
-```
-
-### Conditional Based on Response Code
-```groovy
-if (prev.getResponseCode() == "200") {
-    vars.put("success", "true")
-} else {
-    vars.put("success", "false")
-}
-```
-
-### Extract Header Value
-```groovy
-def contentType = prev.getResponseHeaders().find { it =~ /Content-Type/i }
-vars.put("content_type", contentType?.split(":")[1]?.trim())
-```
-
-### Calculate Checksum
-```groovy
-def data = prev.getResponseDataAsString()
-def checksum = data.md5()
-vars.put("response_checksum", checksum)
+  - filename: "/scripts/extract-data.groovy"
+  - parameters: "userId=${user_id}"
+  - cacheKey: "true"
 ```
 
 ## Best Practices
-
-1. **Use Groovy**: Best performance with JSR223
-2. **Cache scripts**: Enable script caching
-3. **Error handling**: Add try-catch blocks
-4. **Logging**: Use log.warn/error for important events
-5. **Type conversion**: Convert types explicitly (toString(), toInteger())
-
-## Error Handling Example
-
-```groovy
-try {
-    def response = prev.getResponseDataAsString()
-    def json = new JsonSlurper().parseText(response)
-    vars.put("user_id", json.id.toString())
-} catch (Exception e) {
-    log.error("Failed to parse response", e)
-    vars.put("user_id", "error")
-}
-```
+1. **Use Groovy**: Best performance among JSR223 languages, supports `Compilable` interface
+2. **Enable caching**: Set `cacheKey` to `"true"` for Groovy scripts to compile and cache for better performance
+3. **Error handling**: Wrap code in try-catch blocks for robustness
+4. **Use external files**: For complex scripts, use `filename` for easier maintenance
+5. **Explicit type conversion**: Use `.toString()`, `as Integer`, etc. for type safety
 
 ## Notes
-
-- Executes after parent sampler completes
-- Has access to response data and headers
-- Can modify JMeter variables
-- Use for complex extraction logic
-- Groovy is recommended for performance
+- Groovy is strongly recommended over other scripting languages for best performance
+- When using Groovy without script compilation caching, see JSR223 Sampler Java System property notes
+- The `Parameters` variable contains the full parameter string; `args` is the parameter string split on whitespace
+- Scripts execute after the parent sampler completes
+- Has access to response data, headers, variables (`vars`), properties (`props`), and the logger (`log`)

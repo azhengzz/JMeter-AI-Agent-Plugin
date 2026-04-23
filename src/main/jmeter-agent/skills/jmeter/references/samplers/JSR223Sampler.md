@@ -2,19 +2,55 @@
 
 ## Description
 
-JSR223 Sampler allows you to execute custom code using JSR223 compliant scripting languages. Groovy is the recommended language due to its performance and thread safety.
+The JSR223 Sampler allows JSR223 script code to be used to perform a sample or some computation required to create/update variables.
+
+If you don't want to generate a SampleResult when this sampler is run, call the following method:
+
+```java
+SampleResult.setIgnore();
+```
+
+This call will have the following impact:
+- SampleResult will not be delivered to SampleListeners like View Results Tree, Summariser
+- SampleResult will not be evaluated in Assertions nor PostProcessors
+- SampleResult will be evaluated to computing last sample status (`${JMeterThread.last_sample_ok}`), and ThreadGroup "Action to be taken after a Sampler error" (since JMeter 5.4)
+
+The JSR223 test elements have a feature (compilation) that can significantly increase performance. To benefit from this feature:
+- Use Script files instead of inlining them. This will make JMeter compile them if this feature is available on ScriptEngine and cache them.
+- Or Use Script Text and check `Cache compiled script if available` property.
+
+**Note:** When using this feature, ensure your script code does not use JMeter variables or JMeter function calls directly in script code as caching would only cache first replacement. Instead use script parameters.
+
+**Note:** To benefit from caching and compilation, the language engine used for scripting must implement JSR223 `Compilable` interface (Groovy is one of these, java, beanshell and javascript are not).
+
+**Note:** When using Groovy as scripting language and not checking `Cache compiled script if available` (while caching is recommended), you should set this JVM Property `-Dgroovy.use.classvalue=true` due to a Groovy Memory leak.
+
+Cache size is controlled by the JMeter property: `jsr223.compiled_scripts_cache_size=100`
+
+**Note:** Unlike the BeanShell Sampler, the interpreter is not saved between invocations.
+
+**Note:** JSR223 Test Elements using Script file or Script text + checked `Cache compiled script if available` are now compiled if ScriptEngine supports this feature, enabling great performance enhancements.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `scriptLanguage` | Yes | Scripting language | `groovy` |
-| `script` | Yes* | Script code to execute | See examples below |
-| `filename` | Yes* | Path to external script file | `/path/to/script.groovy` |
-| `parameters` | No | Parameters to pass to script | `param1,param2` |
-| `cacheKey` | No | Enable script compilation caching | `true` (enabled), `false` (disabled) |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `scriptLanguage` | Yes | `"groovy"` | Name of the JSR223 scripting language to be used. See Language Values below. There are other languages supported than those in the drop-down list if the appropriate jar is installed in the JMeter lib directory. | `"groovy"` |
+| `script` | No | — | Script to be passed to JSR223 language. Required unless script file is provided. | See examples |
+| `parameters` | No | — | List of parameters to be passed to the script file or the script. | `"param1,param2"` |
+| `cacheKey` | No | `"true"` | If checked (advised) and the language supports `Compilable` interface (Groovy supports this, java/beanshell/javascript do not), JMeter will compile the Script and cache it using its MD5 hash as unique cache key. `"true"`=enabled, `"false"`=disabled. | `"true"` |
+| `filename` | No | `""` | Name of a file to be used as a JSR223 script. If a relative file path is used, it will be relative to directory referenced by `user.dir` System property. | `"/scripts/test.groovy"` |
 
-*Note: Either script or filename must be specified.
+### Language Values
+
+| Value | Description |
+|-------|-------------|
+| `groovy` | Groovy (recommended - supports compilation) |
+| `beanshell` | BeanShell |
+| `bsh` | BeanShell (alias) |
+| `java` | Java |
+| `jexl` | JEXL expression language |
+| `jexl2` | JEXL2 expression language |
 
 ## Usage Examples
 
@@ -34,35 +70,7 @@ create_jmeter_element with:
     SampleResult.setResponseData(userId.getBytes())
 ```
 
-### Example 2: Make HTTP Request
-
-```
-create_jmeter_element with:
-- elementType: "jsr223sampler"
-- elementName: "调用外部API"
-- properties:
-  - scriptLanguage: "groovy"
-  - cacheKey: "true"
-  - script: |
-    import groovy.json.JsonSlurper
-    import groovy.json.JsonBuilder
-
-    // Prepare request
-    def url = "https://api.example.com/users"
-    def connection = new URL(url).openConnection()
-    connection.setRequestMethod("GET")
-    connection.setRequestProperty("Authorization", "Bearer ${token}")
-
-    // Send request
-    def response = connection.inputStream.text
-    def json = new JsonSlurper().parseText(response)
-
-    // Store result
-    vars.put("api_response", response)
-    SampleResult.setResponseData(response.getBytes())
-```
-
-### Example 3: Using External Script File
+### Example 2: Using External Script File
 
 ```
 create_jmeter_element with:
@@ -74,30 +82,7 @@ create_jmeter_element with:
   - cacheKey: "true"
 ```
 
-### Example 4: Database Query without JDBC Sampler
-
-```
-create_jmeter_element with:
-- elementType: "jsr223sampler"
-- elementName: "查询数据库"
-- properties:
-  - scriptLanguage: "groovy"
-  - cacheKey: "true"
-  - script: |
-    import groovy.sql.Sql
-
-    def sql = Sql.newInstance("jdbc:mysql://localhost:3306/mydb", "user", "pass", "com.mysql.jdbc.Driver")
-    def rows = sql.rows("SELECT * FROM users WHERE status = 'active'")
-
-    rows.each { row ->
-      log.info("User: ${row.username}")
-    }
-
-    sql.close()
-    SampleResult.setResponseData("Found ${rows.size()} active users".getBytes())
-```
-
-### Example 5: Passing Parameters
+### Example 3: Passing Parameters
 
 ```
 create_jmeter_element with:
@@ -108,107 +93,59 @@ create_jmeter_element with:
   - parameters: "userId=12345,action=query"
   - cacheKey: "true"
   - script: |
-    // Parameters available as 'Parameters' string and 'args' array
-    String userId = Parameters
-    String[] args = bsh.args
+    String params = Parameters
+    String[] args = args
+    log.info("Full parameters: " + params)
+```
 
-    log.info("Full parameters: " + userId)
-    log.info("First arg: " + args[0])
+### Example 4: Make HTTP Request
+
+```
+create_jmeter_element with:
+- elementType: "jsr223sampler"
+- elementName: "调用外部API"
+- properties:
+  - scriptLanguage: "groovy"
+  - cacheKey: "true"
+  - script: |
+    import groovy.json.JsonSlurper
+    def url = "https://api.example.com/users"
+    def connection = new URL(url).openConnection()
+    connection.setRequestMethod("GET")
+    def response = connection.inputStream.text
+    vars.put("api_response", response)
+    SampleResult.setResponseData(response.getBytes())
 ```
 
 ## Built-in Variables
 
-### JMeter Variables
-- `vars`: JMeterVariables - access/set JMeter variables
-- `props`: Properties - access JMeter properties
-- `ctx`: JMeterContext - access current context
-- `prev`: SampleResult - access previous sample result
-- `sampler`: Sampler - access current sampler
-- `SampleResult`: Current SampleResult object for this sampler
-- `out`: PrintWriter - output to console
-- `log`: Logger - write to JMeter log file
-- `Parameters`: Parameters string (if parameters provided)
-- `args`: Parameters array (if parameters provided)
-
-### SampleResult Methods
-- `SampleResult.setResponseData(data)`: Set response data
-- `SampleResult.setResponseCode(code)`: Set response code
-- `SampleResult.setSuccessful(true/false)`: Set sample success
-- `SampleResult.setResponseMessage(message)`: Set response message
-
-## Script Languages
-
-| Language | Value | Performance | Notes |
-|----------|-------|-------------|-------|
-| Groovy | `groovy` | Best | Recommended |
-| BeanShell | `beanshell` | Slow | Deprecated |
-| Java | `java` | Good | Requires Java knowledge |
-| JavaScript | `javascript` | Medium | Engine dependent |
-| JEXL | `jexl` | Medium | Expression language |
-| JEXL2 | `jexl2` | Medium | Expression language |
+| Variable | Description |
+|----------|-------------|
+| `log` | The Logger for logging |
+| `Label` | The Sampler label |
+| `FileName` | The script file name (if used) |
+| `Parameters` | Parameters as a single string |
+| `args` | Parameters as a String array |
+| `SampleResult` | Current SampleResult object |
+| `sampler` | Current Sampler object |
+| `ctx` | JMeterContext |
+| `vars` | JMeterVariables |
+| `props` | JMeterProperties |
+| `OUT` | System.out |
 
 ## Best Practices
 
-1. **Use Groovy**: Best performance with JSR223 + Groovy
-2. **Enable caching**: Set `cacheKey: "true"` for better performance
-3. **Thread safety**: Groovy scripts are thread-safe when cached
-4. **Reuse code**: Use filename for complex scripts
+1. **Use Groovy**: Best performance with JSR223 + Groovy due to compilation support
+2. **Enable caching**: Set `cacheKey` to `"true"` for better performance
+3. **Use script parameters**: Pass dynamic values via `parameters` instead of embedding JMeter variables directly in script code
+4. **Reuse code**: Use `filename` for complex scripts
 5. **Error handling**: Add try-catch blocks for robustness
-6. **Disable caching for dynamic scripts**: Set `cacheKey: "false"` if script changes at runtime
-
-## Script Caching
-
-When `cacheKey: "true"` (default):
-- Script is compiled and cached after first execution
-- Subsequent executions use cached compiled script
-- Much better performance for static scripts
-- Thread-safe with Groovy
-
-When `cacheKey: "false"`:
-- Script is recompiled on each execution
-- Necessary for scripts that change dynamically
-- Slower performance
-- Use only when needed
-
-## Example: Error Handling
-
-```groovy
-try {
-    // Your code here
-    def result = someOperation()
-    SampleResult.setSuccessful(true)
-    SampleResult.setResponseData(result.toString().getBytes())
-} catch (Exception e) {
-    log.error("Error in script", e)
-    SampleResult.setSuccessful(false)
-    SampleResult.setResponseCode("500")
-    SampleResult.setResponseMessage(e.message)
-}
-```
-
-## Example: Accessing Parameters
-
-```groovy
-// Parameters passed as: "param1=value1,param2=value2"
-String params = Parameters  // Full parameter string
-String[] args = bsh.args     // Array of parameters
-
-// Access individual parameters
-String param1 = args[0]      // "param1=value1"
-String param2 = args[1]      // "param2=value2"
-
-// Parse parameters if needed
-params.split(',').each { pair ->
-    def (key, value) = pair.split('=')
-    log.info("Key: ${key}, Value: ${value}")
-}
-```
+6. **Use external script files**: For complex or reusable scripts
 
 ## Notes
 
-- JSR223 scripts have access to all JMeter APIs
+- If a script file is supplied, that will be used, otherwise the script will be used
+- JMeter processes function and variable references before passing the script field to the interpreter, so the references will only be resolved once
+- Variable and function references in script files will be passed verbatim to the interpreter, which is likely to cause a syntax error. Use `props` methods instead: `props.get("START.HMS"); props.put("PROP1","1234");`
 - Scripts run with the same permissions as JMeter
-- Enable script caching (`cacheKey: "true"`) for better performance
-- Groovy is recommended over other languages
-- Use external script files for complex or reusable scripts
-- Parameters are available as `Parameters` (String) and `args` (String[])
+- Groovy is recommended over other languages for performance and thread safety

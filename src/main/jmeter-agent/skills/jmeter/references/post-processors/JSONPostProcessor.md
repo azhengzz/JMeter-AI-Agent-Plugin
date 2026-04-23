@@ -1,193 +1,118 @@
-# JSON Path Extractor
+# JSON Post Processor
 
 ## Description
-
-JSON Path Extractor parses JSON responses and extracts values using JSONPath expressions. It's the recommended way to extract data from JSON API responses.
+The JSON PostProcessor enables you to extract data from JSON responses using JSON-PATH syntax. This post processor is very similar to the Regular Expression Extractor. It must be placed as a child of HTTP Sampler or any other sampler that has responses. It will allow you to extract in a very easy way text content.
 
 ## Parameters
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `Sample.scope` | No | `"parent"` | Scope for extraction. See Scope options below. | `"parent"` |
+| `Scope.variable` | No | -- | JMeter variable name to extract from. Only used when scope is `variable`. | `"response_body"` |
+| `JSONPostProcessor.referenceNames` | Yes | -- | Semicolon separated names of variables that will contain the results of JSON-PATH expressions. Must match number of JSON-PATH expressions. | `"token;userId"` |
+| `JSONPostProcessor.jsonPathExprs` | Yes | -- | Semicolon separated JSON-PATH expressions. Must match number of variables. | `"$.token;$.userId"` |
+| `JSONPostProcessor.match_numbers` | No | `"1"` | For each JSON Path Expression, which result to extract. Semicolon separated list matching number of expressions. See Match Number options below. | `"1"` |
+| `JSONPostProcessor.defaultValues` | No | `""` | Semicolon separated default values if JSON-PATH expressions do not return any result. Must match number of variables. | `"NO_TOKEN;NO_ID"` |
+| `JSONPostProcessor.compute_concat` | No | `false` | If checked and many results are found, concatenate them using `,` separator and store in a variable named `<variable name>_ALL`. | `"false"` |
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `JSONPostProcessor.refNames` | Yes | Variable name for extracted value | `token` |
-| `JSONPostProcessor.jsonPathExprs` | Yes | JSONPath expression | `$.access_token` |
-| `JSONPostProcessor.matchNumbers` | No | Which match to use (0=random, 1=first) | `1` |
-| `JSONPostProcessor.defaultValues` | No | Default value if no match | `NOT_FOUND` |
+### Scope Options
+| Value | Description |
+|-------|-------------|
+| `parent` | Main sample only (default) |
+| `all` | Main sample and sub-samples |
+| `children` | Sub-samples only |
+| `variable` | JMeter variable (use with `Scope.variable`) |
+
+### Match Number Options
+| Value | Description |
+|-------|-------------|
+| `0` | Random match (default when field is empty) |
+| `1` | First match |
+| `N` | Nth match; if greater than number of matches, default value is used |
+| `-1` | All results, named as `<variable name>_N` (where N goes from 1 to number of results) |
 
 ## Usage Examples
-
 ### Example 1: Extract Token from Response
-
 ```
-// Response: {"access_token":"abc123xyz","token_type":"Bearer"}
-
 create_jmeter_element with:
-- elementType: "jsonpathextractor"
+- elementType: "jsonpostprocessor"
 - elementName: "提取Token"
 - properties:
-  - JSONPostProcessor.refNames: "access_token"
+  - JSONPostProcessor.referenceNames: "access_token"
   - JSONPostProcessor.jsonPathExprs: "$.access_token"
-  - JSONPostProcessor.matchNumbers: "1"
+  - JSONPostProcessor.match_numbers: "1"
+  - JSONPostProcessor.defaultValues: "NO_TOKEN"
+```
 
-// Use in subsequent request
+### Example 2: Extract Multiple Values
+```
 create_jmeter_element with:
-- elementType: "headermanager"
-- elementName: "设置认证头"
+- elementType: "jsonpostprocessor"
+- elementName: "提取用户信息"
 - properties:
-  - HeaderManager.headers:
-    - Authorization: "Bearer ${access_token}"
+  - JSONPostProcessor.referenceNames: "user_id;user_name"
+  - JSONPostProcessor.jsonPathExprs: "$.data.userId;$.data.userName"
+  - JSONPostProcessor.match_numbers: "1;1"
+  - JSONPostProcessor.defaultValues: "NO_ID;NO_NAME"
 ```
 
-### Example 2: Extract Nested Value
-
+### Example 3: Extract All Array Items
 ```
-// Response: {"data":{"user":{"id":123,"name":"Alice"}}}
-
 create_jmeter_element with:
-- elementType: "jsonpathextractor"
-- elementName: "提取用户名"
-- properties:
-  - JSONPostProcessor.refNames: "username"
-  - JSONPostProcessor.jsonPathExprs: "$.data.user.name"
-  - JSONPostProcessor.matchNumbers: "1"
-```
-
-### Example 3: Extract Array Element
-
-```
-// Response: {"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}
-
-create_jmeter_element with:
-- elementType: "jsonpathextractor"
-- elementName: "提取第一个用户"
-- properties:
-  - JSONPostProcessor.refNames: "first_user"
-  - JSONPostProcessor.jsonPathExprs: "$.users[0].name"
-  - JSONPostProcessor.matchNumbers: "1"
-```
-
-### Example 4: Extract All Array Items
-
-```
-// Response: {"items":[1,2,3,4,5]}
-
-create_jmeter_element with:
-- elementType: "jsonpathextractor"
+- elementType: "jsonpostprocessor"
 - elementName: "提取所有项目"
 - properties:
-  - JSONPostProcessor.refNames: "item"
+  - JSONPostProcessor.referenceNames: "item"
   - JSONPostProcessor.jsonPathExprs: "$.items[*]"
-  - JSONPostProcessor.matchNumbers: "-1"
+  - JSONPostProcessor.match_numbers: "-1"
+  - JSONPostProcessor.compute_concat: "true"
 
 // Access as ${item_1}, ${item_2}, ${item_3}, etc.
 // ${item_matchNr} contains the count
+// ${item_ALL} contains all items concatenated with ","
 ```
 
-### Example 5: Extract with Filter
-
+### Example 4: Extract with Filter Expression
 ```
-// Response: {"users":[{"id":1,"status":"active"},{"id":2,"status":"inactive"}]}
-
 create_jmeter_element with:
-- elementType: "jsonpathextractor"
+- elementType: "jsonpostprocessor"
 - elementName: "提取活跃用户ID"
 - properties:
-  - JSONPostProcessor.refNames: "active_user_id"
+  - JSONPostProcessor.referenceNames: "active_user_id"
   - JSONPostProcessor.jsonPathExprs: "$.users[?(@.status=='active')].id"
-  - JSONPostProcessor.matchNumbers: "1"
+  - JSONPostProcessor.match_numbers: "1"
 ```
 
-## JSONPath Syntax
-
-| Expression | Description | Example |
-|------------|-------------|---------|
-| `$` | Root node | `$` |
-| `.` | Child operator | `$.user.name` |
-| `[n]` | Array index | `$.users[0]` |
-| `[*]` | All array items | `$.users[*].name` |
-| `..` | Recursive descent | `$..name` |
-| `[?]` | Filter expression | `$[?(@.age > 18)]` |
-| `[start:end]` | Array slice | `$[0:5]` |
-
-## Common Patterns
-
-### Extract Root Value
+### Example 5: Extract from JMeter Variable
 ```
-{"status":"success"}
-$.status
-```
-
-### Extract Nested Value
-```
-{"data":{"user":{"id":123}}}
-$.data.user.id
-```
-
-### Extract Array Item
-```
-{"items":[{"name":"A"},{"name":"B"}]}
-$.items[0].name
-```
-
-### Extract All Array Items
-```
-{"items":[1,2,3]}
-$.items[*]
-```
-
-### Filter Array
-```
-{"users":[{"age":20},{"age":30}]}
-$.users[?(@.age > 25)]
-```
-
-### Extract by Key Name
-```
-{"data":{"user_id":123}}
-$..user_id
+create_jmeter_element with:
+- elementType: "jsonpostprocessor"
+- elementName: "从变量中提取JSON数据"
+- properties:
+  - Sample.scope: "variable"
+  - Scope.variable: "stored_json"
+  - JSONPostProcessor.referenceNames: "field_value"
+  - JSONPostProcessor.jsonPathExprs: "$.data.field"
+  - JSONPostProcessor.match_numbers: "1"
 ```
 
 ## Variables Created
 
 For reference name `token`:
-- `${token}`: Extracted value
-- `${token_1}`: First match (with matchNumbers=-1)
-- `${token_n}`: Nth match
-- `${token_matchNr}`: Count of matches
-- `${token_ALL}`: All matches concatenated
+- `${token}`: The extracted value
+- `${token_1}`, `${token_2}`, ...: Individual matches (when match_numbers is `-1`)
+- `${token_matchNr}`: Count of matches (when match_numbers is `-1`)
+- `${token_ALL}`: All matches concatenated with `,` (when `compute_concat` is `true`)
 
 ## Best Practices
-
-1. **Use JSONPath for JSON**: Prefer over Regex for JSON responses
-2. **Test expression**: Verify with View Results Tree
-3. **Specific paths**: Use specific paths for better performance
-4. **Default values**: Set default for missing data handling
-5. **Array filters**: Use filter expressions for complex conditions
-
-## Comparison with Regex
-
-| Feature | JSONPath Extractor | Regex Extractor |
-|---------|-------------------|-----------------|
-| JSON format | Optimized | General purpose |
-| Performance | Faster | Slower |
-| Complexity | Simpler syntax | Complex patterns |
-| Maintenance | Easier | Harder |
-| Reliability | More reliable | Fragile |
-
-## Debugging
-
-Use Debug Sampler to view extracted values:
-```
-create_jmeter_element with:
-- elementType: "debugsampler"
-- elementName: "查看提取的变量"
-- properties:
-  - displayJMeterVariables: "true"
-```
+1. **Use JSONPath for JSON responses**: Prefer over Regex Extractor for structured JSON data
+2. **Match counts carefully**: Number of variable names, expressions, and default values must match
+3. **Set default values**: Always provide defaults for debugging and robustness
+4. **Use compute_concat wisely**: Enable when you need all values as a single string
+5. **Test with View Results Tree**: Verify JSONPath expressions match correctly
 
 ## Notes
-
-- Parses JSON response body only
-- Case-sensitive matching
-- Handles nested objects and arrays
-- Supports filter expressions
-- More reliable than Regex for JSON data
+- Parses JSON response body only; not applicable for non-JSON responses
+- Multiple extractors are separated by semicolons in variable names, expressions, match numbers, and defaults
+- The match_numbers field defaults to `0` (random) when left empty; set to `1` for first match
+- JSONPath uses the JsonPath syntax (see https://github.com/json-path/JsonPath)
+- More reliable than Regex Extractor for JSON data

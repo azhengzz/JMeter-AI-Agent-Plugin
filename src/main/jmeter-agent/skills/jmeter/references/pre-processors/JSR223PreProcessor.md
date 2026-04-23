@@ -2,15 +2,35 @@
 
 ## Description
 
-JSR223 Pre-Processor executes code before a sampler runs. It's commonly used to modify request parameters, prepare test data, or perform setup operations before sampling.
+The JSR223 PreProcessor allows JSR223 script code to be applied before taking a sample. Groovy is the recommended scripting language for best performance, support of new Java features, and script compilation caching.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `scriptLanguage` | Yes | Scripting language | `groovy` |
-| `script` | Yes* | Script code to execute | See examples below |
-| `scriptFile` | Yes* | Path to external script file | `/path/to/script.groovy` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `scriptLanguage` | Yes | `"groovy"` | The JSR223 language to be used. Groovy is strongly recommended for best performance. | `"groovy"` |
+| `parameters` | No | `""` | Parameters to pass to the script. The parameters are stored in the following variables: `Parameters` (string containing the parameters as a single variable) and `args` (String array containing parameters, split on white-space). | `"param1 param2"` |
+| `filename` | No | `""` | A file containing the script to run. If a relative file path is used, then it will be relative to directory referenced by `user.dir` System property. Required if `script` is not set. | `"/scripts/setup.groovy"` |
+| `cacheKey` | No | `"true"` | Unique string across Test Plan that JMeter will use to cache result of Script compilation if language used supports Compilable interface (Groovy supports this; java, beanshell and javascript do not). `"true"` = enabled, `"false"` = disabled. | `"true"` |
+| `script` | No | `""` | The script to run. Required if `filename` is not set. | See examples |
+
+### scriptLanguage Enum Values
+
+| Value | Description |
+|-------|-------------|
+| `groovy` | Groovy scripting language (recommended). Supports script compilation caching for best performance. |
+| `beanshell` | BeanShell scripting language. Limited performance; use only for legacy compatibility. |
+| `bsh` | Alias for BeanShell. |
+| `java` | Java scripting language. Does not support compilation caching. |
+| `jexl` | JEXL expression language (version 1). |
+| `jexl2` | JEXL expression language (version 2). |
+
+### cacheKey Enum Values
+
+| Value | Description |
+|-------|-------------|
+| `true` | Enable script compilation caching (recommended for Groovy) |
+| `false` | Disable script compilation caching |
 
 ## Usage Examples
 
@@ -22,6 +42,7 @@ create_jmeter_element with:
 - elementName: "生成时间戳"
 - properties:
   - scriptLanguage: "groovy"
+  - cacheKey: "true"
   - script: |
     import java.time.Instant
     String timestamp = Instant.now().toString()
@@ -36,36 +57,16 @@ create_jmeter_element with:
 - elementName: "计算请求签名"
 - properties:
   - scriptLanguage: "groovy"
+  - cacheKey: "true"
   - script: |
     import java.security.MessageDigest
-
     def data = vars.get("user_id") + vars.get("timestamp") + "SECRET_KEY"
     def digest = MessageDigest.getInstance("SHA-256").digest(data.bytes)
     def checksum = digest.encodeHex().toString()
     vars.put("request_checksum", checksum)
 ```
 
-### Example 3: Modify Request Data
-
-```
-create_jmeter_element with:
-- elementType: "jsr223preprocessor"
-- elementName: "准备请求数据"
-- properties:
-  - scriptLanguage: "groovy"
-  - script: |
-    // Generate random order ID
-    String orderId = "ORD-" + System.currentTimeMillis()
-    vars.put("order_id", orderId)
-
-    // Calculate quantity * price
-    def quantity = vars.get("quantity") as Integer
-    def price = vars.get("price") as Double
-    def total = quantity * price
-    vars.put("total_amount", total.toString())
-```
-
-### Example 4: Prepare JSON Body
+### Example 3: Prepare JSON Body
 
 ```
 create_jmeter_element with:
@@ -73,9 +74,10 @@ create_jmeter_element with:
 - elementName: "构建JSON请求体"
 - properties:
   - scriptLanguage: "groovy"
+  - cacheKey: "true"
+  - parameters: "v2 premium"
   - script: |
     import groovy.json.JsonBuilder
-
     def json = new JsonBuilder()
     json {
       userId vars.get("user_id")
@@ -83,84 +85,34 @@ create_jmeter_element with:
       quantity vars.get("quantity")
       timestamp System.currentTimeMillis()
     }
-
     vars.put("json_body", json.toString())
 ```
 
-## Common Use Cases
+### Example 4: Use External Script File
 
-### 1. Parameter Generation
-```groovy
-// Generate random values
-String randomId = UUID.randomUUID().toString()
-vars.put("request_id", randomId)
 ```
-
-### 2. Data Transformation
-```groovy
-// Convert date format
-def inputDate = vars.get("date")
-def outputDate = Date.parse("yyyy-MM-dd", inputDate).format("dd/MM/yyyy")
-vars.put("formatted_date", outputDate)
+create_jmeter_element with:
+- elementType: "jsr223preprocessor"
+- elementName: "外部脚本初始化"
+- properties:
+  - scriptLanguage: "groovy"
+  - filename: "scripts/init_data.groovy"
+  - cacheKey: "true"
 ```
-
-### 3. Signature Calculation
-```groovy
-// Calculate API signature
-def payload = vars.get("user_id") + vars.get("timestamp")
-def signature = payload.md5()
-vars.put("signature", signature)
-```
-
-### 4. Conditional Logic
-```groovy
-// Set parameters based on conditions
-def userType = vars.get("user_type")
-if (userType == "premium") {
-    vars.put("api_version", "v2")
-    vars.put("feature_set", "full")
-} else {
-    vars.put("api_version", "v1")
-    vars.put("feature_set", "basic")
-}
-```
-
-## Built-in Variables
-
-- `vars`: JMeterVariables - access/set JMeter variables
-- `props`: Properties - access JMeter properties
-- `ctx`: JMeterContext - access current context
-- `sampler`: Sampler - access current sampler
-- `log`: Logger - write to JMeter log file
 
 ## Best Practices
 
-1. **Use Groovy**: Best performance and thread safety
-2. **Keep it simple**: Pre-processors run before every sample
-3. **Error handling**: Add try-catch for robustness
-4. **Cache scripts**: Enable script caching for better performance
-5. **Logging**: Use log.info() for debugging
-
-## Error Handling Example
-
-```groovy
-try {
-    def userId = vars.get("user_id")
-    if (userId == null || userId.isEmpty()) {
-        log.warn("user_id is null or empty")
-        vars.put("user_id", "default_user")
-    }
-    // Your code here
-} catch (Exception e) {
-    log.error("Error in pre-processor", e)
-    vars.put("error", e.message)
-}
-```
+1. **Use Groovy**: Best performance and thread safety. Groovy supports the Compilable interface for script caching.
+2. **Enable script caching**: Set `cacheKey` to `"true"` to cache compiled scripts for significantly better performance
+3. **Keep scripts simple**: Pre-processors run before every sample; avoid heavy computation
+4. **Use error handling**: Add try-catch blocks for robustness in production tests
+5. **Use logging**: Use `log.info()` for debugging and `log.error()` for error tracking
 
 ## Notes
 
 - Executes before the parent sampler
-- Good for dynamic parameter generation
-- Can modify sampler properties
-- Use sparingly as they add overhead
-- Script caching improves performance
+- Groovy supports script compilation caching (via `cacheKey`), which greatly improves performance for repeated executions
+- java, beanshell, and javascript languages do NOT support compilation caching
+- The following JSR223 variables are set up for use by the script: `log` (Logger), `Label` (String), `FileName` (String), `Parameters` (String), `args` (String[]), `ctx` (JMeterContext), `vars` (JMeterVariables), `props` (JMeterProperties), `sampler` (Sampler), `OUT` (System.out)
+- Can modify sampler properties and set JMeter variables before the sample executes
+- Use sparingly as they add overhead to each sample execution

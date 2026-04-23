@@ -2,50 +2,25 @@
 
 ## Description
 
-While Controller executes its child elements repeatedly while a condition is true. It's useful for looping until a specific condition is met or a maximum count is reached.
+The While Controller runs its children until the condition is "false".
 
-## Source Code
+JMeter will expose the looping index as a variable named `__jm__<Name of your element>__idx`. So for example, if your While Controller is named WC, then you can access the looping index through `${__jm__WC__idx}`. Index starts at 0.
 
-Based on Apache JMeter source: `org.apache.jmeter.control.WhileController`
+Possible condition values:
+
+- **blank** - exit loop when last sample in loop fails
+- **`LAST`** - exit loop when last sample in loop fails. If the last sample just before the loop failed, don't enter loop.
+- **Otherwise** - exit (or don't enter) the loop when the condition is equal to the string "false"
+
+The condition can be any variable or function that eventually evaluates to the string "false". This allows the use of `__jexl3`, `__groovy` function, properties or variables as needed.
+
+Note that the condition is evaluated twice, once before starting sampling children and once at end of children sampling, so putting non-idempotent functions in Condition (like `__counter`) can introduce issues.
 
 ## Parameters
 
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
-| `WhileController.condition` | No | `""` (empty string) | Condition to evaluate before each iteration | `${counter} < 10` |
-
-## Parameter Details
-
-### WhileController.condition
-- **Required**: No (but functionally required for proper operation)
-- **Default**: Empty string `""`
-- **Description**: The condition expression that determines if looping should continue
-
-## Condition Evaluation
-
-The condition is evaluated in two modes:
-
-### 1. Empty or LAST Condition
-When the condition is empty (`""`) or `"LAST"`:
-```
-condition = ""       → Checks if last sampler was OK
-condition = "LAST"   → Checks if last sampler was OK
-```
-
-The controller uses: `JMeterThread.LAST_SAMPLE_OK` variable
-
-### 2. Explicit Condition
-Any non-empty condition is evaluated:
-```
-condition = "false"  → Always stops (loop ends immediately)
-condition = "true"   → Always loops (infinite loop)
-```
-
-**Important**: Unlike IfController, WhileController does **NOT** support JavaScript evaluation. It only checks:
-- Empty string → checks last sample
-- "LAST" → checks last sample  
-- "false" → stops looping
-- Any other value → continues looping
+| `WhileController.condition` | No | `""` | Condition to evaluate before each iteration. blank = exit when last sample fails; `LAST` = exit when last sample fails (and don't enter if previous failed); Otherwise = exit when condition equals "false". | `${__jexl3(${C}==10)}` |
 
 ## Usage Examples
 
@@ -69,152 +44,39 @@ create_jmeter_element with:
   - WhileController.condition: "${continue_loop}"
 ```
 
-### Example 3: Infinite Loop
+### Example 3: Loop with JEXL3 Condition
 
 ```
 create_jmeter_element with:
 - elementType: "whilecontroller"
-- elementName: "永久循环"
+- elementName: "循环计数到10"
 - properties:
-  - WhileController.condition: "true"
+  - WhileController.condition: "${__jexl3(${C} < 10)}"
 ```
 
-### Example 4: Loop with Break Condition
+### Example 4: LAST Condition
 
 ```
-// While Controller with condition
 create_jmeter_element with:
 - elementType: "whilecontroller"
-- elementName: "条件循环"
+- elementName: "上一个成功则继续"
 - properties:
-  - WhileController.condition: ""
-
-// Inside loop, use IfController to break
-create_jmeter_element with:
-- elementType: "ifcontroller"
-- elementName: "检查停止条件"
-- properties:
-  - IfController.condition: "${stop_flag} == 'true'"
-  - IfController.useExpression: "true"
-  
-// When condition met, use JSR223 Sampler to break loop
-create_jmeter_element with:
-- elementType: "jsr223sampler"
-- elementName: "停止循环"
-- properties:
-  - scriptLanguage: "groovy"
-  - script: |
-    org.apache.jmeter.control.WhileController controller = ctx.getCurrentSampler()
-    // Find parent WhileController and break it
-```
-
-## Source Code Behavior
-
-From the source code, the condition evaluation logic:
-
-```java
-private boolean endOfLoop(boolean loopEnd) {
-    String cnd = getCondition().trim();
-    
-    // If blank, only check previous sample when at end of loop
-    if ((loopEnd && cnd.isEmpty()) || "LAST".equalsIgnoreCase(cnd)) {
-        JMeterVariables threadVars = JMeterContextService.getContext().getVariables();
-        res = "false".equalsIgnoreCase(threadVars.get(JMeterThread.LAST_SAMPLE_OK));
-    } else {
-        // Any non-empty, non-LAST condition continues looping
-        res = "false".equalsIgnoreCase(cnd);
-    }
-    
-    return res; // true means end of loop (stop)
-}
-```
-
-This means:
-- `condition = "false"` → Stops looping
-- `condition = "true"` or any other value → Continues looping
-- `condition = ""` or `"LAST"` → Depends on last sample success
-
-## Limitations
-
-**Important**: WhileController does NOT support:
-- JavaScript expressions
-- JEXL3 functions  
-- Numeric comparisons
-- Variable comparisons
-
-For complex conditions, use **LoopController** with **IfController** combination, or use **JSR223 Sampler** with break logic.
-
-## Workarounds for Complex Conditions
-
-### Pattern 1: WhileController + IfController
-```
-WhileController:
-  condition: ""  (loops based on last sample)
-  
-  → IfController: ${counter} < 10
-    → Your samplers
-```
-
-### Pattern 2: Use LoopController with JSR223
-```
-LoopController:
-  loops: 100
-  
-  → JSR223 Sampler: Check condition and break if needed
-    → Your samplers
-```
-
-### Pattern 3: Variable-Based Loop
-```
-// Set initial variable
-vars.put("continue_loop", "true")
-
-WhileController:
-  condition: ${continue_loop}
-
-  → Your samplers
-  
-  → JSR223 PostProcessor: Check and update condition
-    → script: if (${count} >= 10) { vars.put("continue_loop", "false") }
+  - WhileController.condition: "LAST"
 ```
 
 ## Best Practices
 
-1. **Use empty condition**: For retry-until-success scenarios
-2. **Add exit strategy**: Always have a way to break the loop
-3. **Use JSR223 for complex logic**: Combine with JSR223 for break conditions
-4. **Monitor loop count**: Add counter to prevent infinite loops
-5. **Test with small counts**: Verify loop logic before large tests
-
-## Common Patterns
-
-### Retry Until Success
-```
-condition: ""
-→ Loops while last sampler was successful
-→ Stops on first failure
-```
-
-### Retry Until Failure
-```
-condition: "${JMeterThread.last_sample_ok}"
-→ Loops while last sampler was OK
-→ Stops on first failure
-```
-
-### Controlled Loop
-```
-condition: "${continue_loop}"
-
-// Inside loop, use JSR223 to set continue_loop to "false" when done
-```
+1. **Always provide an exit condition**: Ensure the loop will eventually terminate to prevent infinite loops
+2. **Use empty condition for retry**: Use blank condition to loop while last sample succeeds and exit on failure
+3. **Use JEXL3 or Groovy for complex conditions**: `${__jexl3()}` or `${__groovy()}` functions work well for evaluating expressions
+4. **Avoid non-idempotent functions**: Do not use `__counter` or similar functions in the condition since it is evaluated twice per iteration
+5. **Combine with counters**: Use a JSR223 element inside the loop to increment a counter variable for controlled iteration
 
 ## Notes
 
-- Condition evaluation is simpler than IfController
-- Does NOT support JavaScript or JEXL3 evaluation
-- Use empty condition for retry scenarios
-- Use JSR223 for complex break conditions
-- Can be nested inside other controllers
-- Each iteration resets the controller's state
-- Consider using LoopController + IfController for more control
+- The condition is evaluated twice per iteration: once before starting sampling children and once at the end
+- Avoid using non-idempotent functions like `__counter` in the condition
+- The condition can be any variable or function that eventually evaluates to the string "false"
+- Common condition examples: `${VAR}`, `${__jexl3(${C}==10)}`, `${__jexl3("${VAR2}"=="abcd")}`, `${__P(property)}`
+- When using `LAST`, if the last sample just before the loop failed, the loop will not be entered
+- JMeter exposes the looping index as `${__jm__<Name of your element>__idx}` starting at 0

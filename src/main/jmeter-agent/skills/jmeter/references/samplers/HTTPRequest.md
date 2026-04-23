@@ -2,26 +2,72 @@
 
 ## Description
 
-This sampler sends an HTTP/HTTPS request to a web server. It supports various HTTP methods and allows control over redirect behavior, keep-alive connections, and request encoding.
+This sampler lets you send an HTTP/HTTPS request to a web server. It also lets you control whether or not JMeter parses HTML files for images and other embedded resources and sends HTTP requests to retrieve them. The following types of embedded resource are retrieved: images, applets, stylesheets (CSS) and resources referenced from those files, external scripts, frames, iframes, background images (body, table, TD, TR), background sound.
+
+The default parser is `org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser`. This can be changed by using the property `htmlparser.className` - see `jmeter.properties` for details.
+
+If you are going to send multiple requests to the same web server, consider using an HTTP Request Defaults Configuration Element so you do not have to enter the same information for each HTTP Request.
+
+There are three different test elements used to define the samplers:
+
+- **AJP/1.3 Sampler** - uses the Tomcat mod_jk protocol (allows testing of Tomcat in AJP mode without needing Apache httpd)
+- **HTTP Request** - has an implementation drop-down box, which selects the HTTP protocol implementation: `Java` (uses the HTTP implementation provided by the JVM), `HTTPClient4` (uses Apache HttpComponents HttpClient 4.x), or Blank Value (relies on HTTP Request Defaults or `jmeter.httpsampler` property)
+- **GraphQL HTTP Request** - a GUI variation of the HTTP Request for GraphQL queries
+
+**Note:** The `FILE` protocol is intended for testing purposes only. It is handled by the same code regardless of which HTTP Sampler is used.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `HTTPSampler.protocol` | No | Protocol - http, https, or file. Default: http | `https` |
-| `HTTPSampler.domain` | Yes* | Domain name or IP address (without http:// prefix) | `www.httpbin.org` |
-| `HTTPSampler.port` | No | Port number. Default: 80 for http, 443 for https | `8080` |
-| `HTTPSampler.contentEncoding` | No | Content encoding for POST/PUT/PATCH | `utf-8` |
-| `HTTPSampler.method` | No | HTTP method | `GET`, `POST`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`, `PATCH` |
-| `HTTPSampler.path` | Yes* | Resource path (including query string if needed) | `/api/users` |
-| `HTTPSampler.follow_redirects` | No | Follow redirects (only if auto_redirects is false) | `true` |
-| `HTTPSampler.auto_redirects` | No | Auto-follow redirects at protocol level | `false` |
-| `HTTPSampler.use_keepalive` | No | Use keep-alive connections | `true` |
-| `HTTPSampler.DO_MULTIPART_POST` | No | Use multipart/form-data for POST | `false` |
-| `HTTPSampler.connect_timeout` | No | Connection timeout in milliseconds | `5000` |
-| `HTTPSampler.response_timeout` | No | Response timeout in milliseconds | `30000` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `HTTPSampler.protocol` | No | — | Protocol: `http`, `https`, or `file`. Default: `HTTP` | `"https"` |
+| `HTTPSampler.domain` | No | — | Domain name or IP address of the web server. Do not include the `http://` prefix. Required unless provided by HTTP Request Defaults or a full URL is set in Path. | `"www.example.com"` |
+| `HTTPSampler.port` | No | — | Port the web server is listening to. Default: 80 for http, 443 for https. Range: 1-65535. | `"8080"` |
+| `HTTPSampler.path` | No | — | The path to resource (e.g. `/servlets/myServlet`). If the path starts with `http://` or `https://` then this is used as the full URL. | `"/api/users"` |
+| `HTTPSampler.method` | No | `"GET"` | HTTP method | `"POST"` |
+| `HTTPSampler.contentEncoding` | No | — | Content encoding to be used (for POST, PUT, PATCH and FILE). This is the character encoding, not related to the Content-Encoding HTTP header. | `"utf-8"` |
+| `HTTPSampler.connect_timeout` | No | — | Connection timeout in milliseconds. Number of milliseconds to wait for a connection to open. | `"5000"` |
+| `HTTPSampler.response_timeout` | No | — | Response timeout in milliseconds. Number of milliseconds to wait for a response. Applies to each wait for a response. | `"30000"` |
+| `HTTPSampler.follow_redirects` | No | `true` | Follow redirects. Only has effect if auto_redirects is not enabled. If set, the JMeter sampler will check if the response is a redirect and follow it. | `"true"` |
+| `HTTPSampler.auto_redirects` | No | — | Sets the underlying HTTP protocol handler to automatically follow redirects, so they are not seen by JMeter. Should only be used for GET and HEAD requests. | `"false"` |
+| `HTTPSampler.use_keepalive` | No | `true` | JMeter sets the `Connection: keep-alive` header. Works with Apache HttpComponents HttpClient implementations. | `"true"` |
+| `HTTPSampler.DO_MULTIPART_POST` | No | — | Use a `multipart/form-data` or `application/x-www-form-urlencoded` post request. | `"true"` |
+| `HTTPSampler.postBodyRaw` | No | `false` | Send raw body content. When true, send the body as raw data instead of form parameters. | `"true"` |
+| `HTTPsampler.Arguments` | No | — | HTTP request arguments/parameters as an array of HTTPArgument objects. See Nested Arguments below. | See examples |
 
-*Note: `domain` and `path` are required unless provided by HTTP Request Defaults or a full URL is specified in path.
+### Method Values
+
+| Value | Description |
+|-------|-------------|
+| `GET` | Retrieve resource |
+| `POST` | Submit data |
+| `PUT` | Update resource |
+| `DELETE` | Delete resource |
+| `HEAD` | Same as GET but only returns headers |
+| `OPTIONS` | Describe communication options |
+| `PATCH` | Partial modification |
+| `TRACE` | Loop-back test |
+
+### Protocol Values
+
+| Value | Description |
+|-------|-------------|
+| `http` | HTTP protocol |
+| `https` | HTTPS (SSL/TLS) protocol |
+| `file` | Local file protocol (testing only) |
+
+### Nested Arguments (`HTTPsampler.Arguments`)
+
+When `HTTPSampler.postBodyRaw` is `false`, each argument item supports:
+
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `Argument.name` | Yes | — | Parameter name | `"username"` |
+| `Argument.value` | Yes | — | Parameter value | `"admin"` |
+| `HTTPArgument.use_equals` | No | `true` | Whether to use '=' between name and value | `"true"` |
+| `HTTPArgument.always_encode` | No | `false` | Whether to always URL-encode the parameter | `"true"` |
+| `Argument.metadata` | No | `"="` | Metadata character (typically '=') | `"="` |
+| `HTTPArgument.content_type` | No | `"text/plain"` | Content type for the argument | `"application/json"` |
 
 ## Usage Examples
 
@@ -36,11 +82,9 @@ create_jmeter_element with:
   - HTTPSampler.protocol: "https"
   - HTTPSampler.path: "/api/users"
   - HTTPSampler.method: "GET"
+  - HTTPsampler.Arguments:
+    - {"Argument.name": "userId", "Argument.value": "${user_id}"}
 ```
-
-Add query parameters using HTTP Arguments:
-- name: `userId`
-- value: `${user_id}`
 
 ### Example 2: POST Request with JSON Body
 
@@ -55,11 +99,9 @@ create_jmeter_element with:
   - HTTPSampler.method: "POST"
   - HTTPSampler.contentEncoding: "utf-8"
   - HTTPSampler.postBodyRaw: "true"
+  - HTTPsampler.Arguments:
+    - {"Argument.name": "", "Argument.value": "{\"name\":\"张三\",\"age\":23}", "HTTPArgument.always_encode": "false"}
 ```
-
-For JSON body, add a single argument with:
-- name: (empty)
-- value: `{"name":"张三","age":23,"address":"Beijing, China"}`
 
 ### Example 3: PUT Request with Parameters
 
@@ -75,54 +117,33 @@ create_jmeter_element with:
   - HTTPSampler.contentEncoding: "utf-8"
 ```
 
-### Example 4: GET Request with Query Parameters (Arguments Object)
+### Example 4: POST with Multipart Form Data
 
 ```
 create_jmeter_element with:
 - elementType: "httpsampler"
-- elementName: "GET_查询用户"
-- properties:
-  - HTTPSampler.domain: "www.httpbin.org"
-  - HTTPSampler.protocol: "https"
-  - HTTPSampler.path: "/get"
-  - HTTPSampler.method: "GET"
-  - HTTPsampler.Arguments:
-    - {"Argument.name": "name", "Argument.value": "张三"}
-    - {"Argument.name": "age", "Argument.value": "23"}
-```
-
-### Example 5: POST Request with JSON Body (Raw)
-
-```
-create_jmeter_element with:
-- elementType: "httpsampler"
-- elementName: "POST_用户登录"
+- elementName: "POST_文件上传"
 - properties:
   - HTTPSampler.domain: "api.example.com"
   - HTTPSampler.protocol: "https"
-  - HTTPSampler.path: "/api/login"
+  - HTTPSampler.path: "/api/upload"
   - HTTPSampler.method: "POST"
-  - HTTPSampler.postBodyRaw: true
-  - HTTPSampler.contentEncoding: "utf-8"
-  - HTTPsampler.Arguments:
-    - {"Argument.name": "", "Argument.value": "{\"username\":\"admin\",\"password\":\"123456\"}", "HTTPArgument.always_encode": false}
+  - HTTPSampler.DO_MULTIPART_POST: "true"
 ```
-
-## Request Body Types
-
-### 1. Query Parameters (GET/DELETE)
-Parameters are appended to URL: `/api/users?name=value`
-
-### 2. Form Data (POST/PUT)
-Use `multipart/form-data` or `application/x-www-form-urlencoded`
-
-### 3. JSON Body (POST/PUT)
-Set `HTTPSampler.postBodyRaw: true` and provide JSON in argument value
 
 ## Best Practices
 
-1. **Use meaningful names**: `GET_查询用户`, `POST_创建订单`
-2. **Set appropriate timeouts**: Prevent hanging requests
+1. **Use meaningful names**: e.g. `GET_查询用户`, `POST_创建订单`
+2. **Set appropriate timeouts**: Prevent hanging requests with connect and response timeouts
 3. **Use variables for dynamic values**: `${base_url}`, `${user_id}`
 4. **Add assertions**: Validate response status and data
-5. **Use HTTP Request Defaults**: Avoid repeating common settings
+5. **Use HTTP Request Defaults**: Avoid repeating common settings across multiple requests
+6. **Use Follow Redirects**: Prefer `follow_redirects` over `auto_redirects` to see redirect samples
+
+## Notes
+
+- A separate SSL context is used for each thread
+- If the request requires server or proxy login authorization, add an HTTP Authorization Manager
+- If the request uses cookies, add an HTTP Cookie Manager
+- The Java HTTP implementation has limitations: no connection reuse control, no Kerberos, no client certificate testing
+- The HttpClient4 implementation is recommended for most use cases

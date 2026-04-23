@@ -2,24 +2,32 @@
 
 ## Description
 
-Constant Throughput Timer controls the throughput (requests per minute) of samplers. It paces the samplers under its influence so that the total number of samples per unit of time approaches a given constant.
+This timer introduces variable pauses, calculated to keep the total throughput (in terms of samples per minute) as close as possible to a given figure. Of course the throughput will be lower if the server is not capable of handling it, or if other timers or time-consuming test elements prevent it.
+
+N.B. although the Timer is called the Constant Throughput timer, the throughput value does not need to be constant. It can be defined in terms of a variable or function call, and the value can be changed during a test. The value can be changed in various ways: using a counter variable, using a `__jexl3`, `__groovy` function to provide a changing value, or using the remote BeanShell server to change a JMeter property.
+
+Note that the throughput value should not be changed too often during a test - it will take a while for the new value to take effect.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `throughput` | Yes | Target throughput in samples per minute | `60` |
-| `calcMode` | No | Calculation mode | `0` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `throughput` | Yes | `0` | Target throughput in samples per minute. Throughput we want the timer to try to generate. | `"60"` |
+| `calcMode` | Yes | `0` | Scope for throughput calculation. See Calculation Modes below. | `"0"` |
 
-## Calculation Modes
+### Calculation Modes
+
+The `calcMode` property determines how throughput is calculated across threads:
 
 | Value | Mode | Description |
 |-------|------|-------------|
-| `0` | This thread only | Each thread maintains its own pace |
-| `1` | All active threads | Pace based on total active thread count |
-| `2` | All active threads in current thread group | Pace based on threads in this group |
-| `3` | All active threads (shared) | Alternate calculation synchronized across threads |
-| `4` | All active threads in current thread group (shared) | Alternate calculation for thread group |
+| `0` | This thread only | Each thread will try to maintain the target throughput independently. The overall throughput will be proportional to the number of active threads. |
+| `1` | All active threads | The target throughput is divided amongst all the active threads in all Thread Groups. Each thread will delay as needed, based on when it last ran. In this case, each other Thread Group will need a Constant Throughput Timer with the same settings. |
+| `2` | All active threads in current thread group | The target throughput is divided amongst all the active threads in the group. Each thread will delay as needed, based on when it last ran. |
+| `3` | All active threads (shared) | Each thread is delayed based on when any thread last ran. The shared algorithm should generate a more accurate overall transaction rate. |
+| `4` | All active threads in current thread group (shared) | Each thread is delayed based on when any thread in the group last ran. Useful for per-thread-group throughput control. |
+
+The shared and non-shared algorithms both aim to generate the desired throughput, and will produce similar results. The shared algorithm should generate a more accurate overall transaction rate. The non-shared algorithm should generate a more even spread of transactions across threads.
 
 ## Usage Examples
 
@@ -30,8 +38,8 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "限速-60次/分钟"
 - properties:
-  - throughput: 60
-  - calcMode: 0
+  - throughput: "60"
+  - calcMode: "0"
 ```
 
 ### Example 2: Shared Across All Threads
@@ -41,155 +49,46 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "全局限速-100次/分钟"
 - properties:
-  - throughput: 100
-  - calcMode: 3
+  - throughput: "100"
+  - calcMode: "3"
 ```
 
-### Example 3: Thread Group Based
-
-```
-create_jmeter_element with:
-- elementType: "constantthroughputtimer"
-- elementName: "线程组限速"
-- properties:
-  - throughput: 300
-  - calcMode: 4
-```
-
-### Example 4: High Throughput
+### Example 3: Thread Group Based Throughput
 
 ```
 create_jmeter_element with:
 - elementType: "constantthroughputtimer"
-- elementName: "限速-600次/分钟"
+- elementName: "线程组限速-300次/分钟"
 - properties:
-  - throughput: 600
-  - calcMode: 1
+  - throughput: "300"
+  - calcMode: "4"
 ```
 
-## How It Works
+### Example 4: Simulate Production Traffic
 
-1. Calculates delay between samples based on throughput
-2. Adjusts timing according to calculation mode
-3. Pauses as needed to control rate
-4. Maintains target samples per minute
-
-Delay calculation (per thread):
 ```
-delay_ms = (60000 / throughput) * thread_factor
-```
-
-Where thread_factor depends on calcMode.
-
-## Throughput Calculations
-
-| Throughput | Samples/Second | Description |
-|------------|----------------|-------------|
-| 60 | 1 | Low rate |
-| 300 | 5 | Medium rate |
-| 600 | 10 | High rate |
-| 3600 | 60 | Very high rate |
-
-## Calculation Mode Details
-
-### This thread only (0)
-Each thread independently maintains the target throughput.
-- Total throughput = throughput × number of threads
-
-### All active threads (1)
-Throughput is divided among all currently active threads.
-- Delay = (60000 / throughput) × activeThreadCount
-
-### All active threads in current thread group (2)
-Throughput is divided among threads in this thread group only.
-- Useful for controlling throughput per thread group
-
-### All active threads (shared) (3)
-Shared calculation mode that synchronizes across all threads.
-- More consistent than mode 1 for variable thread counts
-
-### All active threads in current thread group (shared) (4)
-Shared calculation for thread group only.
-- Useful for per-thread-group throughput control
-
-## Use Cases
-
-### 1. API Rate Limiting
-```
-// API allows 100 requests/minute
 create_jmeter_element with:
 - elementType: "constantthroughputtimer"
-- elementName: "API限速-100次/分钟"
+- elementName: "模拟生产流量-600次/分钟"
 - properties:
-  - throughput: 100
-  - calcMode: 0
-```
-
-### 2. Production Simulation
-```
-// Production has ~600 requests/minute
-create_jmeter_element with:
-- elementType: "constantthroughputtimer"
-- elementName: "模拟生产流量"
-- properties:
-  - throughput: 600
-  - calcMode: 3
-```
-
-### 3. SLA Testing
-```
-// Test at specific throughput level
-create_jmeter_element with:
-- elementType: "constantthroughputtimer"
-- elementName: "SLA测试-300次/分钟"
-- properties:
-  - throughput: 300
-  - calcMode: 1
+  - throughput: "600"
+  - calcMode: "1"
 ```
 
 ## Best Practices
 
-1. **Choose appropriate calcMode**: Select based on your throughput target scope
-2. **Monitor actual throughput**: Verify with Aggregate Report listener
-3. **Consider response time**: Slow responses reduce achieved rate
-4. **Use realistic rates**: Based on actual requirements
-5. **Test different modes**: Find which works best for your scenario
-
-## Tips
-
-1. **Per-minute value**: Throughput is samples per minute, not seconds
-2. **CalcMode selection**: Use shared modes (3, 4) for more consistent pacing
-3. **Thread count matters**: Modes 1 and 2 adjust based on active threads
-4. **Global placement**: Place at test plan level or thread group level
-5. **Monitor results**: Check actual vs target throughput in listeners
-
-## Common Issues
-
-### Issue: Throughput Not Achieved
-**Cause**: Response time too long or thread count too high
-**Solution**: Reduce throughput or reduce threads, improve server performance
-
-### Issue: Uneven Distribution
-**Cause**: Variable response times, thread startup/stutdown
-**Solution**: This is normal, timer does best effort
-
-### Issue: Too Much Pausing
-**Cause**: Throughput too low for number of threads and calcMode
-**Solution**: Reduce threads, increase throughput, or use mode 0
-
-## Comparison with Precise Throughput Timer
-
-| Feature | Constant Throughput Timer | Precise Throughput Timer |
-|---------|------------------------|---------------------------|
-| Algorithm | Delay calculation | Poisson process |
-| Sample count | Approximate | Exact for duration |
-| Complexity | Lower | Higher |
-| Use case | Simple rate limiting | Precise load testing |
+1. **Choose appropriate calcMode**: Select based on your throughput target scope (per-thread vs global)
+2. **Monitor actual throughput**: Verify with Aggregate Report listener to confirm target is achieved
+3. **Consider response time**: Slow responses reduce the achieved rate
+4. **Use realistic rates**: Based on actual production requirements
+5. **Shared modes for consistency**: Use shared modes (3, 4) for more consistent overall pacing
+6. **Throughput is per minute**: Remember the throughput value is samples per minute, not per second
 
 ## Notes
 
-- Throughput is samples per minute (not seconds)
+- Throughput value is samples per minute (not seconds)
+- The throughput value does not need to be constant; it can use variables or functions
+- Do not change the throughput value too often during a test; it takes time for new values to take effect
 - Different calcMode values change pacing behavior significantly
-- Shared modes (3, 4) provide more consistent throughput
+- Shared modes (3, 4) provide more accurate overall transaction rates
 - Works by adding pauses between samples
-- Good for API rate limiting and traffic simulation

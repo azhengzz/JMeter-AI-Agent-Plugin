@@ -2,21 +2,53 @@
 
 ## Description
 
-CSV Data Set Config reads data from CSV files and splits it into variables. Each virtual user can read different rows, enabling data parameterization and realistic testing with diverse test data.
+CSV Data Set Config is used to read lines from a file, and split them into variables. It is easier to use than the `__CSVRead()` and `__StringFromFile()` functions. It is well suited to handling large numbers of variables, and is also useful for testing with "random" and unique values.
+
+Generating unique random values at run-time is expensive in terms of CPU and memory, so just create the data in advance of the test. If necessary, the "random" data from the file can be used in conjunction with a run-time parameter to create different sets of values from each run - e.g. using concatenation - which is much cheaper than generating everything at run-time.
+
+JMeter allows values to be quoted; this allows the value to contain a delimiter. If "allow quoted data" is enabled, a value may be enclosed in double-quotes. These are removed. To include double-quotes within a quoted field, use two double-quotes. For example:
+```
+1,"2,3","4""5" =>
+1
+2,3
+4"5
+```
+
+JMeter supports CSV files which have a header line defining the column names. To enable this, leave the "Variable Names" field empty. The correct delimiter must be provided.
+
+JMeter supports CSV files with quoted data that includes new-lines.
+
+By default, the file is only opened once, and each thread will use a different line from the file. However the order in which lines are passed to threads depends on the order in which they execute, which may vary between iterations. Lines are read at the start of each test iteration. The file name and mode are resolved in the first iteration.
+
+As a special case, the string `\t` (without quotes) in the delimiter field is treated as a Tab.
+
+When the end of file (EOF) is reached, and the recycle option is `true`, reading starts again with the first line of the file.
+
+If the recycle option is `false`, and stopThread is `false`, then all the variables are set to `<EOF>` when the end of file is reached. This value can be changed by setting the JMeter property `csvdataset.eofstring`.
+
+If the Recycle option is `false`, and Stop Thread is `true`, then reaching EOF will cause the thread to be stopped.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `filename` | Yes | Path to CSV file (relative or absolute) | `data/users.csv` |
-| `fileEncoding` | No | File encoding format | `UTF-8` |
-| `variableNames` | Yes | Comma-separated variable names | `username,password,email` |
-| `delimiter` | No | Field delimiter | `,` (default) or `\t` for tab |
-| `allowQuotedData` | No | Allow quoted data (with quotes) | `true` or `false` (default: `true`) |
-| `recycle` | No | Rewind file when EOF is reached | `true` or `false` (default: `true`) |
-| `stopThread` | No | Stop thread when EOF is reached (requires recycle=false) | `true` or `false` (default: `false`) |
-| `shareMode` | No | Sharing mode between threads | `shareMode.all`, `shareMode.group`, `shareMode.thread`, `shareMode.all` (default) |
-| `ignoreFirstLine` | No | Treat first line as header (skip it) | `true` or `false` (default: `false`) |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `filename` | Yes | `""` | Name of the file to be read. Relative file names are resolved with respect to the path of the active test plan. For distributed testing, the CSV file must be stored on the server host system in the correct relative directory to where the JMeter server is started. Absolute file names are also supported, but note that they are unlikely to work in remote mode, unless the remote server has the same directory structure. | `"data/users.csv"` |
+| `fileEncoding` | Yes | `"UTF-8"` | The encoding to be used to read the file, if not the platform default. | `"UTF-8"` |
+| `variableNames` | Yes | `""` | List of variable names. The names must be separated by the delimiter character. They can be quoted using double-quotes. JMeter supports CSV header lines: if the variable name field is empty, then the first line of the file is read and interpreted as the list of column names. | `"username,password,email"` |
+| `ignoreFirstLine` | Yes | `false` | Ignore first line of CSV file, it will only be used if Variable Names is not empty, if Variable Names is empty the first line must contain the headers. | `"true"` |
+| `delimiter` | Yes | `","` | Delimiter to be used to split the records in the file. If there are fewer values on the line than there are variables the remaining variables are not updated - so they will retain their previous value (if any). The string `\t` (without quotes) is treated as a Tab. | `","` |
+| `quotedData` | Yes | `false` | Should the CSV file allow values to be quoted? If enabled, then values can be enclosed in `"` - double-quote - allowing values to contain a delimiter. | `"true"` |
+| `recycle` | Yes | `true` | Should the file be re-read from the beginning on reaching EOF? (default is `true`) | `"true"` |
+| `stopThread` | Yes | `false` | Should the thread be stopped on EOF, if Recycle is false? (default is `false`) | `"true"` |
+| `shareMode` | Yes | `"shareMode.all"` | Sharing mode between threads. See the sharing mode table below. | `"shareMode.all"` |
+
+### Sharing Modes
+
+| Mode | Description |
+|------|-------------|
+| `shareMode.all` | All threads - (the default) the file is shared between all the threads |
+| `shareMode.group` | Current thread group - each file is opened once for each thread group in which the element appears |
+| `shareMode.thread` | Current thread - each file is opened separately for each thread |
 
 ## Usage Examples
 
@@ -37,17 +69,6 @@ create_jmeter_element with:
   - delimiter: ","
   - recycle: "true"
   - ignoreFirstLine: "true"
-
-// Use variables in HTTP Request
-create_jmeter_element with:
-- elementType: "httpsampler"
-- elementName: "POST_用户登录"
-- properties:
-  - HTTPSampler.path: "/api/login"
-  - HTTPSampler.method: "POST"
-  - HTTPsampler.Arguments:
-    - {"Argument.name": "", "Argument.value": "{\"username\":\"${username}\",\"password\":\"${password}\"}", "HTTPArgument.always_encode": false}
-  - HTTPSampler.postBodyRaw: "true"
 ```
 
 ### Example 2: Unique Data Per Thread (No Recycle)
@@ -89,86 +110,19 @@ create_jmeter_element with:
   - shareMode: "shareMode.all"
 ```
 
-## Share Modes
-
-| Mode | Description |
-|------|-------------|
-| `shareMode.all` | All threads share the same file (global cursor) |
-| `shareMode.group` | Threads in same thread group share the file |
-| `shareMode.thread` | Each thread has its own independent cursor |
-| `shareMode.all` | Default: all threads share |
-
-## CSV File Format
-
-### Simple CSV
-```
-username,password,email
-user1,pass123,user1@example.com
-user2,pass456,user2@example.com
-```
-
-### With Quotes
-```
-name,description,address
-"Product A","A great product","123 Main St, New York"
-"Product B","Another product","456 Oak Ave, Los Angeles"
-```
-
 ## Best Practices
 
-1. **File location**: Place CSV files in `data/` directory
+1. **File location**: Place CSV files in a `data/` directory relative to the test plan
 2. **Encoding**: Use UTF-8 encoding for international characters
-3. **Recycle vs Stop**: Use `recycle: false` with `stopThread: true` for one-time use
+3. **Recycle vs Stop**: Use `recycle: "false"` with `stopThread: "true"` for one-time use data
 4. **Share mode**: Choose appropriate sharing based on test requirements
-5. **Header row**: Use `ignoreFirstLine: true` when file has headers
-
-## Common Patterns
-
-### Pattern 1: Login with Multiple Users
-```
-// Each thread gets unique credentials
-CSV: recycle=false, shareMode=thread
-Result: Each user logs in with different account
-```
-
-### Pattern 2: Product Catalog
-```
-// All threads cycle through same products
-CSV: recycle=true, shareMode=all
-Result: Random access to product catalog
-```
-
-### Pattern 3: Sequential Test Data
-```
-// Each thread processes data sequentially
-CSV: recycle=false, stopThread=true, shareMode=thread
-Result: Each thread processes unique set of data
-```
-
-## Tips
-
-1. **Use Debug Sampler**: Verify variable values with Debug Sampler
-2. **Absolute paths**: For relative paths fail, use absolute paths
-3. **Empty lines**: Skip empty lines in CSV file
-4. **Special characters**: Use quotes for fields with commas
-5. **Performance**: Large files may impact startup time
-
-## Example: Debugging Variables
-
-```
-create_jmeter_element with:
-- elementType: "debugsampler"
-- elementName: "调试变量"
-- properties:
-  - displayJMeterProperties: "false"
-  - displayJMeterVariables: "true"
-  - displaySystemProperties: "false"
-```
+5. **Header row**: Use `ignoreFirstLine: "true"` when file has headers, or leave `variableNames` empty to auto-detect
 
 ## Notes
 
-- Variables are available to all samplers after the CSV Data Set Config
-- Each thread reads independently unless shareMode is set
+- CSV Dataset variables are defined at the start of each test iteration. As this is after configuration processing is completed, they cannot be used for some configuration items - such as JDBC Config - that process their contents at configuration time
+- Variables are available to all samplers after the CSV Data Set Config element
+- Each thread reads independently unless shareMode is set otherwise
 - EOF handling depends on recycle and stopThread settings
-- Use CSVRead function for more control over file reading
+- If the same physical file is referenced in two different ways (e.g. `csvdata.txt` and `./csvdata.txt`), these are treated as different files
 - Variable names are case-sensitive

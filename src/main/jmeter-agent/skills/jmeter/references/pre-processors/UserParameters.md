@@ -2,15 +2,21 @@
 
 ## Description
 
-User Parameters allows you to define specific values for different users. Each user (thread) can have different parameter values, enabling per-user customization of test data.
+Allows the user to specify values for User Variables specific to individual threads. User Variables can also be specified in the Test Plan but not specific to individual threads. This panel allows you to specify a series of values for any User Variable. For each thread, the variable will be assigned one of the values from the series in sequence. If there are more threads than values, the values get re-used. For example, this can be used to assign a distinct user id to be used by each thread. User variables can be referenced in any field of any JMeter Component.
+
+The variable is specified by clicking the `Add Variable` button in the bottom of the panel and filling in the Variable name in the `Name:` column. To add a new value to the series, click the `Add User` button and fill in the desired value in the newly added column.
+
+Values can be accessed in any test component in the same thread group, using the function syntax: `${variable}`.
+
+See also the CSV Data Set Config element, which is more suitable for large numbers of parameters.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `UserParameters.names` | Yes | List of parameter names | `["username", "password"]` |
-| `UserParameters.thread_values` | Yes | List of user value lists | See examples below |
-| `UserParameters.per_iteration` | No | Update each iteration instead of once at thread start | `false` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `UserParameters.names` | Yes | — | List of parameter names. Each name becomes a variable that can be referenced as `${name}`. | `["username", "password"]` |
+| `UserParameters.thread_values` | Yes | — | List of user value lists. Each inner list contains values for one user, in the same order as names. If there are more threads than values, the values get re-used. | `[["alice", "alice123"], ["bob", "bob456"]]` |
+| `UserParameters.per_iteration` | No | `false` | A flag to indicate whether the User Parameters element should update its variables only once per iteration. If checked, the values are updated each time through the UP's parent controller. If unchecked, the UP will update the parameters for every sample request made within its scope. | `"false"` |
 
 ## Usage Examples
 
@@ -19,7 +25,7 @@ User Parameters allows you to define specific values for different users. Each u
 ```
 create_jmeter_element with:
 - elementType: "userparameters"
-- elementName: "用户参数"
+- elementName: "用户登录参数"
 - properties:
   - UserParameters.names: ["username", "password"]
   - UserParameters.thread_values: [
@@ -44,12 +50,12 @@ create_jmeter_element with:
     ]
 ```
 
-### Example 3: Per-User Test Data
+### Example 3: Per-User Test Data with Per-Iteration Update
 
 ```
 create_jmeter_element with:
 - elementType: "userparameters"
-- elementName: "测试数据参数"
+- elementName: "测试数据参数-每次迭代更新"
 - properties:
   - UserParameters.names: ["account_id", "product_id", "region"]
   - UserParameters.thread_values: [
@@ -57,59 +63,23 @@ create_jmeter_element with:
       ["ACC002", "PROD200", "EU-West"],
       ["ACC003", "PROD300", "AP-South"]
     ]
+  - UserParameters.per_iteration: "true"
 ```
-
-## How It Works
-
-1. **User Assignment**: Each thread is assigned to a user (1, 2, 3, ...)
-2. **Parameter Selection**: Thread uses parameters from its assigned user
-3. **Thread 1**: Uses User 1 parameters
-4. **Thread 2**: Uses User 2 parameters
-5. **Thread N**: Uses parameters modulo N (wraps around)
-
-## Comparison with CSV Data Set
-
-| Feature | User Parameters | CSV Data Set |
-|---------|----------------|--------------|
-| Data source | UI configuration | External file |
-| Ease of update | Harder | Easier (edit file) |
-| Large datasets | Not ideal | Ideal |
-| Per-user config | Designed for this | Can do but less direct |
-| Thread assignment | Direct | Sequential file reading |
 
 ## Best Practices
 
-1. **Small datasets**: Best for limited user configurations
-2. **Few users**: Use when you have 5-10 user configurations
-3. **Fixed config**: When user parameters don't change often
-4. **Clear naming**: Use descriptive parameter names
-5. **Documentation**: Comment what each user represents
-
-## When to Use
-
-### Use User Parameters When:
-- You have a small set of user configurations
-- Each user needs different fixed values
-- You want per-user customization
-- Test data is simple and stable
-
-### Use CSV Data Set When:
-- You have large datasets
-- Data changes frequently
-- You need data-driven testing
-- You want easy data file maintenance
-
-## Tips
-
-1. **Test with fewer threads**: Verify with thread count <= user count
-2. **Add debug sampler**: Verify parameters are set correctly
-3. **Unique per thread**: Each thread gets different values
-4. **Order matters**: User 1 goes to Thread 1, User 2 to Thread 2, etc.
+1. **Use for small datasets**: Best suited for limited user configurations (5-10 users); use CSV Data Set Config for large datasets
+2. **Match thread count to user count**: Each thread is assigned to a user in sequence; if threads > users, values wrap around
+3. **Use descriptive parameter names**: Clear names make test plans easier to understand and maintain
+4. **Use per_iteration wisely**: Enable `UserParameters.per_iteration` only if you need variables updated on each iteration rather than once at thread start
+5. **Consider CSV Data Set Config for large data**: CSV Data Set Config is more suitable when you have many users or frequently changing data
 
 ## Notes
 
-- Parameters are set when the thread starts (unless per_iteration is true)
-- Each thread uses its assigned user's parameters
-- If threads > users, assignment wraps around
-- More users than threads means some users won't be used
-- Variables can be referenced like `${variable_name}`
+- Parameters are set when the thread starts unless `UserParameters.per_iteration` is set to `"true"`
+- Each thread uses its assigned user's parameters in sequence (Thread 1 = User 1, Thread 2 = User 2, etc.)
+- If threads > users, assignment wraps around (User 1 values are re-used for the next thread)
+- More users than threads means some user configurations will not be used
+- Variables can be referenced using the function syntax `${variable_name}` in any JMeter component
+- The scope rules of the parent controller apply when `per_iteration` is unchecked
+- For large numbers of parameters, CSV Data Set Config is the recommended alternative

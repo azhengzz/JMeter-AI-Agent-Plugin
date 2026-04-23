@@ -2,20 +2,28 @@
 
 ## Description
 
-Precise Throughput Timer generates Poisson arrivals with constant throughput. It maintains an exact sample count for a given timeframe by using a constant throughput/throughputPeriod configuration.
+This timer introduces variable pauses, calculated to keep the total throughput (e.g. in terms of samples per minute) as close as possible to a given figure. The timer does not generate threads, so the resulting throughput will be lower if the server is not capable of handling it, or if other timers add too big delays, or if there's not enough threads, or time-consuming test elements prevent it.
 
-This timer is more accurate than Constant Throughput Timer for maintaining exact sample counts over time.
+Note: In many cases, Open Model Thread Group would be a better choice for generating the desired load profile.
+
+Note: If you alter timer configuration on the fly, then it might take time to adapt to the new settings. For instance, if the timer was initially configured for 1 request per hour, then it assigns incoming threads with 3600+sec pauses. Then, if the load configuration is altered to 1 per second, then the threads are not interrupted from their delays, and the threads keep waiting.
+
+Although the Timer is called Precise Throughput Timer, it does not aim to produce precisely the same number of samples over one-second intervals during the test.
+
+Precise Throughput Timer models Poisson arrivals schedule. That schedule often happens in real life, so it makes sense to use that for load testing. For instance, it naturally might generate samples that are close together thus it might reveal concurrency issues.
+
+Constant Throughput Timer converges to the specified rate, however it tends to produce samples at even intervals. Precise Throughput Timer is more accurate for maintaining exact sample counts over time.
 
 ## Parameters
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `throughput` | Yes | Desired throughput in samples per period | `60` |
-| `throughputPeriod` | No | Time period in seconds for the throughput value | `60` |
-| `duration` | No | Test duration in seconds | `300` |
-| `randomSeed` | No | Random seed for reproducible delays | `12345` |
-| `batchSize` | No | Number of events to generate in a batch | `1` |
-| `batchThreadDelay` | No | Delay in seconds between batches | `0` |
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `throughput` | Yes | `"60"` | Maximum number of samples you want to obtain per "throughput period", including all threads in group, from all affected samplers. | `"60"` |
+| `throughputPeriod` | Yes | `"60"` | Throughput period in seconds. For example, if throughput is set to 42 and throughputPeriod to 21 sec, then you'll get 2 samples per second. | `"60"` |
+| `duration` | Yes | `"0"` | Test duration in seconds. This is used to ensure you'll get throughput*duration samples during "test duration" timeframe. Does NOT limit test duration; it is just a hint for the timer. Set to 0 for no duration constraint. | `"300"` |
+| `batchSize` | Yes | `"1"` | Number of threads that depart simultaneously in each batch. If > 1, multiple threads leave at once while maintaining average throughput. | `"1"` |
+| `batchThreadDelay` | Yes | `"0"` | Delay in milliseconds between thread departures within a batch. For instance, if set to 42, and the batch size is 3, then threads will depart at x, x+42ms, x+84ms. Only applies when batchSize > 1. | `"0"` |
+| `randomSeed` | Yes | `"0"` | Seed for random number generator. Different timers should use different seed values. Constant seed ensures timer generates the same delays each test start. The value of "0" means the timer is truly random (non-repeatable). | `"0"` |
 
 ## Usage Examples
 
@@ -26,31 +34,32 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "精确吞吐量-60次/分钟"
 - properties:
-  - throughput: 60
-  - throughputPeriod: 60
+  - throughput: "60"
+  - throughputPeriod: "60"
 ```
 
-### Example 2: 120 Samples Per Hour
+### Example 2: 60 Iterations Per Hour
 
 ```
 create_jmeter_element with:
 - elementType: "precisethroughputTimer"
-- elementName: "精确吞吐量-120次/小时"
+- elementName: "精确吞吐量-60次/小时"
 - properties:
-  - throughput: 120
-  - throughputPeriod: 3600
+  - throughput: "60"
+  - throughputPeriod: "3600"
+  - duration: "3600"
 ```
 
-### Example 3: With Exact Duration
+### Example 3: With Exact Duration for Accurate Reporting
 
 ```
 create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "精确吞吐量-5分钟测试"
 - properties:
-  - throughput: 300
-  - throughputPeriod: 300
-  - duration: 300
+  - throughput: "300"
+  - throughputPeriod: "300"
+  - duration: "300"
 ```
 
 ### Example 4: Reproducible Delays
@@ -60,9 +69,9 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "可重现延迟的吞吐量"
 - properties:
-  - throughput: 60
-  - throughputPeriod: 60
-  - randomSeed: 42
+  - throughput: "60"
+  - throughputPeriod: "60"
+  - randomSeed: "42"
 ```
 
 ### Example 5: Batch Processing
@@ -72,73 +81,28 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "批量事件吞吐量"
 - properties:
-  - throughput: 120
-  - throughputPeriod: 60
-  - batchSize: 5
-  - batchThreadDelay: 1
+  - throughput: "120"
+  - throughputPeriod: "60"
+  - batchSize: "5"
+  - batchThreadDelay: "42"
 ```
-
-## Calculation
-
-The timer generates events based on: `throughput / throughputPeriod` samples per second.
-
-For example:
-- `throughput=60`, `period=60` → 1 sample per second
-- `throughput=120`, `period=60` → 2 samples per second
-- `throughput=3600`, `period=3600` → 1 sample per second
-
-## Parameters Explained
-
-### throughput
-Number of samples to generate during each throughputPeriod.
-
-### throughputPeriod
-Time period in seconds for the throughput calculation.
-
-### duration
-Test duration in seconds. The timer ensures exact sample count for this timeframe, which is useful for getting round numbers in reports (e.g., "100 samples per hour").
-
-### randomSeed
-- `0` (default): Random delays (not reproducible)
-- `> 0`: Fixed seed for reproducible delay sequences
-
-### batchSize
-Number of events to generate as a batch. Useful for scenarios like:
-- Send pairs of events with specific delay between them
-- Generate bursts of requests
-
-### batchThreadDelay
-Delay in seconds between events when using batch size > 1.
 
 ## Best Practices
 
 1. **Use for exact throughput**: Better than Constant Throughput Timer for precise sample counts
-2. **Set appropriate period**: Match throughput to your period (e.g., samples per minute)
-3. **Use randomSeed for debugging**: Makes tests reproducible during development
-4. **Keep batchSize=1** for normal use: Only use batching when specifically needed
+2. **Set appropriate period**: Match throughput to your period (e.g., samples per minute with period=60)
+3. **Use randomSeed for debugging**: Makes tests reproducible during development; use 0 for production
+4. **Keep batchSize=1 for normal use**: Only use batching when specifically needed (e.g., simulating bursts)
 5. **Calculate actual rate**: `throughput / throughputPeriod = samples per second`
-
-## Tips
-
-1. **Think time**: Combine with other timers for more realistic user behavior
-2. **Load testing**: Use to control exact request rate
-3. **Duration**: Set duration to match your test plan for accurate reporting
-4. **Batch processing**: Use batchSize and batchThreadDelay for specific scenarios
-5. **Reproducibility**: Set randomSeed for debugging, remove for production
-
-## Comparison with Constant Throughput Timer
-
-| Feature | Precise Throughput Timer | Constant Throughput Timer |
-|---------|------------------------|---------------------------|
-| Algorithm | Poisson process | Delay calculation |
-| Sample count | Exact for duration | Approximate |
-| Complexity | Higher | Lower |
-| Use case | Precise load testing | Simple rate limiting |
+6. **Set duration for business-friendly configuration**: E.g., "60 samples per hour" with throughput=60, period=3600, duration=3600
+7. **Best placement**: Place timer under the first element in a test loop for optimal scheduling
 
 ## Notes
 
 - Produces Poisson-distributed arrivals for realistic load patterns
-- Maintains exact sample counts when duration is specified
-- More computationally intensive than Constant Throughput Timer
-- RandomSeed allows exact reproduction of test scenarios
+- The `duration` parameter does NOT limit test duration; it is a hint for the timer to ensure exact sample counts for that timeframe
+- More computationally intensive than Constant Throughput Timer; keep schedule under 1,000,000 samples
+- randomSeed allows exact reproduction of test scenarios; use different seeds for different timers
 - Batch size can create unnatural patterns if not used carefully
+- Works best for rates under 36000 requests/hour
+- Note: In many cases, Open Model Thread Group would be a better choice for generating the desired load profile
