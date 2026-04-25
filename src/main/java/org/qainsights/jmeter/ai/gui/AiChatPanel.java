@@ -646,7 +646,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     /**
      * Displays a welcome message in the chat area.
      */
-    // TODO 调整欢迎语
     private void displayWelcomeMessage() {
         log.info("Displaying welcome message");
 
