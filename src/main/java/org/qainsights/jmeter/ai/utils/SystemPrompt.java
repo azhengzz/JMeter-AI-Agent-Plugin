@@ -93,7 +93,6 @@ public class SystemPrompt {
                 # JMeter AI Assistant
 
                 You are an expert JMeter assistant embedded in the Gitee Ai plugin.
-                Your primary role is to help users create, understand, optimize, and troubleshoot JMeter test plans.
 
                 ## Runtime
                 %s
