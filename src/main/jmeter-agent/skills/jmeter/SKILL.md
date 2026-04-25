@@ -1,138 +1,148 @@
 ---
 name: jmeter
-description: JMeter performance testing expert skill for creating, modifying, and optimizing test plans via JMeter API.
+description: Guides AI agents to create, edit, update, optimize, and delete JMeter test plan elements through the JMeter API. Activates when users need to build performance or API test scripts from scratch, modify existing test plans, configure thread groups, samplers, controllers, assertions, extractors, timers, or any other JMeter component.
 always: true
 ---
 
 # JMeter Skill
 
-You are a JMeter expert embedded in the Feather Wand plugin. Your primary role is to help users create, understand, optimize, and troubleshoot JMeter test plans.
+You are a JMeter expert embedded in the Gitee Ai plugin. Your primary role is to help users create, understand, optimize, and troubleshoot JMeter test plans.
 
 ## Important: Implementation Approach
 
-This project uses **JMeter API** to create and modify test plans, NOT direct JMX file manipulation.
+This project uses **JMeter API** to create, edit, update, optimize, and delete test plans, NOT direct JMX file manipulation.
 
-- Elements are created using the `create_jmeter_element` tool with `elementType` and `elementName` parameters
-- Properties are set using JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
-- **Parent-child compatibility is automatically validated** - the tool checks if elements can be added together
-- Use `get_test_plan_tree` to view the test plan structure and get `instanceId` values
-- Use `parentId` parameter to specify where to add the element (optional, defaults to current selection)
+- **CRUD Tools:**
+  - `create_jmeter_element` — Create new elements with `elementType`, `elementName`, optional `parentId` and `properties`
+  - `update_jmeter_element` — Update properties of an existing element by `elementId`
+  - `delete_jmeter_element` — Delete an element by `elementId` (TestPlan root cannot be deleted)
+  - `move_jmeter_element` — Move an element to a different parent with positioning (`first`, `last`, `before:<id>`, `after:<id>`)
+- **Inspection Tools:**
+  - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values
+  - `get_selected_element` — Get detailed info about the currently selected element
+  - `find_element` — Search elements by name, type, or path
+- Properties use JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
+- **Parent-child compatibility is automatically validated** — the tool checks if elements can be added together
 
 ## Workflow
 
 1. **Requirements Analysis**
-   - Understand test objectives: performance testing, load testing, stress testing, or functional testing
+   - Understand test objectives: performance testing, api testing, or functional testing
    - Identify business scenarios and key interfaces
-   - Define performance metrics (TPS, response time, concurrent users)
 
 2. **Script Structure Design**
    - Design thread group structure (user count, ramp-up time, loop count)
    - Plan request sequence and dependencies
    - Determine parameterization and data sources
 
-3. **Create Elements via API**
-   - Use `create_jmeter_element` tool with `elementType`, `elementName`, and optional `parentId`
-   - Set properties using JMeter property names in the `properties` parameter
+3. **Build and Modify Test Plan**
+   - Use CRUD tools to add, update, move, and delete elements (see tool list above)
    - Follow naming conventions with meaningful component names
-   - **Note**: The tool automatically validates parent-child compatibility
 
-4. **Verify and Troubleshoot**
-   - Use `get_test_plan_tree` to verify the structure and get instanceId values
-   - Use `parentId` parameter to add elements to specific parent nodes
-   - Use `@this` command to inspect selected elements
-   - Use `@optimize` command to analyze and optimize elements
+4. **Verify and Optimize**
+   - Use inspection tools to verify structure and locate elements
 
 
 ## Component Reference
 
 ### Thread Groups
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `threadgroup` | Basic thread group for virtual users | [Thread Group](./references/thread%20group/Thread%20Group.md) |
-| `setupthreadgroup` | Runs before regular thread groups | (see Thread Group) |
-| `teardownthreadgroup` | Runs after regular thread groups | (see Thread Group) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `threadgroup` | Basic thread group for virtual users | [Thread Group](./references/thread-group/ThreadGroup.md) | [Schema](./references/thread-group/ThreadGroup.schema.yaml) |
+| `setupthreadgroup` | Runs before regular thread groups | (see Thread Group) | [Schema](./references/thread-group/setUpThreadGroup.schema.yaml) |
+| `teardownthreadgroup` | Runs after regular thread groups | (see Thread Group) | [Schema](./references/thread-group/tearDownThreadGroup.schema.yaml) |
 
-**Aliases:** `tg`, `setup`, `teardown`
 
 ### Samplers
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `httpsampler` | Make HTTP/HTTPS requests | [HTTP Request](./references/samplers/HTTP%20Request.md) |
-| `jdbcsampler` | Execute database queries | [JDBC Sampler](./references/samplers/JDBCSampler.md) |
-| `jsr223sampler` | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/samplers/JSR223Sampler.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `httpsampler` | Make HTTP/HTTPS requests | [HTTP Request](./references/samplers/HTTPRequest.md) | [Schema](./references/samplers/HTTPRequest.schema.yaml) |
+| `jdbcsampler` | Execute database queries | [JDBC Sampler](./references/samplers/JDBCSampler.md) | [Schema](./references/samplers/JDBCSampler.schema.yaml) |
+| `jsr223sampler` | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/samplers/JSR223Sampler.md) | [Schema](./references/samplers/JSR223Sampler.schema.yaml) |
+| `beanshellsampler` | Execute BeanShell scripts | [BeanShell Sampler](./references/samplers/BeanShellSampler.md) | [Schema](./references/samplers/BeanShellSampler.schema.yaml) |
+| `flowcontrolaction` | Pause/stop test or control loops | [Flow Control Action](./references/samplers/FlowControlAction.md) | [Schema](./references/samplers/FlowControlAction.schema.yaml) |
+| `debugsampler` | Display JMeter variables/properties for debugging | Debug Sampler | [Schema](./references/samplers/DebugSampler.schema.yaml) |
+| `osprocesssampler` | Execute system commands or native executables | OS Process Sampler | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
+
 
 ### Controllers
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `loopcontroller` | Loop contained samplers | [Loop Controller](./references/controllers/LoopController.md) |
-| `ifcontroller` | Conditional execution | [If Controller](./references/controllers/IfController.md) |
-| `whilecontroller` | Loop while condition is true | [While Controller](./references/controllers/WhileController.md) |
-| `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) |
-| `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `loopcontroller` | Loop contained samplers | [Loop Controller](./references/controllers/LoopController.md) | [Schema](./references/controllers/LoopController.schema.yaml) |
+| `ifcontroller` | Conditional execution | [If Controller](./references/controllers/IfController.md) | [Schema](./references/controllers/IfController.schema.yaml) |
+| `whilecontroller` | Loop while condition is true | [While Controller](./references/controllers/WhileController.md) | [Schema](./references/controllers/WhileController.schema.yaml) |
+| `foreachcontroller` | Iterate over a list of variables | ForEach Controller | [Schema](./references/controllers/ForeachController.schema.yaml) |
+| `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) | [Schema](./references/controllers/TransactionController.schema.yaml) |
+| `simplecontroller` | Organize elements sequentially | Simple Controller | [Schema](./references/controllers/SimpleController.schema.yaml) |
+| `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
+| `includecontroller` | Include external JMX test fragment | Include Controller | [Schema](./references/controllers/IncludeController.schema.yaml) |
 
 ### Configuration Elements
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `csvdataset` | Read CSV files for parameterization | [CSV Data Set Config](./references/configuration%20elements/CSVDataSet.md) |
-| `httpdefaults` | Default values for HTTP requests | [HTTP Request Defaults](./references/configuration%20elements/HTTP%20Request%20Defaults.md) |
-| `headermanager` | Manage HTTP headers | [Header Manager](./references/configuration%20elements/HeaderManager.md) |
-| `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration%20elements/CookieManager.md) |
-| `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration%20elements/UserDefinedVariables.md) |
-| `configtestelement` | Config test element (User Defined Variables alias) | (see User Defined Variables) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `csvdataset` | Read CSV files for parameterization | [CSV Data Set Config](./references/configuration/CSVDataSet.md) | [Schema](./references/configuration/CSVDataSet.schema.yaml) |
+| `httpdefaults` | Default values for HTTP requests | [HTTP Request Defaults](./references/configuration/HTTP Request Defaults.md) | [Schema](./references/configuration/HTTPRequestDefaults.schema.yaml) |
+| `headermanager` | Manage HTTP headers | [Header Manager](./references/configuration/HeaderManager.md) | [Schema](./references/configuration/HeaderManager.schema.yaml) |
+| `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration/CookieManager.md) | [Schema](./references/configuration/CookieManager.schema.yaml) |
+| `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration/UserDefinedVariables.md) | [Schema](./references/configuration/UserDefinedVariables.schema.yaml) |
+| `configtestelement` | Config test element (User Defined Variables alias) | (see User Defined Variables) | |
 
 ### Pre-Processors
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `jsr223preprocessor` | Execute code before sampler | [JSR223 Pre-Processor](./references/pre-processors/JSR223PreProcessor.md) |
-| `userparameters` | Pre-process user-specific values | [User Parameters](./references/pre-processors/UserParameters.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `jsr223preprocessor` | Execute code before sampler | [JSR223 Pre-Processor](./references/pre-processors/JSR223PreProcessor.md) | [Schema](./references/pre-processors/JSR223PreProcessor.schema.yaml) |
+| `beanshellpreprocessor` | Execute BeanShell scripts before sampler | [BeanShell Pre-Processor](./references/pre-processors/BeanShellPreProcessor.md) | [Schema](./references/pre-processors/BeanShellPreProcessor.schema.yaml) |
+| `userparameters` | Define specific values for different users | [User Parameters](./references/pre-processors/UserParameters.md) | [Schema](./references/pre-processors/UserParameters.schema.yaml) |
+
 
 ### Post-Processors
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `regexextractor` | Extract data using regex | [Regex Extractor](./references/post-processors/RegexExtractor.md) |
-| `jsonpathextractor` | Extract data using JSON path | [JSON Path Extractor](./references/post-processors/JSONPathExtractor.md) |
-| `xpathextractor` | Extract data using XPath | [XPath Extractor](./references/post-processors/XPathExtractor.md) |
-| `boundaryextractor` | Extract data using left/right boundaries | [Boundary Extractor](./references/post-processors/BoundaryExtractor.md) |
-| `jmespathextractor` | Extract data from JSON using JMESPath | [JMESPath Extractor](./references/post-processors/JMESPathExtractor.md) |
-| `jsr223postprocessor` | Custom post-processing code | [JSR223 Post-Processor](./references/post-processors/JSR223PostProcessor.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `regexextractor` | Extract data using regex | [Regex Extractor](./references/post-processors/RegexExtractor.md) | [Schema](./references/post-processors/RegexExtractor.schema.yaml) |
+| `jsonpostprocessor` | Extract data using JSON path | [JSON Post Processor](./references/post-processors/JSONPostProcessor.md) | [Schema](./references/post-processors/JSONPostProcessor.schema.yaml) |
+| `xpathextractor` | Extract data using XPath | [XPath Extractor](./references/post-processors/XPathExtractor.md) | [Schema](./references/post-processors/XPathExtractor.schema.yaml) |
+| `boundaryextractor` | Extract data using left/right boundaries | [Boundary Extractor](./references/post-processors/BoundaryExtractor.md) | [Schema](./references/post-processors/BoundaryExtractor.schema.yaml) |
+| `jmespathextractor` | Extract data from JSON using JMESPath | [JMESPath Extractor](./references/post-processors/JMESPathExtractor.md) | [Schema](./references/post-processors/JMESPathExtractor.schema.yaml) |
+| `htmlextractor` | Extract data using CSS selectors | [CSS Selector Extractor](./references/post-processors/HtmlExtractor.md) | [Schema](./references/post-processors/HtmlExtractor.schema.yaml) |
+| `jsr223postprocessor` | Execute JSR223 scripts after sampler | [JSR223 Post-Processor](./references/post-processors/JSR223PostProcessor.md) | [Schema](./references/post-processors/JSR223PostProcessor.schema.yaml) |
+| `beanshellpostprocessor` | Execute BeanShell scripts after sampler | [BeanShell Post-Processor](./references/post-processors/BeanShellPostProcessor.md) | [Schema](./references/post-processors/BeanShellPostProcessor.schema.yaml) |
+| `debugpostprocessor` | Display variables/properties for debugging | [Debug Post-Processor](./references/post-processors/DebugPostProcessor.md) | [Schema](./references/post-processors/DebugPostProcessor.schema.yaml) |
 
-**Note:** `jsonextractor` is an alias for `jsonpathextractor`
 
 ### Assertions
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) |
-| `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) |
-| `durationassertion` | Validate response time | [Duration Assertion](./references/assertions/DurationAssertion.md) |
-| `sizeassertion` | Validate response size | [Size Assertion](./references/assertions/SizeAssertion.md) |
-| `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) |
-| `jsr223assertion` | Custom assertion code | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) |
-| `md5hexassertion` | Validate response checksum | [MD5Hex Assertion](./references/assertions/MD5HexAssertion.md) |
-| `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) |
-| `compareassertion` | Compare sample results | [Compare Assertion](./references/assertions/CompareAssertion.md) |
-| `htmlassertion` | Validate HTML responses | [HTML Assertion](./references/assertions/HTMLAssertion.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) | [Schema](./references/assertions/ResponseAssertion.schema.yaml) |
+| `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) | [Schema](./references/assertions/JSONPathAssertion.schema.yaml) |
+| `durationassertion` | Validate response time | [Duration Assertion](./references/assertions/DurationAssertion.md) | [Schema](./references/assertions/DurationAssertion.schema.yaml) |
+| `sizeassertion` | Validate response size | [Size Assertion](./references/assertions/SizeAssertion.md) | [Schema](./references/assertions/SizeAssertion.schema.yaml) |
+| `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) | [Schema](./references/assertions/XPathAssertion.schema.yaml) |
+| `jsr223assertion` | Custom assertion code | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) | [Schema](./references/assertions/JSR223Assertion.schema.yaml) |
+| `md5hexassertion` | Validate response checksum | [MD5Hex Assertion](./references/assertions/MD5HexAssertion.md) | [Schema](./references/assertions/MD5HexAssertion.schema.yaml) |
+| `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) | |
+| `compareassertion` | Compare sample results | [Compare Assertion](./references/assertions/CompareAssertion.md) | [Schema](./references/assertions/CompareAssertion.schema.yaml) |
+| `htmlassertion` | Validate HTML responses | [HTML Assertion](./references/assertions/HTMLAssertion.md) | [Schema](./references/assertions/HTMLAssertion.schema.yaml) |
 
 **Note:** `jsonassertion` is an alias for `jsonpathassertion`
 
 ### Timers
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) |
-| `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) |
-| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) |
-| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) |
-| `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) | [Schema](./references/timers/ConstantTimer.schema.yaml) |
+| `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) | [Schema](./references/timers/UniformRandomTimer.schema.yaml) |
+| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) | [Schema](./references/timers/GaussianRandomTimer.schema.yaml) |
+| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) | [Schema](./references/timers/PoissonRandomTimer.schema.yaml) |
+| `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) | [Schema](./references/timers/ConstantThroughputTimer.schema.yaml) |
+| `precisethroughputTimer` | Precise throughput with exact sample count | [Precise Throughput Timer](./references/timers/PreciseThroughputTimer.md) | [Schema](./references/timers/PreciseThroughputTimer.schema.yaml) |
 
-**Note:** `constthroughputtimer` is an alias for `constantthroughputtimer`
 
 ### Listeners
-| elementType | Description | Docs |
-|-------------|-------------|------|
-| `viewresultstree` | View detailed results | [View Results Tree](./references/listeners/ViewResultsTree.md) |
-| `summariser` | Summary statistics | [Summariser](./references/listeners/Summariser.md) |
-| `statvisualizer` | Aggregate Report (Basic summary) | [Summary Report](./references/listeners/SummaryReport.md) |
-| `aggregatereport` | Aggregate Report | [Aggregate Report](./references/listeners/AggregateReport.md) |
-| `backendlistener` | Send results to backend | [Backend Listener](./references/listeners/BackendListener.md) |
+| elementType | Description | Docs | Schema |
+|-------------|-------------|------|--------|
+| `viewresultstree` | View detailed results | [View Results Tree](./references/listeners/ViewResultsTree.md) | [Schema](./references/listeners/ViewResultsTree.schema.yaml) |
+| `summaryreport` | Aggregate Report (Basic summary) | [Summary Report](./references/listeners/SummaryReport.md) | [Schema](./references/listeners/SummaryReport.schema.yaml) |
+| `aggregatereport` | Aggregate Report | [Aggregate Report](./references/listeners/AggregateReport.md) | [Schema](./references/listeners/AggregateReport.schema.yaml) |
+| `backendlistener` | Send results to backend | [Backend Listener](./references/listeners/BackendListener.md) | [Schema](./references/listeners/BackendListener.schema.yaml) |
 
 ## Important: HTTP Arguments Format
 
@@ -140,26 +150,41 @@ When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`
 
 You only need to include `HTTPsampler.Arguments` when you have parameters to send.
 
-**HTTPsampler.Arguments formats:**
+**HTTPsampler.Arguments format (array only):**
 
-1. **With query parameters** (for GET requests or form data):
+1. **Query parameters** (for GET requests or form data):
 ```
-"HTTPsampler.Arguments": {
-  "name": "张三",
-  "age": "23"
-}
+"HTTPsampler.Arguments": [
+  {"Argument.name": "name", "Argument.value": "张三"},
+  {"Argument.name": "age", "Argument.value": "23"}
+]
 ```
 
-2. **With raw body** (for JSON/XML POST/PUT requests):
+2. **Raw body** (for JSON/XML POST/PUT requests):
 ```
-"HTTPsampler.Arguments": {
-  "": "{\"username\":\"admin\",\"password\":\"123456\"}"
-}
+"HTTPSampler.postBodyRaw": true
+"HTTPsampler.Arguments": [
+  {"Argument.name": "", "Argument.value": "{\"username\":\"admin\",\"password\":\"123456\"}", "HTTPArgument.always_encode": false}
+]
 ```
 **IMPORTANT for raw body:**
-- The key must be an empty string `""`
-- The value must be the JSON/XML string
-- Set `HTTPSampler.postBodyRaw: true` to enable raw body mode
+- `Argument.name` must be an empty string `""`
+- `Argument.value` contains the JSON/XML string
+- Set `HTTPSampler.postBodyRaw: true`
+- Set `HTTPArgument.always_encode: false` to avoid encoding the JSON
+
+For advanced options (use_equals, always_encode, metadata):
+```
+"HTTPsampler.Arguments": [
+  {
+    "Argument.name": "name",
+    "Argument.value": "张三",
+    "HTTPArgument.use_equals": true,
+    "HTTPArgument.always_encode": false,
+    "Argument.metadata": "="
+  }
+]
+```
 
 ## Naming Conventions
 
