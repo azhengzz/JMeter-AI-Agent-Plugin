@@ -49,9 +49,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JTextArea messageField;
     private JButton sendButton;
     private JComboBox<String> modelSelector;
-    private TreeNavigationButtons treeNavigationButtons;
-    private JPanel navigationPanel; // Added field for navigation panel
-
     // Agent components
     private AgentLoop agentLoop;
     private ClaudeService claudeService; // Keep for model loading
@@ -65,7 +62,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
     // Component managers
     private final MessageProcessor messageProcessor;
-    private final ElementSuggestionManager elementSuggestionManager;
 
     // Track active worker for /stop support
     private AgentSwingWorker activeWorker;
@@ -83,11 +79,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         initializeAgentLoop();
 
         messageProcessor = new MessageProcessor();
-
-        // Initialize tree navigation buttons with action listeners
-        treeNavigationButtons = new TreeNavigationButtons();
-        treeNavigationButtons.setUpButtonActionListener();
-        treeNavigationButtons.setDownButtonActionListener();
 
         // Register for UI refresh events (for zoom functionality)
         UIManager.addPropertyChangeListener(this);
@@ -262,32 +253,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         modelPanel.add(modelSelector);
         bottomPanel.add(modelPanel, BorderLayout.NORTH);
 
-        // Create the navigation panel for tree navigation and element buttons
-        navigationPanel = new JPanel();
-        navigationPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        navigationPanel.setBorder(BorderFactory.createTitledBorder("Element Suggestions"));
-
-        // Add navigation buttons to the panel
-        navigationPanel.add(treeNavigationButtons.getUpButton());
-        navigationPanel.add(treeNavigationButtons.getDownButton());
-
-        // Add a separator
-        JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
-        separator.setPreferredSize(new Dimension(1, 30));
-        navigationPanel.add(separator);
-
-        // Set minimum height to ensure buttons are visible
-        navigationPanel.setMinimumSize(new Dimension(100, 70));
-        navigationPanel.setPreferredSize(new Dimension(500, 70));
-
-        // Initialize element suggestion manager with the navigation panel
-        elementSuggestionManager = new ElementSuggestionManager(navigationPanel);
-
-        // Make sure the navigation panel is visible
-        navigationPanel.setVisible(true);
-
-        bottomPanel.add(navigationPanel, BorderLayout.CENTER);
-
         // Create the input panel with message field and send button
         JPanel inputPanel = new JPanel(new BorderLayout(5, 0));
 
@@ -361,7 +326,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         headerPanel.setBackground(UIManager.getColor("Panel.background"));
 
         // Add a title to the left side of the header panel
-        JLabel titleLabel = new JLabel("GiteeAi - JMeter Agent v" + VersionUtils.getVersion());
+        JLabel titleLabel = new JLabel("Gitee Ai - JMeter Agent v" + VersionUtils.getVersion());
         titleLabel.setFont(new Font(titleLabel.getFont().getName(), Font.BOLD, 14));
         headerPanel.add(titleLabel, BorderLayout.WEST);
 
@@ -685,21 +650,31 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private void displayWelcomeMessage() {
         log.info("Displaying welcome message");
 
-        String welcomeMessage = "# Welcome to GiteeAi - JMeter Agent\n\n" +
+        String welcomeMessage = "# Welcome to Gitee Ai - JMeter Agent\n\n" +
                 "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
                 "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
                 "**Slash commands:**\n" +
                 "- `/new` — Start a new conversation\n" +
                 "- `/stop` — Stop the current task\n" +
-                "- `/status` — Show bot status\n" +
+                "- `/status` — Show agent status\n" +
                 "- `/help` — Show available commands\n\n" +
-                "**Agent commands:**\n" +
-                "- Use `@this` to get information about the currently selected element\n" +
-                "- Use `@optimize` to get optimization suggestions for your test plan\n" +
-                "- Use `@lint` to rename elements in your test plan with meaningful names\n" +
-                "- Use `@wrap` to group HTTP request samplers under Transaction Controllers\n" +
-                "- Use `@usage` to view usage statistics for your AI interactions\n\n" +
                 "How can I assist you today?";
+
+        // String welcomeMessage = "# Welcome to Gitee Ai - JMeter Agent\n\n" +
+        //         "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
+        //         "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
+        //         "**Slash commands:**\n" +
+        //         "- `/new` — Start a new conversation\n" +
+        //         "- `/stop` — Stop the current task\n" +
+        //         "- `/status` — Show agent status\n" +
+        //         "- `/help` — Show available commands\n\n" +
+        //         "**Agent commands:**\n" +
+        //         "- Use `@this` to get information about the currently selected element\n" +
+        //         "- Use `@optimize` to get optimization suggestions for your test plan\n" +
+        //         "- Use `@lint` to rename elements in your test plan with meaningful names\n" +
+        //         "- Use `@wrap` to group HTTP request samplers under Transaction Controllers\n" +
+        //         "- Use `@usage` to view usage statistics for your AI interactions\n\n" +
+        //         "How can I assist you today?";
 
         try {
             messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, getThemeColor("TextPane.foreground", Color.BLACK), true);
@@ -1046,31 +1021,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.error("Error appending AI response to chat", e);
         }
 
-        // Create element buttons for context-aware suggestions after the AI response
+        // Scroll to the bottom of the chat area to show the latest message
         SwingUtilities.invokeLater(() -> {
-            log.info("Creating element buttons for context-aware suggestions");
-
-            // Make sure the navigation panel is visible
-            navigationPanel.setVisible(true);
-
-            // Process the response to create element buttons
-            elementSuggestionManager.createElementButtons(response);
-
-            // Ensure the navigation panel is visible and properly laid out
-            navigationPanel.revalidate();
-            navigationPanel.repaint();
-
-            // Log the number of components in the navigation panel
-            log.info("Navigation panel now has {} components", navigationPanel.getComponentCount());
-
-            // Scroll to the bottom of the chat area to show the latest message
-            SwingUtilities.invokeLater(() -> {
-                JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, chatArea);
-                if (scrollPane != null) {
-                    JScrollBar vertical = scrollPane.getVerticalScrollBar();
-                    vertical.setValue(vertical.getMaximum());
-                }
-            });
+            JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, chatArea);
+            if (scrollPane != null) {
+                JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                vertical.setValue(vertical.getMaximum());
+            }
         });
     }
 

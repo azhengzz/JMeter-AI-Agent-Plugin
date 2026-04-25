@@ -73,7 +73,7 @@ public class BuiltinCommands {
                 ? (uptimeS / 3600) + "h " + ((uptimeS % 3600) / 60) + "m"
                 : (uptimeS / 60) + "m " + (uptimeS % 60) + "s";
 
-        return "GiteeAi - JMeter Agent v" + version + "\n" +
+        return "Gitee Ai - JMeter Agent v" + version + "\n" +
                "Model: " + model + "\n" +
                "Tokens: " + lastIn + " in / " + lastOut + " out\n" +
                "Context: " + ctxUsedStr + "/" + ctxTotalStr + " (" + ctxPct + "%)\n" +
@@ -84,7 +84,7 @@ public class BuiltinCommands {
     /** Return available slash commands. Exact command. */
     public static String cmdHelp(CommandContext ctx) {
         return String.join("\n",
-                "GiteeAi commands:",
+                "Gitee Ai commands:",
                 "/new — Start a new conversation",
                 "/stop — Stop the current task",
                 "/status — Show bot status",
