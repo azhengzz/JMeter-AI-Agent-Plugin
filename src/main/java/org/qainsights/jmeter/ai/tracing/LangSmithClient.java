@@ -10,7 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
@@ -88,6 +90,19 @@ public class LangSmithClient {
      * @return LLMRun that can be updated with results later
      */
     public LLMRun createRun(String runId, String name, Map<String, Object> inputs) {
+        return createRun(runId, name, inputs, null);
+    }
+
+    /**
+     * Create a new trace for an LLM run with tags.
+     *
+     * @param runId Unique ID for this run
+     * @param name Name of the run (e.g., model name or operation)
+     * @param inputs Input data (e.g., prompt, messages)
+     * @param tags Optional tags for filtering in LangSmith dashboard
+     * @return LLMRun that can be updated with results later
+     */
+    public LLMRun createRun(String runId, String name, Map<String, Object> inputs, List<String> tags) {
         if (!isEnabled() || !shouldSample()) {
             log.debug("LangSmith disabled or sampled out, skipping trace");
             return new LLMRun(runId, name, this, false);
@@ -117,6 +132,10 @@ public class LangSmithClient {
 
             if (inputsObj != null) {
                 runBuilder.inputs(inputsObj);
+            }
+
+            if (tags != null && !tags.isEmpty()) {
+                runBuilder.tags(tags);
             }
 
             Run run = runBuilder.build();
@@ -154,7 +173,15 @@ public class LangSmithClient {
      */
     public LLMRun createRun(String name, Map<String, Object> inputs) {
         String runId = UUID.randomUUID().toString();
-        return createRun(runId, name, inputs);
+        return createRun(runId, name, inputs, null);
+    }
+
+    /**
+     * Create a new run with auto-generated ID and tags.
+     */
+    public LLMRun createRun(String name, Map<String, Object> inputs, List<String> tags) {
+        String runId = UUID.randomUUID().toString();
+        return createRun(runId, name, inputs, tags);
     }
 
     /**
