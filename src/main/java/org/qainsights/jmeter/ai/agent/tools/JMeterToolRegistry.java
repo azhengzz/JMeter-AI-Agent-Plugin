@@ -1,5 +1,6 @@
 package org.qainsights.jmeter.ai.agent.tools;
 
+import org.qainsights.jmeter.ai.agent.tools.exec.ExecTool;
 import org.qainsights.jmeter.ai.agent.tools.filesystem.*;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.*;
 import org.qainsights.jmeter.ai.agent.tools.web.*;
@@ -18,6 +19,7 @@ public class JMeterToolRegistry {
     // Configuration keys
     private static final String FS_TOOLS_ENABLED = "agent.tools.filesystem.enabled";
     private static final String WEB_TOOLS_ENABLED = "agent.tools.websearch.enabled";
+    private static final String EXEC_TOOLS_ENABLED = "agent.tools.exec.enabled";
 
     /**
      * Register all default JMeter tools with the given registry.
@@ -50,6 +52,9 @@ public class JMeterToolRegistry {
 
         // Register web tools if enabled
         registerWebTools(registry);
+
+        // Register exec tool if enabled
+        registerExecTools(registry);
     }
 
     /**
@@ -85,6 +90,22 @@ public class JMeterToolRegistry {
             registry.register(new WebFetchTool());
         } else {
             log.info("Web tools are disabled");
+        }
+    }
+
+    /**
+     * Register exec tool if enabled.
+     *
+     * @param registry The tool registry to register tools with
+     */
+    public static void registerExecTools(ToolRegistry registry) {
+        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(EXEC_TOOLS_ENABLED, "false"));
+
+        if (enabled) {
+            log.info("Registering exec tool");
+            registry.register(new ExecTool());
+        } else {
+            log.info("Exec tool is disabled");
         }
     }
 
