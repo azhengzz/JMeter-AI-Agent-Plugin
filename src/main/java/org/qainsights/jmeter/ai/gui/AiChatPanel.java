@@ -14,6 +14,7 @@ import org.qainsights.jmeter.ai.intellisense.InputBoxIntellisense;
 import org.qainsights.jmeter.ai.agent.AgentLoop;
 import org.qainsights.jmeter.ai.agent.AgentLoopFactory;
 import org.qainsights.jmeter.ai.agent.model.AgentResponse;
+import org.qainsights.jmeter.ai.agent.model.ProgressUpdate;
 import org.qainsights.jmeter.ai.agent.model.ToolEvent;
 import org.qainsights.jmeter.ai.agent.swing.AgentSwingWorker;
 import org.qainsights.jmeter.ai.service.AiService;
@@ -65,6 +66,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
     // Track active worker for /stop support
     private AgentSwingWorker activeWorker;
+    // Track whether tool calls were displayed progressively during the loop
+    private boolean toolCallsDisplayedProgressively;
 
     /**
      * Constructs a new AiChatPanel.
@@ -820,7 +823,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         removeLoadingIndicator();
 
         if (!response.isSuccess()) {
-            // Display error message
             try {
                 messageProcessor.appendMessage(chatArea.getStyledDocument(),
                         "Error: " + response.getErrorMessage(),
@@ -829,17 +831,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 log.error("Error displaying error message", e);
             }
         } else {
-            // Check if tool call display is enabled
-            boolean showToolCalls = Boolean.parseBoolean(
-                org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.show.tool.calls", "true"));
+            // Display tool call information only if not already shown progressively
+            if (!toolCallsDisplayedProgressively) {
+                boolean showToolCalls = Boolean.parseBoolean(
+                    org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.show.tool.calls", "true"));
 
-            // Display tool call information if enabled and available
-            if (showToolCalls && response.getToolEvents() != null && !response.getToolEvents().isEmpty()) {
-                displayToolCallInfo(response.getToolEvents());
+                if (showToolCalls && response.getToolEvents() != null && !response.getToolEvents().isEmpty()) {
+                    displayToolCallInfo(response.getToolEvents());
+                }
             }
+            toolCallsDisplayedProgressively = false;
 
-            // Process the AI response
-            // Note: AgentLoop manages conversation history via SessionManager
             processAiResponse(response.getContent());
         }
 
@@ -850,110 +852,143 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
-     * Handle AgentLoop progress callback.
+     * Handle typed progress updates from the agent loop.
+     * Renders different types (THINKING, TOOL_CALL, ERROR, PROGRESS) with appropriate styling.
      */
-    private void handleProgress(String progress) {
+    private void handleProgress(ProgressUpdate update) {
         SwingUtilities.invokeLater(() -> {
             try {
-                // Remove the loading indicator if it exists
                 removeLoadingIndicator();
 
-                // Add progress message
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        progress, Color.GRAY, false);
+                switch (update.getType()) {
+                    case THINKING -> renderThinking(update.getMessage());
+                    case TOOL_CALL -> {
+                        toolCallsDisplayedProgressively = true;
+                        Object payload = update.getPayload();
+                        if (payload instanceof ToolEvent event) {
+                            displaySingleToolEvent(event);
+                        } else {
+                            renderToolHint(update.getMessage());
+                        }
+                    }
+                    case ERROR -> renderError(update.getMessage());
+                    default -> renderProgress(update.getMessage());
+                }
             } catch (BadLocationException e) {
                 log.error("Error displaying progress", e);
             }
         });
     }
 
+    private void renderThinking(String text) throws BadLocationException {
+        StyledDocument doc = chatArea.getStyledDocument();
+        SimpleAttributeSet style = new SimpleAttributeSet();
+        StyleConstants.setForeground(style, new Color(120, 120, 120));
+        StyleConstants.setItalic(style, true);
+        doc.insertString(doc.getLength(), text + "\n", style);
+    }
+
+    private void renderToolHint(String hint) throws BadLocationException {
+        StyledDocument doc = chatArea.getStyledDocument();
+        SimpleAttributeSet style = new SimpleAttributeSet();
+        StyleConstants.setForeground(style, new Color(100, 100, 150));
+        StyleConstants.setBold(style, true);
+        doc.insertString(doc.getLength(), "\n" + hint + "\n", style);
+    }
+
+    private void renderProgress(String text) throws BadLocationException {
+        messageProcessor.appendMessage(chatArea.getStyledDocument(), text, Color.GRAY, false);
+    }
+
+    private void renderError(String text) throws BadLocationException {
+        StyledDocument doc = chatArea.getStyledDocument();
+        SimpleAttributeSet style = new SimpleAttributeSet();
+        StyleConstants.setForeground(style, Color.RED);
+        doc.insertString(doc.getLength(), text + "\n", style);
+    }
+
     /**
-     * Display tool call information in the chat area.
-     *
-     * @param toolEvents The tool events to display
+     * Display tool call information in the chat area (fallback for non-progressive mode).
      */
     private void displayToolCallInfo(List<ToolEvent> toolEvents) {
         try {
-            StyledDocument doc = chatArea.getStyledDocument();
-
-            // Get max length for tool arguments and result display
-            int maxToolResultLength = Integer.parseInt(
-                org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
-
-            // Create a header for tool calls section
-            SimpleAttributeSet headerStyle = new SimpleAttributeSet();
-            StyleConstants.setBold(headerStyle, true);
-            StyleConstants.setForeground(headerStyle, new Color(100, 100, 150));
-            doc.insertString(doc.getLength(), "\n🔧 Tool Calls:\n", headerStyle);
-
-            // Display each tool call
             for (ToolEvent event : toolEvents) {
-                SimpleAttributeSet toolStyle = new SimpleAttributeSet();
-
-                // Set color based on status
-                Color statusColor;
-                String statusIcon;
-                switch (event.getStatus()) {
-                    case OK -> {
-                        statusColor = new Color(34, 139, 34); // Green
-                        statusIcon = "✓";
-                    }
-                    case ERROR -> {
-                        statusColor = new Color(220, 20, 60); // Red
-                        statusIcon = "✗";
-                    }
-                    case TIMEOUT -> {
-                        statusColor = new Color(255, 140, 0); // Orange
-                        statusIcon = "⏱";
-                    }
-                    case NOT_FOUND -> {
-                        statusColor = new Color(128, 128, 128); // Gray
-                        statusIcon = "?";
-                    }
-                    default -> {
-                        statusColor = Color.BLACK;
-                        statusIcon = "-";
-                    }
-                }
-
-                StyleConstants.setForeground(toolStyle, statusColor);
-
-                // Tool name and status
-                String toolLine = String.format("  %s %s [%dms]",
-                    statusIcon, event.getToolName(), event.getDurationMs());
-                doc.insertString(doc.getLength(), toolLine + "\n", toolStyle);
-
-                // Display arguments if present
-                if (event.getArguments() != null) {
-                    SimpleAttributeSet argStyle = new SimpleAttributeSet();
-                    StyleConstants.setForeground(argStyle, new Color(70, 130, 180)); // Steel blue
-                    StyleConstants.setItalic(argStyle, true);
-
-                    String argsStr = formatArguments(event.getArguments());
-                    String displayArgs = argsStr;
-                    if (argsStr.length() > maxToolResultLength) {
-                        displayArgs = argsStr.substring(0, maxToolResultLength) + "... (truncated, total " + argsStr.length() + " chars)";
-                    }
-                    doc.insertString(doc.getLength(), "    Args: " + displayArgs + "\n", argStyle);
-                }
-
-                // Tool result/detail (truncated if too long)
-                String detail = event.getDetail();
-                if (detail != null && !detail.isEmpty()) {
-                    SimpleAttributeSet detailStyle = new SimpleAttributeSet();
-                    StyleConstants.setForeground(detailStyle, new Color(100, 100, 100));
-                    StyleConstants.setItalic(detailStyle, true);
-
-                    String displayDetail = detail;
-                    if (detail.length() > maxToolResultLength) {
-                        displayDetail = detail.substring(0, maxToolResultLength) + "... (truncated, total " + detail.length() + " chars)";
-                    }
-                    doc.insertString(doc.getLength(), "    Result: " + displayDetail + "\n\n", detailStyle);
-                }
+                displaySingleToolEvent(event);
             }
-
         } catch (BadLocationException e) {
             log.error("Error displaying tool call info", e);
+        }
+    }
+
+    /**
+     * Display a single tool event with styled output.
+     */
+    private void displaySingleToolEvent(ToolEvent event) throws BadLocationException {
+        StyledDocument doc = chatArea.getStyledDocument();
+        int maxToolResultLength = Integer.parseInt(
+            org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+
+        // Tool call header
+        SimpleAttributeSet headerStyle = new SimpleAttributeSet();
+        StyleConstants.setBold(headerStyle, true);
+        StyleConstants.setForeground(headerStyle, new Color(100, 100, 150));
+        doc.insertString(doc.getLength(), "\n🔧 ", headerStyle);
+
+        SimpleAttributeSet toolStyle = new SimpleAttributeSet();
+
+        Color statusColor;
+        String statusIcon;
+        switch (event.getStatus()) {
+            case OK -> {
+                statusColor = new Color(34, 139, 34);
+                statusIcon = "✓";
+            }
+            case ERROR -> {
+                statusColor = new Color(220, 20, 60);
+                statusIcon = "✗";
+            }
+            case TIMEOUT -> {
+                statusColor = new Color(255, 140, 0);
+                statusIcon = "⏱";
+            }
+            case NOT_FOUND -> {
+                statusColor = new Color(128, 128, 128);
+                statusIcon = "?";
+            }
+            default -> {
+                statusColor = Color.BLACK;
+                statusIcon = "-";
+            }
+        }
+
+        StyleConstants.setForeground(toolStyle, statusColor);
+        String toolLine = String.format("  %s %s [%dms]", statusIcon, event.getToolName(), event.getDurationMs());
+        doc.insertString(doc.getLength(), toolLine + "\n", toolStyle);
+
+        if (event.getArguments() != null && !event.getArguments().isEmpty()) {
+            SimpleAttributeSet argStyle = new SimpleAttributeSet();
+            StyleConstants.setForeground(argStyle, new Color(70, 130, 180));
+            StyleConstants.setItalic(argStyle, true);
+
+            String argsStr = formatArguments(event.getArguments());
+            String displayArgs = argsStr;
+            if (argsStr.length() > maxToolResultLength) {
+                displayArgs = argsStr.substring(0, maxToolResultLength) + "... (truncated, total " + argsStr.length() + " chars)";
+            }
+            doc.insertString(doc.getLength(), "    Args: " + displayArgs + "\n", argStyle);
+        }
+
+        String detail = event.getDetail();
+        if (detail != null && !detail.isEmpty()) {
+            SimpleAttributeSet detailStyle = new SimpleAttributeSet();
+            StyleConstants.setForeground(detailStyle, new Color(100, 100, 100));
+            StyleConstants.setItalic(detailStyle, true);
+
+            String displayDetail = detail;
+            if (detail.length() > maxToolResultLength) {
+                displayDetail = detail.substring(0, maxToolResultLength) + "... (truncated, total " + detail.length() + " chars)";
+            }
+            doc.insertString(doc.getLength(), "    Result: " + displayDetail + "\n\n", detailStyle);
         }
     }
 
@@ -1015,7 +1050,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Add the AI response to the chat
         log.info("Appending AI response to chat");
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), response, getThemeColor("TextPane.foreground", Color.BLACK), true);
+            // AI response header
+            StyledDocument doc = chatArea.getStyledDocument();
+            SimpleAttributeSet headerStyle = new SimpleAttributeSet();
+            StyleConstants.setBold(headerStyle, true);
+            StyleConstants.setForeground(headerStyle, new Color(0, 102, 204));
+            doc.insertString(doc.getLength(), "\n🤖 ", headerStyle);
+
+            messageProcessor.appendMessage(doc, response, getThemeColor("TextPane.foreground", Color.BLACK), true);
         } catch (BadLocationException e) {
             log.error("Error appending AI response to chat", e);
         }

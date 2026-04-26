@@ -12,7 +12,7 @@ public class AgentRunSpec {
 
     private final String userMessage;
     private final String sessionKey;
-    private final List<AgentHook> hooks;
+    private final AgentHook hook;
     private final boolean concurrentTools;
     private final int maxIterations;
     private final boolean failOnToolError;
@@ -21,7 +21,7 @@ public class AgentRunSpec {
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
         this.sessionKey = builder.sessionKey;
-        this.hooks = builder.hooks != null ? builder.hooks : Collections.emptyList();
+        this.hook = builder.hook;
         this.concurrentTools = builder.concurrentTools;
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
@@ -30,7 +30,7 @@ public class AgentRunSpec {
 
     public String getUserMessage() { return userMessage; }
     public String getSessionKey() { return sessionKey; }
-    public List<AgentHook> getHooks() { return hooks; }
+    public AgentHook getHook() { return hook; }
     public boolean isConcurrentTools() { return concurrentTools; }
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
@@ -43,7 +43,7 @@ public class AgentRunSpec {
     public static class Builder {
         private String userMessage;
         private String sessionKey;
-        private List<AgentHook> hooks;
+        private AgentHook hook;
         private boolean concurrentTools = false;
         private int maxIterations = 40;
         private boolean failOnToolError = false;
@@ -59,16 +59,8 @@ public class AgentRunSpec {
             return this;
         }
 
-        public Builder addHook(AgentHook hook) {
-            if (this.hooks == null) {
-                this.hooks = new ArrayList<>();
-            }
-            this.hooks.add(hook);
-            return this;
-        }
-
-        public Builder hooks(List<AgentHook> hooks) {
-            this.hooks = hooks;
+        public Builder hook(AgentHook hook) {
+            this.hook = hook;
             return this;
         }
 

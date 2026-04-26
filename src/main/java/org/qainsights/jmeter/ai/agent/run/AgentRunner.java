@@ -10,6 +10,7 @@ import org.qainsights.jmeter.ai.agent.session.Session;
 import org.qainsights.jmeter.ai.agent.session.SessionManager;
 import org.qainsights.jmeter.ai.agent.tools.ToolRegistry;
 import org.qainsights.jmeter.ai.service.AiService;
+import org.qainsights.jmeter.ai.utils.TextUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,19 +138,13 @@ public class AgentRunner {
         String finalContent = null;
         int maxIterations = spec.getMaxIterations() > 0 ? spec.getMaxIterations() : defaultMaxIterations;
         int iteration = 0;
+        AgentHook hook = spec.getHook();
 
         while (iteration < maxIterations) {
             iteration++;
             context.setCurrentIteration(iteration);
 
-            // Call beforeIteration hook
-            for (AgentHook hook : spec.getHooks()) {
-                try {
-                    hook.beforeIteration(context);
-                } catch (Exception e) {
-                    log.warn("Hook beforeIteration failed", e);
-                }
-            }
+            if (hook != null) hook.beforeIteration(context);
 
             // Check for iteration limit
             if (iteration > 1) {
@@ -171,15 +166,7 @@ public class AgentRunner {
             if (response.isError()) {
                 log.error("LLM returned error: {}", response.getErrorMessage());
                 finalContent = "I encountered an error: " + response.getErrorMessage();
-
-                // Notify hooks of error
-                for (AgentHook hook : spec.getHooks()) {
-                    try {
-                        hook.onError(new RuntimeException(response.getErrorMessage()), context);
-                    } catch (Exception e) {
-                        log.warn("Hook onError failed", e);
-                    }
-                }
+                if (hook != null) hook.onError(new RuntimeException(response.getErrorMessage()), context);
                 break;
             }
 
@@ -192,14 +179,7 @@ public class AgentRunner {
                     response.getToolCalls()
                 );
 
-                // Call beforeExecuteTools hook
-                for (AgentHook hook : spec.getHooks()) {
-                    try {
-                        hook.beforeExecuteTools(response.getToolCalls(), context);
-                    } catch (Exception e) {
-                        log.warn("Hook beforeExecuteTools failed", e);
-                    }
-                }
+                if (hook != null) hook.beforeExecuteTools(response.getToolCalls(), context);
 
                 // Execute tools (concurrent or serial)
                 ToolExecutionResult executionResult = executeToolCalls(
@@ -227,29 +207,13 @@ public class AgentRunner {
                         log.error("Tool execution failed (failOnToolError=true): {}", error);
                         context.setError("Tool execution failed: " + error);
                         context.setStopReason("tool_error");
-
-                        // Call afterIteration hook before breaking
-                        for (AgentHook hook : spec.getHooks()) {
-                            try {
-                                hook.afterIteration(context);
-                            } catch (Exception e) {
-                                log.warn("Hook afterIteration failed", e);
-                            }
-                        }
-
+                        if (hook != null) hook.afterIteration(context);
                         finalContent = "Error: Tool execution failed: " + error;
                         break;
                     }
                 }
 
-                // Call afterExecuteTools hook
-                for (AgentHook hook : spec.getHooks()) {
-                    try {
-                        hook.afterExecuteTools(response.getToolCalls(), context);
-                    } catch (Exception e) {
-                        log.warn("Hook afterExecuteTools failed", e);
-                    }
-                }
+                if (hook != null) hook.afterExecuteTools(response.getToolCalls(), context);
 
                 // Add tool results to messages
                 for (int i = 0; i < response.getToolCalls().size(); i++) {
@@ -284,14 +248,7 @@ public class AgentRunner {
                 break;
             }
 
-            // Call afterIteration hook
-            for (AgentHook hook : spec.getHooks()) {
-                try {
-                    hook.afterIteration(context);
-                } catch (Exception e) {
-                    log.warn("Hook afterIteration failed", e);
-                }
-            }
+            if (hook != null) hook.afterIteration(context);
         }
 
         // Check max iterations
@@ -300,13 +257,9 @@ public class AgentRunner {
             finalContent = "I reached the maximum number of tool call iterations. Please try breaking the task into smaller steps.";
         }
 
-        // Finalize content through hooks
-        for (AgentHook hook : spec.getHooks()) {
-            try {
-                finalContent = hook.finalizeContent(finalContent, context);
-            } catch (Exception e) {
-                log.warn("Hook finalizeContent failed", e);
-            }
+        // Finalize content through hook
+        if (hook != null) {
+            finalContent = hook.finalizeContent(finalContent, context);
         }
 
         // Save messages to session

@@ -4,7 +4,6 @@ import org.qainsights.jmeter.ai.agent.command.BuiltinCommands;
 import org.qainsights.jmeter.ai.agent.command.CommandContext;
 import org.qainsights.jmeter.ai.agent.command.CommandRouter;
 import org.qainsights.jmeter.ai.agent.context.ContextBuilder;
-import org.qainsights.jmeter.ai.agent.hooks.AgentHook;
 import org.qainsights.jmeter.ai.agent.hooks.ProgressCallbackHookAdapter;
 import org.qainsights.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.qainsights.jmeter.ai.agent.memory.MemoryStore;
@@ -21,8 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,6 +46,7 @@ public class AgentLoop {
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
     private volatile Map<String, Integer> lastUsage = Map.of();
+    private volatile ProgressCallback progressCallback;
 
     public AgentLoop(
             ToolRegistry toolRegistry,
@@ -95,8 +93,7 @@ public class AgentLoop {
      * Note: This is now handled per-request via hooks.
      */
     public void setProgressCallback(ProgressCallback callback) {
-        // Note: Progress callback is now handled per-request via hooks
-        log.debug("setProgressCallback called (legacy API, will be used in next processMessage call)");
+        this.progressCallback = callback;
     }
 
     /**
@@ -105,7 +102,7 @@ public class AgentLoop {
     public CompletableFuture<AgentResponse> processMessage(
             String message,
             String sessionKey) {
-        return processMessage(message, sessionKey, null);
+        return processMessage(message, sessionKey, progressCallback);
     }
 
     /**
@@ -138,17 +135,11 @@ public class AgentLoop {
                 return AgentResponse.success(cmdResult);
             }
 
-            // Build hook list including legacy callback adapter
-            List<AgentHook> hooks = new ArrayList<>();
-            if (callback != null) {
-                hooks.add(new ProgressCallbackHookAdapter(callback));
-            }
-
             // Build run spec
             AgentRunSpec spec = AgentRunSpec.builder()
                 .userMessage(message)
                 .sessionKey(sessionKey)
-                .hooks(hooks)
+                .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
                 .maxIterations(defaultMaxIterations)
                 .concurrentTools(false) // Default to serial for backward compatibility
                 .build();
@@ -267,9 +258,9 @@ public class AgentLoop {
     }
 
     /**
-     * Progress callback interface (legacy, kept for backward compatibility).
+     * Progress callback interface for receiving typed updates during agent execution.
      */
     public interface ProgressCallback {
-        void onProgress(String message);
+        void onProgress(ProgressUpdate update);
     }
 }
