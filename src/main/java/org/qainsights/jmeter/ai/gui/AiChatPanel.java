@@ -727,7 +727,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Add the user message to the chat
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "You: " + message, getThemeColor("TextPane.foreground", Color.BLACK), false);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "\nYou: " + message, getThemeColor("TextPane.foreground", Color.BLACK), false);
         } catch (BadLocationException e) {
             log.error("Error appending user message to chat", e);
         }
@@ -885,7 +885,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         SimpleAttributeSet style = new SimpleAttributeSet();
         StyleConstants.setForeground(style, new Color(120, 120, 120));
         StyleConstants.setItalic(style, true);
-        doc.insertString(doc.getLength(), text + "\n", style);
+        doc.insertString(doc.getLength(), text.stripTrailing() + "\n", style);
     }
 
     private void renderToolHint(String hint) throws BadLocationException {
@@ -893,7 +893,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         SimpleAttributeSet style = new SimpleAttributeSet();
         StyleConstants.setForeground(style, new Color(100, 100, 150));
         StyleConstants.setBold(style, true);
-        doc.insertString(doc.getLength(), "\n" + hint + "\n", style);
+        doc.insertString(doc.getLength(), "\n" + hint.stripTrailing() + "\n", style);
     }
 
     private void renderProgress(String text) throws BadLocationException {
@@ -904,7 +904,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         StyledDocument doc = chatArea.getStyledDocument();
         SimpleAttributeSet style = new SimpleAttributeSet();
         StyleConstants.setForeground(style, Color.RED);
-        doc.insertString(doc.getLength(), text + "\n", style);
+        doc.insertString(doc.getLength(), text.stripTrailing() + "\n", style);
     }
 
     /**
@@ -963,7 +963,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         StyleConstants.setForeground(toolStyle, statusColor);
         String toolLine = String.format("  %s %s [%dms]", statusIcon, event.getToolName(), event.getDurationMs());
-        doc.insertString(doc.getLength(), toolLine + "\n", toolStyle);
+        doc.insertString(doc.getLength(), toolLine.stripTrailing() + "\n", toolStyle);
 
         if (event.getArguments() != null && !event.getArguments().isEmpty()) {
             SimpleAttributeSet argStyle = new SimpleAttributeSet();
@@ -971,7 +971,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             StyleConstants.setItalic(argStyle, true);
 
             String argsStr = formatArguments(event.getArguments());
-            String displayArgs = argsStr;
+            String displayArgs = argsStr.stripTrailing();
             if (argsStr.length() > maxToolResultLength) {
                 displayArgs = argsStr.substring(0, maxToolResultLength) + "... (truncated, total " + argsStr.length() + " chars)";
             }
@@ -984,7 +984,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             StyleConstants.setForeground(detailStyle, new Color(100, 100, 100));
             StyleConstants.setItalic(detailStyle, true);
 
-            String displayDetail = detail;
+            String displayDetail = detail.stripTrailing();
             if (detail.length() > maxToolResultLength) {
                 displayDetail = detail.substring(0, maxToolResultLength) + "... (truncated, total " + detail.length() + " chars)";
             }
@@ -1055,7 +1055,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             SimpleAttributeSet headerStyle = new SimpleAttributeSet();
             StyleConstants.setBold(headerStyle, true);
             StyleConstants.setForeground(headerStyle, new Color(0, 102, 204));
-            doc.insertString(doc.getLength(), "\n🤖 ", headerStyle);
+            doc.insertString(doc.getLength(), "🤖 ", headerStyle);
 
             messageProcessor.appendMessage(doc, response, getThemeColor("TextPane.foreground", Color.BLACK), true);
         } catch (BadLocationException e) {
