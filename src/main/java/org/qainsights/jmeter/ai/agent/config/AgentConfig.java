@@ -42,8 +42,8 @@ public class AgentConfig {
     private AgentConfig() {
         // Agent Loop Configuration
         this.enabled = Boolean.parseBoolean(AiConfig.getProperty("agent.enabled", "true"));
-        this.maxIterations = Integer.parseInt(AiConfig.getProperty("agent.max.iterations", "40"));
-        this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("agent.context.window.tokens", "60000"));
+        this.maxIterations = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tool.iterations", "50"));
+        this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
         this.toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
 
         // Memory Configuration

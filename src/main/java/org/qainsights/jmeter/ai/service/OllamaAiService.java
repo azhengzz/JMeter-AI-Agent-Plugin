@@ -36,11 +36,20 @@ public class OllamaAiService implements AiService {
                 AiConfig.getProperty("ollama.host", "http://localhost"),
                 AiConfig.getProperty("ollama.port", "11434"));
 
-        this.model = AiConfig.getProperty("ollama.default.model", "deepseek-r1:1.5b");
-        this.temperature = parseTemperature(AiConfig.getProperty("ollama.temperature", "0.5"));
-        this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("ollama.max.history.size", "10"));
+        this.model = AiConfig.getDefaultModel();
+        this.temperature = parseTemperature(AiConfig.getPropertyWithFallback("ollama", "temperature", "0.7"));
+        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("ollama", "max.history.size", "10"));
         this.isThinkingModeEnabled = AiConfig.getProperty("ollama.thinking.mode", "DISABLED").equalsIgnoreCase("enabled");
-        this.thinkingMode = parseThinkingMode(AiConfig.getProperty("ollama.thinking.level", "MEDIUM"));
+
+        // Resolve thinking level: per-provider override > global reasoning.effort > hardcoded default
+        String thinkingLevelStr = AiConfig.getProperty("ollama.thinking.level", null);
+        if (thinkingLevelStr != null && !thinkingLevelStr.isEmpty()) {
+            this.thinkingMode = parseThinkingMode(thinkingLevelStr);
+        } else {
+            this.thinkingMode = mapReasoningEffortToThinkMode(
+                    AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium"));
+        }
+
         this.requestTimeoutSeconds = parseTimeout(AiConfig.getProperty("ollama.request.timeout.seconds", "120"));
         this.ollamaClient = new Ollama(this.host);
         this.ollamaClient.setRequestTimeoutSeconds(this.requestTimeoutSeconds);
@@ -83,6 +92,15 @@ public class OllamaAiService implements AiService {
             logger.warn("Invalid thinking level: '{}'. Setting to default MEDIUM", value);
             return ThinkMode.MEDIUM;
         }
+    }
+
+    private static ThinkMode mapReasoningEffortToThinkMode(String effort) {
+        return switch (effort.toLowerCase()) {
+            case "low" -> ThinkMode.LOW;
+            case "medium" -> ThinkMode.MEDIUM;
+            case "high" -> ThinkMode.HIGH;
+            default -> ThinkMode.MEDIUM;
+        };
     }
 
     private static long parseTimeout(String value) {

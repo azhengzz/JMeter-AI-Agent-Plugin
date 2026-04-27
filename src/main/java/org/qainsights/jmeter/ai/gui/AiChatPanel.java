@@ -23,6 +23,7 @@ import org.qainsights.jmeter.ai.service.ClaudeService;
 import com.openai.models.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 
+import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.Models;
 import org.qainsights.jmeter.ai.utils.VersionUtils;
 import org.qainsights.jmeter.ai.service.OpenAiService;
@@ -360,105 +361,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         new SwingWorker<List<String>, Void>() {
             @Override
             protected List<String> doInBackground() {
-                // Get models from both services
-                List<String> allModels = new ArrayList<>();
-
-                // Get Anthropic models (only if API key is configured)
-                String anthropicApiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty("anthropic.api.key", "");
-                if (anthropicApiKey != null && !anthropicApiKey.isEmpty() && !anthropicApiKey.equals("YOUR_API_KEY")) {
-                    try {
-                        ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
-                        if (anthropicModels != null && anthropicModels.data() != null) {
-                            for (ModelInfo model : anthropicModels.data()) {
-                                allModels.add(model.id());
-                                log.debug("Added Anthropic model: {}", model.id());
-                            }
-                            log.info("Added {} Anthropic models", anthropicModels.data().size());
-                        }
-                    } catch (Exception e) {
-                        log.error("Error loading Anthropic models: {}", e.getMessage(), e);
-                    }
-                } else {
-                    log.debug("Skipping Anthropic models - API key not configured");
-                }
-
-                // Add OpenAI models (only if API key is configured)
-                String openaiApiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty("openai.api.key", "");
-                if (openaiApiKey != null && !openaiApiKey.isEmpty() && !openaiApiKey.equals("YOUR_OPENAI_API_KEY")) {
-                    try {
-                        com.openai.models.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
-                        if (openAiModels != null && openAiModels.data() != null) {
-                            // Convert OpenAI models to string IDs
-                            for (Model openAiModel : openAiModels.data()) {
-                                // Only include GPT models and filter out specific model types
-                                if (openAiModel.id().startsWith("gpt") &&
-                                        !openAiModel.id().contains("audio") &&
-                                        !openAiModel.id().contains("tts") &&
-                                        !openAiModel.id().contains("whisper") &&
-                                        !openAiModel.id().contains("davinci") &&
-                                        !openAiModel.id().contains("search") &&
-                                        !openAiModel.id().contains("transcribe") &&
-                                        !openAiModel.id().contains("realtime") &&
-                                        !openAiModel.id().contains("instruct")) {
-
-                                    String modelId = "openai:" + openAiModel.id();
-                                    allModels.add(modelId);
-                                    log.debug("Added OpenAI model to selector: {}", openAiModel.id());
-                                }
-                            }
-                            log.info("Added OpenAI models to selector");
-                        }
-                    } catch (Exception e) {
-                        log.error("Error adding OpenAI models: {}", e.getMessage(), e);
-                    }
-                } else {
-                    log.debug("Skipping OpenAI models - API key not configured");
-                }
-
-                // Add Ollama models (check if enabled and service is reachable)
-                boolean ollamaEnabled = Boolean.parseBoolean(org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ollama.enabled", "true"));
-                if (ollamaEnabled && ollamaService.isReachable()) {
-                    try {
-                        List<io.github.ollama4j.models.response.Model> ollamaModels = ollamaService.listModels();
-                        if (ollamaModels != null) {
-                            for (io.github.ollama4j.models.response.Model ollamaModel : ollamaModels) {
-                                String modelId = "ollama:" + ollamaModel.getName();
-                                allModels.add(modelId);
-                                log.debug("Added Ollama model to selector: {}", ollamaModel.getName());
-                            }
-                            log.info("Added {} Ollama models to selector", ollamaModels.size());
-                        }
-                    } catch (Exception e) {
-                        log.error("Error adding Ollama models: {}", e.getMessage(), e);
-                    }
-                } else {
-                    log.debug("Skipping Ollama models - service not reachable");
-                }
-
-                // Add Chinese LLM provider models
-                // Only add models for providers that have API keys configured
-                try {
-                    String[] chineseProviders = {"deepseek", "zhipu", "moonshot", "minimax"};
-
-                    for (String provider : chineseProviders) {
-                        // Check if API key is configured for this provider
-                        String apiKey = org.qainsights.jmeter.ai.utils.AiConfig.getProperty(provider + ".api.key", "");
-                        if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY_HERE")) {
-                            List<String> models = ProviderRegistry.getModelsForProvider(provider);
-                            for (String model : models) {
-                                allModels.add(provider + ":" + model);
-                                log.debug("Added {} model: {}", provider, model);
-                            }
-                            log.info("Added {} {} models", models.size(), provider);
-                        } else {
-                            log.debug("Skipping {} models - API key not configured", provider);
-                        }
-                    }
-                } catch (Exception e) {
-                    log.error("Error adding Chinese LLM models: {}", e.getMessage(), e);
-                }
-
-                return allModels;
+                String provider = AiConfig.getDefaultProvider();
+                String model = AiConfig.getDefaultModel();
+                String modelId = provider + ":" + model;
+                log.info("Model selector using global config: {}", modelId);
+                return List.of(modelId);
             }
 
             @Override
@@ -467,35 +374,18 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     List<String> models = get();
                     modelSelector.removeAllItems();
 
-                    // Get the default model ID
-                    String defaultModelId = claudeService.getCurrentModel();
-                    log.info("Default model ID: {}", defaultModelId);
-
-                    String defaultModel = null;
+                    String globalModelId = AiConfig.getDefaultProvider() + ":" + AiConfig.getDefaultModel();
 
                     for (String model : models) {
                         modelSelector.addItem(model);
-                        if (model.equals(defaultModelId)) {
-                            defaultModel = model;
-                        }
                     }
 
-                    // Select the default model if found
-                    if (defaultModel != null) {
-                        modelSelector.setSelectedItem(defaultModel);
-                        log.info("Selected default model: {}", defaultModel);
-                        // Set model on the appropriate service
-                        setModelForProvider(defaultModel);
-                        // Switch to the appropriate service
-                        switchAiService();
-                    } else if (modelSelector.getItemCount() > 0) {
-                        // If default model not found, select the first one
+                    if (modelSelector.getItemCount() > 0) {
                         modelSelector.setSelectedIndex(0);
                         String selectedModel = (String) modelSelector.getSelectedItem();
                         setModelForProvider(selectedModel);
-                        log.info("Default model not found, selected first available: {}", selectedModel);
-                        // Switch to the appropriate service
                         switchAiService();
+                        log.info("Model selector set to: {}", selectedModel);
                     }
                 } catch (Exception e) {
                     log.error("Failed to load models", e);

@@ -29,10 +29,11 @@ public class ClaudeService implements AiService {
     private String systemPrompt;
     private boolean systemPromptInitialized = false;
     private long maxTokens;
+    private final String reasoningEffort;
 
     public ClaudeService() {
-        // Default history size of 10, can be configured through jmeter.properties
-        this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("claude.max.history.size", "10"));
+        // Use global defaults with per-provider override fallback
+        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("claude", "max.history.size", "10"));
 
         // Initialize the client
         String API_KEY = AiConfig.getProperty("anthropic.api.key", "YOUR_API_KEY");
@@ -59,9 +60,10 @@ public class ClaudeService implements AiService {
         this.client = clientBuilder.build();
 
         // Get default model from properties or use SONNET if not specified
-        this.currentModelId = AiConfig.getProperty("claude.default.model", "claude-sonnet-4-6");
-        this.temperature = Float.parseFloat(AiConfig.getProperty("claude.temperature", "0.5"));
-        this.maxTokens = Long.parseLong(AiConfig.getProperty("claude.max.tokens", "1024"));
+        this.currentModelId = AiConfig.getDefaultModel();
+        this.temperature = Float.parseFloat(AiConfig.getPropertyWithFallback("claude", "temperature", "0.7"));
+        this.maxTokens = Long.parseLong(AiConfig.getPropertyWithFallback("claude", "max.tokens", "4096"));
+        this.reasoningEffort = AiConfig.getPropertyWithFallback("claude", "reasoning.effort", "medium");
 
         // Load system prompt using centralized utility
         this.systemPrompt = SystemPrompt.get();
@@ -160,8 +162,19 @@ public class ClaudeService implements AiService {
             // Build the request parameters
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .maxTokens(maxTokens)
-                    .temperature(temperature)
                     .model(currentModelId);
+
+            // Enable extended thinking when reasoning effort is set
+            int budgetTokens = mapReasoningEffortToBudget(reasoningEffort);
+            if (budgetTokens > 0) {
+                paramsBuilder.enabledThinking(budgetTokens);
+                // When thinking is enabled, maxTokens must be >= budgetTokens + 1
+                if (maxTokens < budgetTokens + 1) {
+                    paramsBuilder.maxTokens(budgetTokens + 1000);
+                }
+            } else {
+                paramsBuilder.temperature(temperature);
+            }
 
             // Only include the system prompt for the first message in a conversation
             if (isFirstMessage) {
@@ -229,6 +242,18 @@ public class ClaudeService implements AiService {
             String errorMessage = extractUserFriendlyErrorMessage(e);
             return "Error: " + errorMessage;
         }
+    }
+
+    private int mapReasoningEffortToBudget(String effort) {
+        if (effort == null || effort.equalsIgnoreCase("none") || effort.equalsIgnoreCase("null")) {
+            return 0;
+        }
+        return switch (effort.toLowerCase()) {
+            case "low" -> 4096;
+            case "medium" -> 10000;
+            case "high" -> 32000;
+            default -> 10000;
+        };
     }
 
     /**

@@ -5,7 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -55,7 +54,7 @@ public class ProviderRegistry {
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("minimax")
                 .displayName("MiniMax")
-                .defaultApiBase("https://api.minimax.io/v1")
+                .defaultApiBase("https://api.minimaxi.com/v1")
                 .envKey("minimax.api.key")
                 .keywords("minimax")
                 .rawHttpClientOnly(true)  // MiniMax returns extra fields not compatible with OpenAI SDK
@@ -163,18 +162,19 @@ public class ProviderRegistry {
      */
     public static ProviderSpec detectProvider(String modelIdOrKey) {
         if (modelIdOrKey == null || modelIdOrKey.isEmpty()) {
-            return null;
+            return findByName(AiConfig.getDefaultProvider());
         }
 
-        // First try to find by model name
+        // first try to find by model name
         ProviderSpec spec = findByModel(modelIdOrKey);
         if (spec != null) {
             return spec;
         }
 
-        // If no match, return default (OpenAI)
-        log.debug("No provider detected for '{}', using default (openai)", modelIdOrKey);
-        return findByName("openai");
+        // If no match, use global default provider
+        String defaultProvider = AiConfig.getDefaultProvider();
+        log.debug("No provider detected for '{}', using default provider: {}", modelIdOrKey, defaultProvider);
+        return findByName(defaultProvider);
     }
 
     /**
@@ -190,62 +190,9 @@ public class ProviderRegistry {
             return Collections.emptyList();
         }
 
-        // Try to read models from properties first
-        String modelsConfig = AiConfig.getProperty(providerName + ".models", "");
-        if (!modelsConfig.isEmpty()) {
-            List<String> models = Arrays.asList(modelsConfig.split(","));
-            // Trim whitespace from each model name
-            List<String> trimmedModels = new ArrayList<>();
-            for (String model : models) {
-                trimmedModels.add(model.trim());
-            }
-            log.info("Loaded {} models from properties for provider: {}", trimmedModels.size(), providerName);
-            return trimmedModels;
-        }
-
-        // Fallback to default models if not configured
-        List<String> defaultModels = getDefaultModels(spec.getName());
-        log.info("Using default models for provider {}: {}", providerName, defaultModels);
-        return defaultModels;
-    }
-
-    /**
-     * Get default models for a provider (fallback when not configured in properties).
-     */
-    private static List<String> getDefaultModels(String providerName) {
-        return switch (providerName) {
-            // DeepSeek default models
-            case "deepseek" -> List.of(
-                    "deepseek-chat",
-                    "deepseek-coder"
-            );
-
-            // Zhipu GLM default models
-            case "zhipu" -> List.of(
-                    "glm-5",
-                    "glm-4.7"
-            );
-
-            // Moonshot Kimi default models
-            case "moonshot" -> List.of(
-                    "kimi-k2.5"
-            );
-
-            // MiniMax default models
-            case "minimax" -> List.of(
-                    "MiniMax-M2.7"
-            );
-
-            // OpenAI models (loaded dynamically from API)
-            case "openai" -> List.of(
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                    "gpt-4-turbo",
-                    "gpt-3.5-turbo"
-            );
-
-            // Default: empty list
-            default -> Collections.emptyList();
-        };
+        // Always use the global default model
+        String defaultModel = AiConfig.getDefaultModel();
+        log.info("Using global default model for provider {}: {}", providerName, defaultModel);
+        return List.of(defaultModel);
     }
 }

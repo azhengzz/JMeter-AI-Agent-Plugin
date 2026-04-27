@@ -16,6 +16,7 @@ import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
+import com.openai.models.ReasoningEffort;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,7 @@ public class OpenAiService implements AiService {
     private float temperature;
     private String systemPrompt;
     private long maxTokens;
+    private final String reasoningEffort;
 
     // Provider prefixes that use OpenAI-compatible API
     private static final String[] OPENAI_COMPATIBLE_PROVIDERS = {
@@ -45,10 +47,12 @@ public class OpenAiService implements AiService {
     };
 
     public OpenAiService() {
-        this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("openai.max.history.size", "10"));
-        this.currentModelId = AiConfig.getProperty("openai.default.model", "gpt-4o");
-        this.temperature = Float.parseFloat(AiConfig.getProperty("openai.temperature", "0.7"));
-        this.maxTokens = Long.parseLong(AiConfig.getProperty("openai.max.tokens", "4096"));
+        // Use global defaults with per-provider override fallback
+        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("openai", "max.history.size", "10"));
+        this.currentModelId = AiConfig.getDefaultModel();
+        this.temperature = Float.parseFloat(AiConfig.getPropertyWithFallback("openai", "temperature", "0.7"));
+        this.maxTokens = Long.parseLong(AiConfig.getPropertyWithFallback("openai", "max.tokens", "4096"));
+        this.reasoningEffort = AiConfig.getPropertyWithFallback("openai", "reasoning.effort", "medium");
 
         // Initialize client with default (openai) configuration
         initializeClient("openai");
@@ -280,6 +284,12 @@ public class OpenAiService implements AiService {
                     .maxCompletionTokens(maxTokens)
                     .temperature(temperature)
                     .model(modelNameForApi);  // Use model name without prefix
+
+            // Apply reasoning effort for reasoning-capable models
+            ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+            if (effort != null) {
+                paramsBuilder.reasoningEffort(effort);
+            }
 
             // Always include the system prompt
             paramsBuilder.addSystemMessage(systemPrompt);
@@ -541,6 +551,12 @@ public class OpenAiService implements AiService {
                     .maxCompletionTokens(maxTokens)
                     .temperature((double) temperature);
 
+            // Apply reasoning effort for reasoning-capable models
+            ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+            if (effort != null) {
+                paramsBuilder.reasoningEffort(effort);
+            }
+
             // 添加系统提示词
             boolean systemPromptAdded = false;
             for (Message msg : messages) {
@@ -777,5 +793,17 @@ public class OpenAiService implements AiService {
 
     public String getName() {
         return "OpenAI";
+    }
+
+    private static ReasoningEffort toReasoningEffort(String effort) {
+        if (effort == null || effort.equalsIgnoreCase("none") || effort.equalsIgnoreCase("null")) {
+            return null;
+        }
+        return switch (effort.toLowerCase()) {
+            case "low" -> ReasoningEffort.LOW;
+            case "medium" -> ReasoningEffort.MEDIUM;
+            case "high" -> ReasoningEffort.HIGH;
+            default -> ReasoningEffort.MEDIUM;
+        };
     }
 }

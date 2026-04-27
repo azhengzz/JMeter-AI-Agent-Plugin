@@ -3,6 +3,8 @@ package org.qainsights.jmeter.ai.gui;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.service.CodeRefactorer;
+import org.qainsights.jmeter.ai.service.provider.ProviderRegistry;
+import org.qainsights.jmeter.ai.service.provider.ProviderSpec;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import java.awt.event.ActionEvent;
 import org.apache.jmeter.gui.action.ActionNames;
@@ -92,29 +94,14 @@ public class JSR223ContextMenu {
             return false;
         }
 
-        // Check which AI service to use from properties
-        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "openai");
-
-        // Check if the appropriate API key and model are configured
-        if ("openai".equalsIgnoreCase(aiServiceType)) {
-            String apiKey = AiConfig.getProperty("openai.api.key", "");
-            String model = AiConfig.getProperty("openai.default.model", "");
-            return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                    && model != null && !model.isEmpty();
-        } else if ("anthropic".equalsIgnoreCase(aiServiceType)) {
-            String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-            String model = AiConfig.getProperty("anthropic.model", "");
-            return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                    && model != null && !model.isEmpty();
-        } else if ("ollama".equalsIgnoreCase(aiServiceType)) {
-            String host = AiConfig.getProperty("ollama.host", "");
-            String model = AiConfig.getProperty("ollama.model", "");
-            return host != null && !host.isEmpty() && !host.equals("YOUR_HOST")
-                    && model != null && !model.isEmpty();
+        // Check if the default provider has API key configured
+        String provider = AiConfig.getDefaultProvider();
+        ProviderSpec spec = ProviderRegistry.findByName(provider);
+        if (spec == null) {
+            return false;
         }
-
-        // If no valid AI service is configured, refactoring is not available
-        return false;
+        String apiKey = AiConfig.getProperty(spec.getEnvKey(), "");
+        return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY");
     }
 
     /**

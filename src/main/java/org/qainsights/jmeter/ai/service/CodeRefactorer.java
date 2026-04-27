@@ -90,15 +90,8 @@ public class CodeRefactorer {
         try {
             String prompt = promptTemplate + "\n\n" + selectedText;
 
-            // Get the model based on the AI service type
-            String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "openai");
-            String model;
-
-            if ("openai".equalsIgnoreCase(aiServiceType)) {
-                model = AiConfig.getProperty("openai.default.model", "gpt-4o");
-            } else {
-                model = AiConfig.getProperty("anthropic.model", "claude-3-sonnet-20240229");
-            }
+            // Get the model from global configuration
+            String model = AiConfig.getDefaultModel();
 
             String refactoredCode = aiService.generateResponse(List.of(prompt), model);
 

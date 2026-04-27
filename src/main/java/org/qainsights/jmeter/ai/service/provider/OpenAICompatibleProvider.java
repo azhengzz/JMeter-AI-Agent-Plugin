@@ -13,6 +13,7 @@ import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
+import com.openai.models.ReasoningEffort;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolCall;
@@ -52,6 +53,7 @@ public class OpenAICompatibleProvider implements AiService {
     private String systemPrompt;
     private long maxTokens;
     private boolean systemPromptInitialized = false;
+    private final String reasoningEffort;
 
     public OpenAICompatibleProvider(ProviderSpec spec) {
         this.providerName = spec.getName();
@@ -79,25 +81,16 @@ public class OpenAICompatibleProvider implements AiService {
 
         this.client = clientBuilder.build();
 
-        // Initialize configuration
-        this.maxHistorySize = Integer.parseInt(AiConfig.getProperty(providerName + ".max.history.size", "10"));
-        this.currentModelId = AiConfig.getProperty(providerName + ".default.model", getDefaultModelForProvider(providerName));
-        this.temperature = Float.parseFloat(AiConfig.getProperty(providerName + ".temperature", "0.7"));
+        // Initialize configuration with global defaults fallback
+        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback(providerName, "max.history.size", "10"));
+        this.currentModelId = AiConfig.getDefaultModel();
+        this.temperature = Float.parseFloat(AiConfig.getPropertyWithFallback(providerName, "temperature", "0.7"));
         // Load system prompt using centralized utility
         this.systemPrompt = SystemPrompt.get();
-        this.maxTokens = Long.parseLong(AiConfig.getProperty(providerName + ".max.tokens", "4096"));
+        this.maxTokens = Long.parseLong(AiConfig.getPropertyWithFallback(providerName, "max.tokens", "4096"));
+        this.reasoningEffort = AiConfig.getPropertyWithFallback(providerName, "reasoning.effort", "medium");
 
         log.info("Initialized {} provider with model: {}", providerName, currentModelId);
-    }
-
-    private static String getDefaultModelForProvider(String providerName) {
-        return switch (providerName) {
-            case "deepseek" -> "deepseek-chat";
-            case "zhipu" -> "glm-4-plus";
-            case "moonshot" -> "kimi-latest";
-            case "minimax" -> "abab6.5s-chat";
-            default -> "gpt-4o";
-        };
     }
 
     @Override
@@ -139,6 +132,12 @@ public class OpenAICompatibleProvider implements AiService {
                 .maxCompletionTokens((Long) params.getOrDefault("max_tokens", 4096L))
                 .temperature((Double) params.getOrDefault("temperature", 0.7))
                 .model(modelName);
+
+        // Apply reasoning effort
+        ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+        if (effort != null) {
+            paramsBuilder.reasoningEffort(effort);
+        }
 
         // Add system prompt
         if (!systemPromptInitialized) {
@@ -328,6 +327,12 @@ public class OpenAICompatibleProvider implements AiService {
                     .model(modelName)
                     .maxCompletionTokens(maxTokens)
                     .temperature((double) temperature);
+
+            // Apply reasoning effort
+            ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+            if (effort != null) {
+                paramsBuilder.reasoningEffort(effort);
+            }
 
             // 添加系统提示词
             boolean systemPromptAdded = false;
@@ -675,5 +680,17 @@ public class OpenAICompatibleProvider implements AiService {
 
         // Return a cleaned up version of the error message
         return message.split("\\n")[0];
+    }
+
+    private static ReasoningEffort toReasoningEffort(String effort) {
+        if (effort == null || effort.equalsIgnoreCase("none") || effort.equalsIgnoreCase("null")) {
+            return null;
+        }
+        return switch (effort.toLowerCase()) {
+            case "low" -> ReasoningEffort.LOW;
+            case "medium" -> ReasoningEffort.MEDIUM;
+            case "high" -> ReasoningEffort.HIGH;
+            default -> ReasoningEffort.MEDIUM;
+        };
     }
 }

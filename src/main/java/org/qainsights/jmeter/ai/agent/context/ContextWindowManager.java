@@ -2,6 +2,7 @@ package org.qainsights.jmeter.ai.agent.context;
 
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolCall;
+import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,10 +31,10 @@ public class ContextWindowManager {
     }
 
     /**
-     * Default constructor with standard 65k context window and 10% reserve.
+     * Default constructor with context window from configuration and 10% reserve.
      */
     public ContextWindowManager() {
-        this(65000, 0.10);
+        this(Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536")), 0.10);
     }
 
     /**

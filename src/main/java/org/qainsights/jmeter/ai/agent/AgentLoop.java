@@ -56,7 +56,7 @@ public class AgentLoop {
             SessionManager sessionManager,
             AiService aiService) {
 
-        int maxIterations = Integer.parseInt(AiConfig.getProperty("agent.max.iterations", "40"));
+        int maxIterations = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tool.iterations", "50"));
         int toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
         long toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
 

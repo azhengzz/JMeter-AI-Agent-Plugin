@@ -10,6 +10,7 @@ import org.qainsights.jmeter.ai.agent.session.Session;
 import org.qainsights.jmeter.ai.agent.session.SessionManager;
 import org.qainsights.jmeter.ai.agent.tools.ToolRegistry;
 import org.qainsights.jmeter.ai.service.AiService;
+import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.TextUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +60,8 @@ public class AgentRunner {
         this.toolRegistry = toolRegistry;
         this.memoryConsolidator = memoryConsolidator;
         this.contextBuilder = contextBuilder;
-        this.contextWindowManager = new ContextWindowManager(60000, 0.10);
+        int contextTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
+        this.contextWindowManager = new ContextWindowManager(contextTokens, 0.10);
         this.sessionManager = sessionManager;
         this.aiService = aiService;
         this.defaultMaxIterations = maxIterations;

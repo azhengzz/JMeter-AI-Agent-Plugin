@@ -7,6 +7,7 @@ import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.service.OpenAiService;
 import org.qainsights.jmeter.ai.service.ClaudeService;
 import org.qainsights.jmeter.ai.service.OllamaAiService;
+import org.qainsights.jmeter.ai.service.provider.AiServiceFactory;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +34,8 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
 
         // Initialize the JSR223 context menu
         try {
-            // Create AI service for the context menu based on JMeter properties
-            String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "openai");
+            // Create AI service for the context menu based on global provider config
+            String aiServiceType = AiConfig.getDefaultProvider();
             AiService aiService = createAiService(aiServiceType);
 
             if (aiService != null) {
@@ -63,26 +64,20 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
     private AiService createAiService(String serviceType) {
         try {
             if ("openai".equalsIgnoreCase(serviceType)) {
-                // Check if OpenAI API key is configured
                 String apiKey = AiConfig.getProperty("openai.api.key", "");
-                String model = AiConfig.getProperty("openai.default.model", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                        && model != null && !model.isEmpty()) {
+                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")) {
                     return new OpenAiService();
                 }
             } else if ("anthropic".equalsIgnoreCase(serviceType)) {
-                // Check if Anthropic API key is configured
                 String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-                String model = AiConfig.getProperty("anthropic.model", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                        && model != null && !model.isEmpty()) {
+                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")) {
                     return new ClaudeService();
                 }
             } else if ("ollama".equalsIgnoreCase(serviceType)) {
-                String model = AiConfig.getProperty("ollama.default.model", "llama3.1");
-                if (model != null && !model.isEmpty()) {
-                    return new OllamaAiService();
-                }
+                return new OllamaAiService();
+            } else {
+                // Chinese LLM providers (deepseek, zhipu, moonshot, minimax, etc.)
+                return AiServiceFactory.createService(serviceType + ":" + AiConfig.getDefaultModel());
             }
         } catch (Exception e) {
             log.error("Error creating AI service", e);
