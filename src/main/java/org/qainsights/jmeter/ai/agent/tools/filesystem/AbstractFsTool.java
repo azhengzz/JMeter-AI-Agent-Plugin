@@ -19,12 +19,15 @@ public abstract class AbstractFsTool extends AbstractTool {
     private static final Logger log = LoggerFactory.getLogger(AbstractFsTool.class);
 
     private final List<Path> allowedDirectories;
+    private final List<Path> deniedPaths;
     private final boolean enabled;
 
     public AbstractFsTool() {
         this.allowedDirectories = new ArrayList<>();
+        this.deniedPaths = new ArrayList<>();
         this.enabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.filesystem.enabled", "false"));
         initializeAllowedDirectories();
+        initializeDeniedPaths();
     }
 
     /**
@@ -54,6 +57,31 @@ public abstract class AbstractFsTool extends AbstractTool {
                     } catch (Exception e) {
                         log.warn("Invalid directory in config: {}", dir, e);
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Initialize denied paths from configuration.
+     * Format: agent.tools.filesystem.denied.dirs=/path1,/path2/file.txt
+     * Unlike allowed directories, denied paths do not need to exist and can be files or directories.
+     */
+    private void initializeDeniedPaths() {
+        String configPaths = AiConfig.getProperty("agent.tools.filesystem.denied.dirs", "");
+        if (configPaths.isEmpty()) {
+            return;
+        }
+        String[] paths = configPaths.split(",");
+        for (String p : paths) {
+            p = p.trim();
+            if (!p.isEmpty()) {
+                try {
+                    Path path = Paths.get(p).toAbsolutePath().normalize();
+                    deniedPaths.add(path);
+                    log.info("Added denied path: {}", path);
+                } catch (Exception e) {
+                    log.warn("Invalid denied path in config: {}", p, e);
                 }
             }
         }
@@ -95,6 +123,12 @@ public abstract class AbstractFsTool extends AbstractTool {
                 "Path is outside allowed directories: " + path + ". Allowed: " + allowedDirectories);
         }
 
+        // Check if path is denied
+        if (isPathDenied(path)) {
+            throw new IllegalArgumentException(
+                "Access denied: path is in the denied list: " + path);
+        }
+
         // Prevent path traversal with .. components
         if (path.toString().contains("..")) {
             Path normalized = path.normalize();
@@ -108,10 +142,25 @@ public abstract class AbstractFsTool extends AbstractTool {
 
     /**
      * Check if a path is within allowed directories without throwing.
+     * Also checks that the path is not in the denied list.
      */
     protected boolean isPathAllowed(Path path) {
         for (Path allowedDir : allowedDirectories) {
             if (path.startsWith(allowedDir)) {
+                return !isPathDenied(path);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a path is denied by configuration.
+     * If a denied path is a directory, any file under it is denied.
+     * If a denied path is a file, only that exact file is denied.
+     */
+    protected boolean isPathDenied(Path path) {
+        for (Path denied : deniedPaths) {
+            if (path.startsWith(denied)) {
                 return true;
             }
         }
@@ -123,5 +172,12 @@ public abstract class AbstractFsTool extends AbstractTool {
      */
     protected List<Path> getAllowedDirectories() {
         return new ArrayList<>(allowedDirectories);
+    }
+
+    /**
+     * Get the list of denied paths.
+     */
+    protected List<Path> getDeniedPaths() {
+        return new ArrayList<>(deniedPaths);
     }
 }
