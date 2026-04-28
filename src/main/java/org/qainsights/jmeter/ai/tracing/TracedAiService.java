@@ -1,6 +1,7 @@
 package org.qainsights.jmeter.ai.tracing;
 
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
+import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 import org.qainsights.jmeter.ai.service.AiService;
@@ -18,6 +19,8 @@ import java.util.stream.Collectors;
  */
 public class TracedAiService implements AiService {
     private static final Logger log = LoggerFactory.getLogger(TracedAiService.class);
+    private static final String KEY_PROMPT_TOKENS = "prompt_tokens";
+    private static final String KEY_COMPLETION_TOKENS = "completion_tokens";
 
     private final AiService delegate;
     private final LangSmithClient tracer;
@@ -83,87 +86,60 @@ public class TracedAiService implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
-        String runName = delegate.getName() + ":tools:" + tools.size();
-        String modelName = delegate.getName();
+        return generateResponseWithTools(messages, tools, null);
+    }
 
+    @Override
+    public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools, LlmCallOptions options) {
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("messages", formatMessages(messages));
         inputs.put("tools", formatTools(tools));
         inputs.put("tool_count", tools.size());
         inputs.put("message_count", messages.size());
-
-        List<String> tags = buildTags(modelName);
-        LangSmithClient.LLMRun run = tracer.createRun(runName, inputs, tags);
-
-        try {
-            LLMResponse response = delegate.generateResponseWithTools(messages, tools);
-
-            Map<String, Object> outputs = new HashMap<>();
-            outputs.put("content", response.getContent());
-            outputs.put("finish_reason", response.getFinishReason());
-            outputs.put("has_tool_calls", response.hasToolCalls());
-
-            // Actual token usage from API
-            Map<String, Integer> usage = response.getUsage();
-            if (usage != null && !usage.isEmpty()) {
-                outputs.put("prompt_tokens", usage.getOrDefault("prompt_tokens", 0));
-                outputs.put("completion_tokens", usage.getOrDefault("completion_tokens", 0));
-                outputs.put("total_tokens",
-                    usage.getOrDefault("prompt_tokens", 0) + usage.getOrDefault("completion_tokens", 0));
-            }
-
-            // Tool call details (name + arguments, not just count)
-            if (response.hasToolCalls()) {
-                List<Map<String, Object>> toolCallDetails = response.getToolCalls().stream()
-                    .map(tc -> {
-                        Map<String, Object> detail = new HashMap<>();
-                        detail.put("id", tc.getId());
-                        detail.put("name", tc.getName());
-                        detail.put("arguments", tc.getArguments());
-                        return detail;
-                    })
-                    .collect(Collectors.toList());
-                outputs.put("tool_calls", toolCallDetails);
-            }
-
-            run.complete(outputs);
-            return response;
-
-        } catch (Exception e) {
-            log.error("Error in generateResponseWithTools for {}", runName, e);
-            run.error(e.getMessage());
-            throw e;
+        if (options != null) {
+            if (options.getModel() != null) inputs.put("model_override", options.getModel());
+            if (options.getTemperature() != null) inputs.put("temperature_override", options.getTemperature());
+            if (options.getMaxTokens() != null) inputs.put("max_tokens_override", options.getMaxTokens());
         }
+
+        return traceToolCall(
+            delegate.getName() + ":tools:" + tools.size(),
+            inputs,
+            buildTags(options != null ? options.getModel() : null),
+            () -> delegate.generateResponseWithTools(messages, tools, options));
     }
 
     @Override
     public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
-        String runName = delegate.getName() + ":forced:" + forcedToolName;
-        String modelName = delegate.getName();
-
         Map<String, Object> inputs = new HashMap<>();
         inputs.put("messages", formatMessages(messages));
         inputs.put("tools", formatTools(tools));
         inputs.put("forced_tool", forcedToolName);
 
-        List<String> tags = buildTags(modelName);
+        return traceToolCall(
+            delegate.getName() + ":forced:" + forcedToolName,
+            inputs,
+            buildTags(delegate.getName()),
+            () -> delegate.generateResponseWithForcedTool(messages, tools, forcedToolName));
+    }
+
+    private LLMResponse traceToolCall(String runName, Map<String, Object> inputs, List<String> tags, java.util.function.Supplier<LLMResponse> action) {
         LangSmithClient.LLMRun run = tracer.createRun(runName, inputs, tags);
 
         try {
-            LLMResponse response = delegate.generateResponseWithForcedTool(messages, tools, forcedToolName);
+            LLMResponse response = action.get();
 
             Map<String, Object> outputs = new HashMap<>();
             outputs.put("content", response.getContent());
             outputs.put("finish_reason", response.getFinishReason());
             outputs.put("has_tool_calls", response.hasToolCalls());
 
-            // Actual token usage from API
             Map<String, Integer> usage = response.getUsage();
             if (usage != null && !usage.isEmpty()) {
-                outputs.put("prompt_tokens", usage.getOrDefault("prompt_tokens", 0));
-                outputs.put("completion_tokens", usage.getOrDefault("completion_tokens", 0));
+                outputs.put(KEY_PROMPT_TOKENS, usage.getOrDefault(KEY_PROMPT_TOKENS, 0));
+                outputs.put(KEY_COMPLETION_TOKENS, usage.getOrDefault(KEY_COMPLETION_TOKENS, 0));
                 outputs.put("total_tokens",
-                    usage.getOrDefault("prompt_tokens", 0) + usage.getOrDefault("completion_tokens", 0));
+                    usage.getOrDefault(KEY_PROMPT_TOKENS, 0) + usage.getOrDefault(KEY_COMPLETION_TOKENS, 0));
             }
 
             if (response.hasToolCalls()) {
@@ -182,7 +158,7 @@ public class TracedAiService implements AiService {
             return response;
 
         } catch (Exception e) {
-            log.error("Error in generateResponseWithForcedTool for {}", runName, e);
+            log.error("Error in {} for {}", runName.contains(":forced:") ? "generateResponseWithForcedTool" : "generateResponseWithTools", runName, e);
             run.error(e.getMessage());
             throw e;
         }

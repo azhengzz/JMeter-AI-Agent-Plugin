@@ -1,6 +1,7 @@
 package org.qainsights.jmeter.ai.agent.run;
 
 import org.qainsights.jmeter.ai.agent.hooks.AgentHook;
+import org.qainsights.jmeter.ai.agent.model.Message;
 
 import java.util.*;
 
@@ -17,6 +18,11 @@ public class AgentRunSpec {
     private final int maxIterations;
     private final boolean failOnToolError;
     private final Map<String, Object> options;
+    private final String model;
+    private final Double temperature;
+    private final Integer maxTokens;
+    private final String reasoningEffort;
+    private final List<Message> initialMessages;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -26,6 +32,11 @@ public class AgentRunSpec {
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
         this.options = builder.options != null ? builder.options : Collections.emptyMap();
+        this.model = builder.model;
+        this.temperature = builder.temperature;
+        this.maxTokens = builder.maxTokens;
+        this.reasoningEffort = builder.reasoningEffort;
+        this.initialMessages = builder.initialMessages;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -35,6 +46,11 @@ public class AgentRunSpec {
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
     public Map<String, Object> getOptions() { return options; }
+    public String getModel() { return model; }
+    public Double getTemperature() { return temperature; }
+    public Integer getMaxTokens() { return maxTokens; }
+    public String getReasoningEffort() { return reasoningEffort; }
+    public List<Message> getInitialMessages() { return initialMessages; }
 
     public static Builder builder() {
         return new Builder();
@@ -48,6 +64,11 @@ public class AgentRunSpec {
         private int maxIterations = 40;
         private boolean failOnToolError = false;
         private Map<String, Object> options;
+        private String model;
+        private Double temperature;
+        private Integer maxTokens;
+        private String reasoningEffort;
+        private List<Message> initialMessages;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -84,6 +105,31 @@ public class AgentRunSpec {
                 this.options = new HashMap<>();
             }
             this.options.put(key, value);
+            return this;
+        }
+
+        public Builder model(String model) {
+            this.model = model;
+            return this;
+        }
+
+        public Builder temperature(Double temperature) {
+            this.temperature = temperature;
+            return this;
+        }
+
+        public Builder maxTokens(Integer maxTokens) {
+            this.maxTokens = maxTokens;
+            return this;
+        }
+
+        public Builder reasoningEffort(String reasoningEffort) {
+            this.reasoningEffort = reasoningEffort;
+            return this;
+        }
+
+        public Builder initialMessages(List<Message> messages) {
+            this.initialMessages = messages;
             return this;
         }
 

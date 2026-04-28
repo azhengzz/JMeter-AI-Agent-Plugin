@@ -97,11 +97,16 @@ public class AgentRunner {
                 AgentHookContext context = new AgentHookContext(runId, session, spec.getUserMessage());
 
                 // Build initial messages
-                List<Message> messages = contextBuilder.buildMessages(
-                    session.getHistory(0),
-                    spec.getUserMessage(),
-                    toolRegistry.getToolDefinitions()
-                );
+                List<Message> messages;
+                if (spec.getInitialMessages() != null && !spec.getInitialMessages().isEmpty()) {
+                    messages = new ArrayList<>(spec.getInitialMessages());
+                } else {
+                    messages = contextBuilder.buildMessages(
+                        session.getHistory(0),
+                        spec.getUserMessage(),
+                        toolRegistry.getToolDefinitions()
+                    );
+                }
 
                 // Trim to context window if needed (intelligent context management)
                 messages = contextWindowManager.trimToContextWindow(messages, contextWindowManager.maxContextTokens);
@@ -142,6 +147,14 @@ public class AgentRunner {
         int iteration = 0;
         AgentHook hook = spec.getHook();
 
+        // Build per-run LLM options from spec overrides
+        LlmCallOptions llmOptions = LlmCallOptions.builder()
+            .model(spec.getModel())
+            .temperature(spec.getTemperature())
+            .maxTokens(spec.getMaxTokens())
+            .reasoningEffort(spec.getReasoningEffort())
+            .build();
+
         while (iteration < maxIterations) {
             iteration++;
             context.setCurrentIteration(iteration);
@@ -154,7 +167,7 @@ public class AgentRunner {
             }
 
             // Call LLM
-            LLMResponse response = callLLM(currentMessages);
+            LLMResponse response = callLLM(currentMessages, llmOptions);
             context.setLastLlmResponse(response);
 
             // Accumulate usage from LLM response
@@ -294,7 +307,7 @@ public class AgentRunner {
      * Call the LLM with the current messages.
      * Uses tool calling if supported by the AI service.
      */
-    private LLMResponse callLLM(List<Message> messages) {
+    private LLMResponse callLLM(List<Message> messages, LlmCallOptions options) {
         try {
             // Check if the service supports tool calling
             if (aiService.supportsToolCalling()) {
@@ -307,7 +320,7 @@ public class AgentRunner {
                 log.debug("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
 
                 // Call the service with full messages and tools
-                return aiService.generateResponseWithTools(messages, tools);
+                return aiService.generateResponseWithTools(messages, tools, options);
             } else {
                 // Fall back to simple text-based response
                 log.debug("Using simple text-based LLM service (no tool calling support)");

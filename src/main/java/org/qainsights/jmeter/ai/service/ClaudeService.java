@@ -10,6 +10,7 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
+import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.SystemPrompt;
@@ -426,6 +427,20 @@ public class ClaudeService implements AiService {
                 .finishReason("stop")
                 .usage(usageMap)
                 .build();
+    }
+
+    @Override
+    public LLMResponse generateResponseWithTools(List<org.qainsights.jmeter.ai.agent.model.Message> messages, List<ToolDefinition> tools, LlmCallOptions options) {
+        if (options != null && options.getModel() != null) {
+            String originalModel = this.currentModelId;
+            try {
+                this.currentModelId = options.getModel();
+                return generateResponseWithTools(messages, tools);
+            } finally {
+                this.currentModelId = originalModel;
+            }
+        }
+        return generateResponseWithTools(messages, tools);
     }
 
     /**

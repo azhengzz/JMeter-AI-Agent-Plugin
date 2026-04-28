@@ -24,6 +24,7 @@ import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.SystemPrompt;
 import org.qainsights.jmeter.ai.usage.OpenAiUsage;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
+import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolCall;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
@@ -503,23 +504,28 @@ public class OpenAiService implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
-        return doGenerateWithTools(messages, tools, null);
+        return doGenerateWithTools(messages, tools, null, null);
+    }
+
+    @Override
+    public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools, LlmCallOptions options) {
+        return doGenerateWithTools(messages, tools, null, options);
     }
 
     @Override
     public LLMResponse generateResponseWithForcedTool(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
         log.info("Forced tool calling: {}", forcedToolName);
         try {
-            LLMResponse response = doGenerateWithTools(messages, tools, forcedToolName);
+            LLMResponse response = doGenerateWithTools(messages, tools, forcedToolName, null);
             if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
                 log.warn("Forced tool_choice unsupported, retrying with auto");
-                return doGenerateWithTools(messages, tools, null);
+                return doGenerateWithTools(messages, tools, null, null);
             }
             return response;
         } catch (Exception e) {
             if (isToolChoiceUnsupported(e)) {
                 log.warn("Forced tool_choice unsupported, retrying with auto");
-                return doGenerateWithTools(messages, tools, null);
+                return doGenerateWithTools(messages, tools, null, null);
             }
             return LLMResponse.error("Error in forced tool calling: " + e.getMessage());
         }
@@ -539,20 +545,26 @@ public class OpenAiService implements AiService {
                 || lower.contains("should be [\"none\", \"auto\"]");
     }
 
-    private LLMResponse doGenerateWithTools(List<Message> messages, List<ToolDefinition> tools, String forcedToolName) {
+    private LLMResponse doGenerateWithTools(List<Message> messages, List<ToolDefinition> tools, String forcedToolName, LlmCallOptions options) {
         log.info("Generating response: {} tools, forcedTool={}", tools != null ? tools.size() : 0, forcedToolName);
 
-        String modelNameForApi = extractModelName(currentModelId);
+        // Resolve per-call overrides (fallback to instance defaults when null)
+        String effectiveModel = (options != null && options.getModel() != null) ? options.getModel() : this.currentModelId;
+        double effectiveTemperature = (options != null && options.getTemperature() != null) ? options.getTemperature() : this.temperature;
+        long effectiveMaxTokens = (options != null && options.getMaxTokens() != null) ? options.getMaxTokens().longValue() : this.maxTokens;
+        String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.reasoningEffort;
+
+        String modelNameForApi = extractModelName(effectiveModel);
 
         try {
             // 使用 SDK 的 Builder 构建 request
             ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
                     .model(modelNameForApi)
-                    .maxCompletionTokens(maxTokens)
-                    .temperature((double) temperature);
+                    .maxCompletionTokens(effectiveMaxTokens)
+                    .temperature(effectiveTemperature);
 
             // Apply reasoning effort for reasoning-capable models
-            ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+            ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
             if (effort != null) {
                 paramsBuilder.reasoningEffort(effort);
             }

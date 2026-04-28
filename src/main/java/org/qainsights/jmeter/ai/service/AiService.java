@@ -1,6 +1,7 @@
 package org.qainsights.jmeter.ai.service;
 
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
+import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolDefinition;
 
@@ -33,6 +34,17 @@ public interface AiService {
     }
 
     /**
+     * Generate response with tool calling support and per-call overrides.
+     * Overrides that are null fall back to the service's configured defaults.
+     */
+    default LLMResponse generateResponseWithTools(
+            List<Message> messages,
+            List<ToolDefinition> tools,
+            LlmCallOptions options) {
+        return generateResponseWithTools(messages, tools);
+    }
+
+    /**
      * Generate response with forced tool choice.
      * This method forces the LLM to call a specific tool.
      *
@@ -49,6 +61,17 @@ public interface AiService {
             "Forced tool calling not supported by " + getName() + ". " +
             "Please use a service that supports function calling."
         );
+    }
+
+    /**
+     * Generate response with forced tool choice and per-call overrides.
+     */
+    default LLMResponse generateResponseWithForcedTool(
+            List<Message> messages,
+            List<ToolDefinition> tools,
+            String forcedToolName,
+            LlmCallOptions options) {
+        return generateResponseWithForcedTool(messages, tools, forcedToolName);
     }
 
     /**
