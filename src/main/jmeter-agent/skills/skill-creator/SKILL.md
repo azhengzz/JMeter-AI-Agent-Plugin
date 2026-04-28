@@ -1,6 +1,7 @@
 ---
 name: skill-creator
 description: Create or update JMeter AI AgentSkills. Use when designing, structuring, writing, or validating new SKILL.md skill packages with references, schemas, scripts, and assets.
+always: false
 ---
 
 # Skill Creator
