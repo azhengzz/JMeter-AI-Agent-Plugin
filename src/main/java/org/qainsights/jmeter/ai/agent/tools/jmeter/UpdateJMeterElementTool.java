@@ -103,12 +103,14 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                 return validation;
             }
 
-            // Extract universal properties (name, comment) before schema validation
-            Map<String, String> universalProps = extractUniversalProperties(properties);
+            // Split properties: universal (name, comment) vs schema-defined
+            Map<String, String> universalProps = new java.util.LinkedHashMap<>();
+            Map<String, Object> schemaProps = new java.util.LinkedHashMap<>();
+            splitProperties(properties, universalProps, schemaProps);
 
-            // Validate remaining schema-defined properties
-            if (properties != null && !properties.isEmpty()) {
-                ValidationResult propertyValidation = validateProperties(targetNode, properties);
+            // Validate schema-defined properties
+            if (!schemaProps.isEmpty()) {
+                ValidationResult propertyValidation = validateProperties(targetNode, schemaProps);
                 if (!propertyValidation.isValid()) {
                     return ToolResult.error(buildValidationErrorMessage(elementName, elementType, propertyValidation));
                 }
@@ -123,8 +125,8 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Apply schema-defined properties
-            if (properties != null && !properties.isEmpty()) {
-                ToolResult updateResult = updateElementProperties(targetNode, properties);
+            if (!schemaProps.isEmpty()) {
+                ToolResult updateResult = updateElementProperties(targetNode, schemaProps);
                 if (!updateResult.isSuccess()) {
                     return updateResult;
                 }
@@ -296,40 +298,32 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
     }
 
     /**
-     * Extract universal properties (name, comment) from the properties map.
-     * These properties are not schema-defined but are supported on all JMeter elements.
-     * Removes them from the input map so they are not rejected by schema validation.
+     * Split properties into universal properties (name, comment) and schema-defined properties.
+     * Does NOT modify the input map.
      */
-    private Map<String, String> extractUniversalProperties(Map<String, Object> properties) {
-        Map<String, String> universalProps = new java.util.LinkedHashMap<>();
-
+    private void splitProperties(Map<String, Object> properties,
+                                 Map<String, String> universalProps,
+                                 Map<String, Object> schemaProps) {
         if (properties == null || properties.isEmpty()) {
-            return universalProps;
+            return;
         }
 
-        // Handle user-friendly keys
-        Object nameValue = properties.remove(UNIVERSAL_KEY_NAME);
-        if (nameValue != null) {
-            universalProps.put(UNIVERSAL_KEY_NAME, nameValue.toString());
-        }
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
 
-        Object commentValue = properties.remove(UNIVERSAL_KEY_COMMENT);
-        if (commentValue != null) {
-            universalProps.put(UNIVERSAL_KEY_COMMENT, commentValue.toString());
+            if (UNIVERSAL_KEY_NAME.equals(key) || INTERNAL_KEY_NAME.equals(key)) {
+                if (!universalProps.containsKey(UNIVERSAL_KEY_NAME)) {
+                    universalProps.put(UNIVERSAL_KEY_NAME, value.toString());
+                }
+            } else if (UNIVERSAL_KEY_COMMENT.equals(key) || INTERNAL_KEY_COMMENTS.equals(key)) {
+                if (!universalProps.containsKey(UNIVERSAL_KEY_COMMENT)) {
+                    universalProps.put(UNIVERSAL_KEY_COMMENT, value.toString());
+                }
+            } else {
+                schemaProps.put(key, value);
+            }
         }
-
-        // Handle JMeter internal keys (user-friendly keys take precedence)
-        Object internalNameValue = properties.remove(INTERNAL_KEY_NAME);
-        if (internalNameValue != null && !universalProps.containsKey(UNIVERSAL_KEY_NAME)) {
-            universalProps.put(UNIVERSAL_KEY_NAME, internalNameValue.toString());
-        }
-
-        Object internalCommentValue = properties.remove(INTERNAL_KEY_COMMENTS);
-        if (internalCommentValue != null && !universalProps.containsKey(UNIVERSAL_KEY_COMMENT)) {
-            universalProps.put(UNIVERSAL_KEY_COMMENT, internalCommentValue.toString());
-        }
-
-        return universalProps;
     }
 
     /**
