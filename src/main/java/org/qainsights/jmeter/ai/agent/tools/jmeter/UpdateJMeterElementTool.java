@@ -20,6 +20,11 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
 
     private static final Logger log = LoggerFactory.getLogger(UpdateJMeterElementTool.class);
 
+    private static final String UNIVERSAL_KEY_NAME = "name";
+    private static final String UNIVERSAL_KEY_COMMENT = "comment";
+    private static final String INTERNAL_KEY_NAME = "TestElement.name";
+    private static final String INTERNAL_KEY_COMMENTS = "TestPlan.comments";
+
     @Override
     public String getName() {
         return "update_jmeter_element";
@@ -30,6 +35,7 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
         return "Update properties of an existing JMeter test plan element. " +
                 "Supports updating HTTP samplers, thread groups, controllers, timers, assertions, listeners, etc. " +
                 "Properties can be updated using the 'properties' parameter. " +
+                "Supports universal properties: 'name' to update element name, 'comment' to update element comment. " +
                 "Use get_test_plan_tree or find_element to get the elementId of the element to update.";
     }
 
@@ -97,7 +103,10 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                 return validation;
             }
 
-            // Validate properties against schema if provided
+            // Extract universal properties (name, comment) before schema validation
+            Map<String, String> universalProps = extractUniversalProperties(properties);
+
+            // Validate remaining schema-defined properties
             if (properties != null && !properties.isEmpty()) {
                 ValidationResult propertyValidation = validateProperties(targetNode, properties);
                 if (!propertyValidation.isValid()) {
@@ -105,14 +114,30 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                 }
             }
 
-            // Perform the update
-            ToolResult updateResult = updateElementProperties(targetNode, properties);
-            if (!updateResult.isSuccess()) {
-                return updateResult;
+            boolean hasUpdates = false;
+
+            // Apply universal properties (name, comment)
+            if (!universalProps.isEmpty()) {
+                applyUniversalProperties(element, universalProps);
+                hasUpdates = true;
+            }
+
+            // Apply schema-defined properties
+            if (properties != null && !properties.isEmpty()) {
+                ToolResult updateResult = updateElementProperties(targetNode, properties);
+                if (!updateResult.isSuccess()) {
+                    return updateResult;
+                }
+                hasUpdates = true;
+            }
+
+            // Unified tree refresh after all updates
+            if (hasUpdates) {
+                refreshTreeAfterUpdate(targetNode);
             }
 
             // Build and return success result
-            return buildSuccessResult(elementName, elementType, properties);
+            return buildSuccessResult(element, elementType, properties, universalProps);
 
         } catch (Exception e) {
             log.error("Error updating JMeter element", e);
@@ -164,11 +189,12 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
     }
 
     /**
-     * Update properties on the element.
+     * Update schema-defined properties on the element.
+     * Refresh is handled by the caller (executeInternal) after all updates are done.
      */
     private ToolResult updateElementProperties(JMeterTreeNode targetNode, Map<String, Object> properties) {
         if (properties == null || properties.isEmpty()) {
-            log.info("No properties to update");
+            log.info("No schema properties to update");
             return ToolResult.success("");
         }
 
@@ -186,9 +212,6 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
 
             // Use schema-based property handler to update properties
             propertyHandler.setProperties(element, properties, schema);
-
-            // Refresh the tree to show updated properties
-            refreshTreeAfterUpdate(targetNode);
 
             log.info("Successfully updated {} properties on element: {}",
                     properties.size(), element.getName());
@@ -238,10 +261,23 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
     /**
      * Build a success result message.
      */
-    private ToolResult buildSuccessResult(String elementName, String elementType, Map<String, Object> properties) {
+    private ToolResult buildSuccessResult(TestElement element, String elementType,
+                                          Map<String, Object> properties,
+                                          Map<String, String> universalProps) {
         StringBuilder result = new StringBuilder();
-        result.append("Successfully updated element: **").append(elementName)
+        result.append("Successfully updated element: **").append(element.getName())
                 .append("** (").append(elementType).append(")");
+
+        boolean hasUpdates = false;
+
+        if (universalProps != null && !universalProps.isEmpty()) {
+            result.append("\n\nUpdated universal properties:\n");
+            for (Map.Entry<String, String> entry : universalProps.entrySet()) {
+                result.append("- ").append(entry.getKey())
+                        .append(": ").append(entry.getValue()).append("\n");
+            }
+            hasUpdates = true;
+        }
 
         if (properties != null && !properties.isEmpty()) {
             result.append("\n\nUpdated properties:\n");
@@ -249,11 +285,70 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                 result.append("- ").append(entry.getKey())
                         .append(": ").append(entry.getValue()).append("\n");
             }
-        } else {
+            hasUpdates = true;
+        }
+
+        if (!hasUpdates) {
             result.append("\n\nNo properties were updated.");
         }
 
         return ToolResult.success(result.toString());
+    }
+
+    /**
+     * Extract universal properties (name, comment) from the properties map.
+     * These properties are not schema-defined but are supported on all JMeter elements.
+     * Removes them from the input map so they are not rejected by schema validation.
+     */
+    private Map<String, String> extractUniversalProperties(Map<String, Object> properties) {
+        Map<String, String> universalProps = new java.util.LinkedHashMap<>();
+
+        if (properties == null || properties.isEmpty()) {
+            return universalProps;
+        }
+
+        // Handle user-friendly keys
+        Object nameValue = properties.remove(UNIVERSAL_KEY_NAME);
+        if (nameValue != null) {
+            universalProps.put(UNIVERSAL_KEY_NAME, nameValue.toString());
+        }
+
+        Object commentValue = properties.remove(UNIVERSAL_KEY_COMMENT);
+        if (commentValue != null) {
+            universalProps.put(UNIVERSAL_KEY_COMMENT, commentValue.toString());
+        }
+
+        // Handle JMeter internal keys (user-friendly keys take precedence)
+        Object internalNameValue = properties.remove(INTERNAL_KEY_NAME);
+        if (internalNameValue != null && !universalProps.containsKey(UNIVERSAL_KEY_NAME)) {
+            universalProps.put(UNIVERSAL_KEY_NAME, internalNameValue.toString());
+        }
+
+        Object internalCommentValue = properties.remove(INTERNAL_KEY_COMMENTS);
+        if (internalCommentValue != null && !universalProps.containsKey(UNIVERSAL_KEY_COMMENT)) {
+            universalProps.put(UNIVERSAL_KEY_COMMENT, internalCommentValue.toString());
+        }
+
+        return universalProps;
+    }
+
+    /**
+     * Apply universal properties (name, comment) using TestElement API directly.
+     * Follows the pattern from ElementRenamer for name updates.
+     */
+    private void applyUniversalProperties(TestElement element,
+                                          Map<String, String> universalProps) {
+        String newName = universalProps.get(UNIVERSAL_KEY_NAME);
+        if (newName != null && !newName.equals(element.getName())) {
+            element.setName(newName);
+            log.info("Updated element name to: {}", newName);
+        }
+
+        String newComment = universalProps.get(UNIVERSAL_KEY_COMMENT);
+        if (newComment != null) {
+            element.setComment(newComment);
+            log.info("Updated element comment to: {}", newComment);
+        }
     }
 
 }
