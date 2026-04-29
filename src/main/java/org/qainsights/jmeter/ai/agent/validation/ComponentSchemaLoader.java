@@ -76,6 +76,15 @@ public class ComponentSchemaLoader {
                     String normalizedType = JMeterElementManager.normalizeElementType(schema.getComponentType());
                     schemaCache.put(normalizedType, schema);
                     log.info("Loaded schema for component type: {} from {}", normalizedType, schemaFile);
+
+                    // Register aliases
+                    if (schema.getAliases() != null) {
+                        for (String alias : schema.getAliases()) {
+                            String normalizedAlias = JMeterElementManager.normalizeElementType(alias);
+                            schemaCache.put(normalizedAlias, schema);
+                            log.info("Registered schema alias: {} -> {}", normalizedAlias, normalizedType);
+                        }
+                    }
                 }
             }
 
@@ -110,6 +119,20 @@ public class ComponentSchemaLoader {
             schema.setComponentType(getStringValue(componentData, "type"));
             schema.setComponentName(getStringValue(componentData, "name"));
             schema.setDescription(getStringValue(componentData, "description"));
+
+            // Parse aliases
+            if (componentData.containsKey("aliases")) {
+                Object aliasesObj = componentData.get("aliases");
+                if (aliasesObj instanceof List) {
+                    List<String> aliases = new ArrayList<>();
+                    for (Object alias : (List<?>) aliasesObj) {
+                        if (alias != null) {
+                            aliases.add(alias.toString());
+                        }
+                    }
+                    schema.setAliases(aliases);
+                }
+            }
 
             // Parse properties section
             if (data.containsKey("properties")) {

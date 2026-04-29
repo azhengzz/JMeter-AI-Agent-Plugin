@@ -4,6 +4,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
+import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 
@@ -157,6 +158,37 @@ public class JMeterTreeUtils {
                         // Max depth reached, use string representation
                         String propValue = nestedElement.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(nestedElement));
                         props.put(propName, propValue);
+                        count++;
+                    }
+                } else if (prop instanceof CollectionProperty) {
+                    CollectionProperty collProp = (CollectionProperty) prop;
+                    List<Map<String, Object>> items = new ArrayList<>();
+                    PropertyIterator collIter = collProp.iterator();
+                    while (collIter.hasNext()) {
+                        JMeterProperty item = collIter.next();
+                        if (item instanceof TestElementProperty) {
+                            TestElement itemElement = ((TestElementProperty) item).getElement();
+                            if (itemElement != null) {
+                                Map<String, Object> itemProps = new LinkedHashMap<>();
+                                PropertyIterator itemPropIter = itemElement.propertyIterator();
+                                while (itemPropIter.hasNext()) {
+                                    JMeterProperty itemProp = itemPropIter.next();
+                                    String itemPropName = itemProp.getName();
+                                    if (!itemPropName.startsWith("TestElement.")) {
+                                        String val = itemProp.getStringValue();
+                                        if (val != null && !val.isEmpty()) {
+                                            itemProps.put(itemPropName, truncate(val, maxLength));
+                                        }
+                                    }
+                                }
+                                if (!itemProps.isEmpty()) {
+                                    items.add(itemProps);
+                                }
+                            }
+                        }
+                    }
+                    if (!items.isEmpty()) {
+                        props.put(propName, items);
                         count++;
                     }
                 } else {

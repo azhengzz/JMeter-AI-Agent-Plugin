@@ -205,11 +205,17 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
         try {
             // Get element type for schema-based property handling
             String elementType = JMeterTreeUtils.getElementType(targetNode);
+            log.info("Update element type from getElementType(): {}, element class: {}",
+                    elementType, element.getClass().getSimpleName());
 
             // Load schema for property routing
             org.qainsights.jmeter.ai.agent.validation.ComponentSchema schema = null;
             if (componentValidator != null && elementType != null) {
                 schema = componentValidator.getSchemaLoader().loadSchema(elementType);
+                log.info("Schema loaded for type '{}': {}", elementType, schema != null ? "found" : "NOT FOUND");
+            } else {
+                log.warn("Cannot load schema: componentValidator={}, elementType={}",
+                        componentValidator != null ? "present" : "null", elementType);
             }
 
             // Use schema-based property handler to update properties

@@ -81,6 +81,16 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
             return ToolResult.error("elementName is required");
         }
 
+        // Check schema exists for the element type
+        if (componentValidator != null) {
+            org.qainsights.jmeter.ai.agent.validation.ComponentSchema schema =
+                    componentValidator.getSchemaLoader().loadSchema(elementType);
+            if (schema == null) {
+                return ToolResult.error("Unknown elementType: '" + elementType + "'. " +
+                        "No schema definition found. Please check the element type or refer to the component reference.");
+            }
+        }
+
         // Apply schema validation and defaults
         ValidationResult validationResult = validateComponent(elementType, properties);
         if (!validationResult.isValid()) {

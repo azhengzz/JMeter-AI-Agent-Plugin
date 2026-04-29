@@ -42,7 +42,7 @@ public class SchemaBasedPropertyHandler {
 
             try {
                 // Get property definition from schema
-                ComponentSchema.PropertyDefinition propDef = schema.getProperty(propName);
+                ComponentSchema.PropertyDefinition propDef = schema != null ? schema.getProperty(propName) : null;
 
                 // Route based on schema type or use default handling
                 if (propDef != null) {
@@ -76,6 +76,8 @@ public class SchemaBasedPropertyHandler {
                 // Special handling for HTTPsampler.Arguments
                 if ("HTTPsampler.Arguments".equals(propName) && propDef.hasItemProperties()) {
                     handleHttpArgumentsProperty(element, propName, propValue);
+                } else if ("HTTPsampler.Files".equals(propName) && propDef.hasItemProperties()) {
+                    handleHttpFileArgsProperty(element, propName, propValue);
                 } else if ("Arguments.arguments".equals(propName) && propDef.hasItemProperties()) {
                     handleArgumentsProperty(element, propName, propValue);
                 } else if ("SystemSampler.arguments".equals(propName) && propDef.hasItemProperties()) {
@@ -250,6 +252,51 @@ public class SchemaBasedPropertyHandler {
 
         element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
         log.info("Set HTTPsampler.Arguments with {} arguments", args.getArguments().size());
+    }
+
+    /**
+     * Handle HTTPsampler.Files property for file uploads.
+     * Creates HTTPFileArgs containing HTTPFileArg objects via reflection.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleHttpFileArgsProperty(TestElement element, String propName, Object propValue) {
+        try {
+            Class<?> httpFileArgsClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPFileArgs");
+            Class<?> httpFileArgClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPFileArg");
+
+            Object httpFileArgs = httpFileArgsClass.getDeclaredConstructor().newInstance();
+
+            List<Object> items = convertToList(propValue);
+            for (Object item : items) {
+                if (!(item instanceof Map)) {
+                    log.warn("HTTPFileArg item must be a map, got: {}", item.getClass());
+                    continue;
+                }
+
+                Map<String, Object> fileProps = (Map<String, Object>) item;
+                String path = getStringValue(fileProps, "File.path");
+                String paramname = getStringValue(fileProps, "File.paramname", "");
+                String mimetype = getStringValue(fileProps, "File.mimetype", "application/octet-stream");
+
+                if (path == null) {
+                    log.warn("Missing required property File.path in: {}", fileProps);
+                    continue;
+                }
+
+                Object httpFileArg = httpFileArgClass
+                        .getConstructor(String.class, String.class, String.class)
+                        .newInstance(path, paramname, mimetype);
+
+                httpFileArgsClass.getMethod("addHTTPFileArg", httpFileArgClass)
+                        .invoke(httpFileArgs, httpFileArg);
+            }
+
+            element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, (TestElement) httpFileArgs));
+            log.info("Set HTTPsampler.Files with {} file(s)", items.size());
+
+        } catch (Exception e) {
+            log.warn("Failed to create HTTPFileArgs for property: {}", propName, e);
+        }
     }
 
     /**

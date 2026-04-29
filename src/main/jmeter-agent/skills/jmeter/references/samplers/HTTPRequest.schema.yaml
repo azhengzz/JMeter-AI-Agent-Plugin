@@ -1,5 +1,6 @@
 component:
   type: httpsampler
+  aliases: [httptestsample, httprequest]
   name: HTTP Request
   class: 
   description: Sends HTTP/HTTPS requests to web servers
@@ -120,4 +121,26 @@ properties:
         type: String
         required: false
         default: "text/plain"
-        description: 
+        description:
+
+  - name: HTTPsampler.Files
+    type: Array
+    required: false
+    description: File upload parameters for multipart/form-data requests
+    itemClass: org.apache.jmeter.protocol.http.util.HTTPFileArg
+    itemProperties:
+      - name: File.path
+        type: String
+        required: true
+        description: File path to upload
+
+      - name: File.paramname
+        type: String
+        required: true
+        description: HTTP parameter name for the file upload
+
+      - name: File.mimetype
+        type: String
+        required: false
+        default: "application/octet-stream"
+        description: MIME type of the file

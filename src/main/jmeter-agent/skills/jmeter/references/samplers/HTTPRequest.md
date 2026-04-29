@@ -34,6 +34,7 @@ There are three different test elements used to define the samplers:
 | `HTTPSampler.DO_MULTIPART_POST` | No | — | Use a `multipart/form-data` or `application/x-www-form-urlencoded` post request. | `"true"` |
 | `HTTPSampler.postBodyRaw` | No | `false` | Send raw body content. When true, send the body as raw data instead of form parameters. | `"true"` |
 | `HTTPsampler.Arguments` | No | — | HTTP request arguments/parameters as an array of HTTPArgument objects. See Nested Arguments below. | See examples |
+| `HTTPsampler.Files` | No | — | File upload parameters for multipart/form-data requests. See File Upload below. | See examples |
 
 ### Method Values
 
@@ -68,6 +69,16 @@ When `HTTPSampler.postBodyRaw` is `false`, each argument item supports:
 | `HTTPArgument.always_encode` | No | `false` | Whether to always URL-encode the parameter | `"true"` |
 | `Argument.metadata` | No | `"="` | Metadata character (typically '=') | `"="` |
 | `HTTPArgument.content_type` | No | `"text/plain"` | Content type for the argument | `"application/json"` |
+
+### File Upload (`HTTPsampler.Files`)
+
+When `HTTPSampler.DO_MULTIPART_POST` is `true`, each file item supports:
+
+| Property | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `File.path` | Yes | — | File path to upload. Supports JMeter variables. | `"${currentJmxDir}${fileSep}data${fileSep}test.txt"` |
+| `File.paramname` | Yes | — | HTTP parameter name for the file upload | `"file"` |
+| `File.mimetype` | No | `"application/octet-stream"` | MIME type of the file | `"text/plain"` |
 
 ## Usage Examples
 
@@ -129,6 +140,10 @@ create_jmeter_element with:
   - HTTPSampler.path: "/api/upload"
   - HTTPSampler.method: "POST"
   - HTTPSampler.DO_MULTIPART_POST: "true"
+  - HTTPsampler.Files:
+    - {"File.path": "${currentJmxDir}${fileSep}data${fileSep}test.txt", "File.paramname": "file", "File.mimetype": "text/plain"}
+  - HTTPsampler.Arguments:
+    - {"Argument.name": "tenant", "Argument.value": "${tenant}"}
 ```
 
 ## Best Practices

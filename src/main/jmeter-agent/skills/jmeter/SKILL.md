@@ -186,6 +186,37 @@ For advanced options (use_equals, always_encode, metadata):
 ]
 ```
 
+## Important: HTTP File Upload Format
+
+When uploading files via HTTP request, use `HTTPsampler.Files` with `HTTPSampler.DO_MULTIPART_POST: true`.
+
+**File upload format:**
+```
+"HTTPSampler.DO_MULTIPART_POST": true,
+"HTTPsampler.Files": [
+  {"File.path": "/data/test.txt", "File.paramname": "file", "File.mimetype": "text/plain"}
+]
+```
+
+**File upload with form parameters:**
+```
+"HTTPSampler.method": "POST",
+"HTTPSampler.DO_MULTIPART_POST": true,
+"HTTPsampler.Files": [
+  {"File.path": "${currentJmxDir}${fileSep}data${fileSep}wiki${fileSep}1MB${fileSep}test1MB.txt", "File.paramname": "file", "File.mimetype": "text/plain"}
+],
+"HTTPsampler.Arguments": [
+  {"Argument.name": "tenant", "Argument.value": "${tenant}"},
+  {"Argument.name": "namespace", "Argument.value": "default"}
+]
+```
+
+**IMPORTANT for file uploads:**
+- Set `HTTPSampler.DO_MULTIPART_POST: true` to enable multipart/form-data
+- `File.path` is required — supports JMeter variables like `${currentJmxDir}${fileSep}`
+- `File.paramname` is required — the form field name for the file (e.g., `"file"`)
+- `File.mimetype` is optional — defaults to `"application/octet-stream"`
+
 ## Naming Conventions
 
 All components MUST use **clear, meaningful, descriptive** names. Avoid default names.
