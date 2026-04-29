@@ -148,12 +148,23 @@ public class JMeterTreeUtils {
                     // Handle nested TestElement properties
                     TestElement nestedElement = ((TestElementProperty) prop).getElement();
                     if (nestedElement != null && nestedDepth < MAX_NESTED_DEPTH) {
-                        // Recursively build properties for nested TestElement
-                        Map<String, Object> nestedProps = new LinkedHashMap<>();
-                        nestedProps.put("__type", nestedElement.getClass().getSimpleName());
-                        nestedProps.put("__nestedProperties", buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1));
-                        props.put(propName, nestedProps);
-                        count++;
+                        // Try to extract collection items (e.g., Arguments, HTTPFileArgs)
+                        List<Map<String, Object>> collectionItems = extractCollectionItems(nestedElement, maxLength);
+                        if (collectionItems != null) {
+                            // Output array directly (matches create/update input format)
+                            props.put(propName, collectionItems);
+                            count++;
+                        } else {
+                            // Output nested properties as flat map (e.g., LoopController)
+                            Map<String, Object> nestedProps = buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1);
+                            props.put(propName, nestedProps);
+                            count++;
+                        }
+                        // --- Original logic (kept for reference) ---
+                        // Map<String, Object> nestedProps = new LinkedHashMap<>();
+                        // nestedProps.put("__type", nestedElement.getClass().getSimpleName());
+                        // nestedProps.put("__nestedProperties", buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1));
+                        // props.put(propName, nestedProps);
                     } else if (nestedElement != null) {
                         // Max depth reached, use string representation
                         String propValue = nestedElement.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(nestedElement));
@@ -161,33 +172,8 @@ public class JMeterTreeUtils {
                         count++;
                     }
                 } else if (prop instanceof CollectionProperty) {
-                    CollectionProperty collProp = (CollectionProperty) prop;
-                    List<Map<String, Object>> items = new ArrayList<>();
-                    PropertyIterator collIter = collProp.iterator();
-                    while (collIter.hasNext()) {
-                        JMeterProperty item = collIter.next();
-                        if (item instanceof TestElementProperty) {
-                            TestElement itemElement = ((TestElementProperty) item).getElement();
-                            if (itemElement != null) {
-                                Map<String, Object> itemProps = new LinkedHashMap<>();
-                                PropertyIterator itemPropIter = itemElement.propertyIterator();
-                                while (itemPropIter.hasNext()) {
-                                    JMeterProperty itemProp = itemPropIter.next();
-                                    String itemPropName = itemProp.getName();
-                                    if (!itemPropName.startsWith("TestElement.")) {
-                                        String val = itemProp.getStringValue();
-                                        if (val != null && !val.isEmpty()) {
-                                            itemProps.put(itemPropName, truncate(val, maxLength));
-                                        }
-                                    }
-                                }
-                                if (!itemProps.isEmpty()) {
-                                    items.add(itemProps);
-                                }
-                            }
-                        }
-                    }
-                    if (!items.isEmpty()) {
+                    List<Map<String, Object>> items = convertCollectionToList((CollectionProperty) prop, maxLength);
+                    if (items != null && !items.isEmpty()) {
                         props.put(propName, items);
                         count++;
                     }
@@ -206,6 +192,58 @@ public class JMeterTreeUtils {
         }
 
         return props;
+    }
+
+    /**
+     * Extract collection items from a nested TestElement if it contains a CollectionProperty.
+     * Returns the items as a list of property maps (matching create/update input format),
+     * or null if the element does not contain a CollectionProperty.
+     */
+    private static List<Map<String, Object>> extractCollectionItems(TestElement element, int maxLength) {
+        PropertyIterator iter = element.propertyIterator();
+        while (iter.hasNext()) {
+            JMeterProperty prop = iter.next();
+            if (prop.getName().startsWith("TestElement.")) {
+                continue;
+            }
+            if (prop instanceof CollectionProperty) {
+                return convertCollectionToList((CollectionProperty) prop, maxLength);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Convert a CollectionProperty containing TestElementProperty items
+     * into a list of property maps (matching create/update input format).
+     */
+    private static List<Map<String, Object>> convertCollectionToList(CollectionProperty collProp, int maxLength) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        PropertyIterator collIter = collProp.iterator();
+        while (collIter.hasNext()) {
+            JMeterProperty item = collIter.next();
+            if (item instanceof TestElementProperty) {
+                TestElement itemElement = ((TestElementProperty) item).getElement();
+                if (itemElement != null) {
+                    Map<String, Object> itemProps = new LinkedHashMap<>();
+                    PropertyIterator itemPropIter = itemElement.propertyIterator();
+                    while (itemPropIter.hasNext()) {
+                        JMeterProperty itemProp = itemPropIter.next();
+                        String itemPropName = itemProp.getName();
+                        if (!itemPropName.startsWith("TestElement.")) {
+                            String val = itemProp.getStringValue();
+                            if (val != null && !val.isEmpty()) {
+                                itemProps.put(itemPropName, truncate(val, maxLength));
+                            }
+                        }
+                    }
+                    if (!itemProps.isEmpty()) {
+                        items.add(itemProps);
+                    }
+                }
+            }
+        }
+        return items;
     }
 
     /**
