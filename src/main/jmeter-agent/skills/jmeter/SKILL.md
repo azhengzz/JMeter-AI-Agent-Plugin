@@ -61,8 +61,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `jsr223sampler` | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/samplers/JSR223Sampler.md) | [Schema](./references/samplers/JSR223Sampler.schema.yaml) |
 | `beanshellsampler` | Execute BeanShell scripts | [BeanShell Sampler](./references/samplers/BeanShellSampler.md) | [Schema](./references/samplers/BeanShellSampler.schema.yaml) |
 | `flowcontrolaction` | Pause/stop test or control loops | [Flow Control Action](./references/samplers/FlowControlAction.md) | [Schema](./references/samplers/FlowControlAction.schema.yaml) |
-| `debugsampler` | Display JMeter variables/properties for debugging | Debug Sampler | [Schema](./references/samplers/DebugSampler.schema.yaml) |
-| `osprocesssampler` | Execute system commands or native executables | OS Process Sampler | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
+| `debugsampler` | Display JMeter variables/properties for debugging | [Debug Sampler](./references/samplers/DebugSampler.md) | [Schema](./references/samplers/DebugSampler.schema.yaml) |
+| `osprocesssampler` | Execute system commands or native executables | [OS Process Sampler](./references/samplers/OSProcessSampler.md) | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
 
 
 ### Controllers
@@ -71,11 +71,11 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `loopcontroller` | Loop contained samplers | [Loop Controller](./references/controllers/LoopController.md) | [Schema](./references/controllers/LoopController.schema.yaml) |
 | `ifcontroller` | Conditional execution | [If Controller](./references/controllers/IfController.md) | [Schema](./references/controllers/IfController.schema.yaml) |
 | `whilecontroller` | Loop while condition is true | [While Controller](./references/controllers/WhileController.md) | [Schema](./references/controllers/WhileController.schema.yaml) |
-| `foreachcontroller` | Iterate over a list of variables | ForEach Controller | [Schema](./references/controllers/ForeachController.schema.yaml) |
+| `foreachcontroller` | Iterate over a list of variables | [ForEach Controller](./references/controllers/ForeachController.md) | [Schema](./references/controllers/ForeachController.schema.yaml) |
 | `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) | [Schema](./references/controllers/TransactionController.schema.yaml) |
-| `simplecontroller` | Organize elements sequentially | Simple Controller | [Schema](./references/controllers/SimpleController.schema.yaml) |
+| `simplecontroller` | Organize elements sequentially | [Simple Controller](./references/controllers/SimpleController.md) | [Schema](./references/controllers/SimpleController.schema.yaml) |
 | `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
-| `includecontroller` | Include external JMX test fragment | Include Controller | [Schema](./references/controllers/IncludeController.schema.yaml) |
+| `includecontroller` | Include external JMX test fragment | [Include Controller](./references/controllers/IncludeController.md) | [Schema](./references/controllers/IncludeController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |
@@ -100,9 +100,6 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 |-------------|-------------|------|--------|
 | `regexextractor` | Extract data using regex | [Regex Extractor](./references/post-processors/RegexExtractor.md) | [Schema](./references/post-processors/RegexExtractor.schema.yaml) |
 | `jsonpostprocessor` | Extract data using JSON path | [JSON Post Processor](./references/post-processors/JSONPostProcessor.md) | [Schema](./references/post-processors/JSONPostProcessor.schema.yaml) |
-| `xpathextractor` | Extract data using XPath | [XPath Extractor](./references/post-processors/XPathExtractor.md) | [Schema](./references/post-processors/XPathExtractor.schema.yaml) |
-| `boundaryextractor` | Extract data using left/right boundaries | [Boundary Extractor](./references/post-processors/BoundaryExtractor.md) | [Schema](./references/post-processors/BoundaryExtractor.schema.yaml) |
-| `jmespathextractor` | Extract data from JSON using JMESPath | [JMESPath Extractor](./references/post-processors/JMESPathExtractor.md) | [Schema](./references/post-processors/JMESPathExtractor.schema.yaml) |
 | `htmlextractor` | Extract data using CSS selectors | [CSS Selector Extractor](./references/post-processors/HtmlExtractor.md) | [Schema](./references/post-processors/HtmlExtractor.schema.yaml) |
 | `jsr223postprocessor` | Execute JSR223 scripts after sampler | [JSR223 Post-Processor](./references/post-processors/JSR223PostProcessor.md) | [Schema](./references/post-processors/JSR223PostProcessor.schema.yaml) |
 | `beanshellpostprocessor` | Execute BeanShell scripts after sampler | [BeanShell Post-Processor](./references/post-processors/BeanShellPostProcessor.md) | [Schema](./references/post-processors/BeanShellPostProcessor.schema.yaml) |
@@ -114,14 +111,11 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 |-------------|-------------|------|--------|
 | `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) | [Schema](./references/assertions/ResponseAssertion.schema.yaml) |
 | `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) | [Schema](./references/assertions/JSONPathAssertion.schema.yaml) |
-| `durationassertion` | Validate response time | [Duration Assertion](./references/assertions/DurationAssertion.md) | [Schema](./references/assertions/DurationAssertion.schema.yaml) |
-| `sizeassertion` | Validate response size | [Size Assertion](./references/assertions/SizeAssertion.md) | [Schema](./references/assertions/SizeAssertion.schema.yaml) |
 | `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) | [Schema](./references/assertions/XPathAssertion.schema.yaml) |
-| `jsr223assertion` | Custom assertion code | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) | [Schema](./references/assertions/JSR223Assertion.schema.yaml) |
-| `md5hexassertion` | Validate response checksum | [MD5Hex Assertion](./references/assertions/MD5HexAssertion.md) | [Schema](./references/assertions/MD5HexAssertion.schema.yaml) |
+| `beanshellassertion` | Custom assertion script | [BeanShell Assertion](./references/assertions/BeanShellAssertion.md) | [Schema](./references/assertions/BeanShellAssertion.schema.yaml) |
+| `md5hexassertion` | Validate response checksum | MD5Hex Assertion | |
+| `xmlassertion` | Validate XML well-formedness | [XML Assertion](./references/assertions/XMLAssertion.md) | [Schema](./references/assertions/XMLAssertion.schema.yaml) |
 | `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) | |
-| `compareassertion` | Compare sample results | [Compare Assertion](./references/assertions/CompareAssertion.md) | [Schema](./references/assertions/CompareAssertion.schema.yaml) |
-| `htmlassertion` | Validate HTML responses | [HTML Assertion](./references/assertions/HTMLAssertion.md) | [Schema](./references/assertions/HTMLAssertion.schema.yaml) |
 
 **Note:** `jsonassertion` is an alias for `jsonpathassertion`
 
@@ -130,8 +124,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 |-------------|-------------|------|--------|
 | `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) | [Schema](./references/timers/ConstantTimer.schema.yaml) |
 | `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) | [Schema](./references/timers/UniformRandomTimer.schema.yaml) |
-| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) | [Schema](./references/timers/GaussianRandomTimer.schema.yaml) |
-| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) | [Schema](./references/timers/PoissonRandomTimer.schema.yaml) |
+| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) | |
+| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) | |
 | `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) | [Schema](./references/timers/ConstantThroughputTimer.schema.yaml) |
 | `precisethroughputTimer` | Precise throughput with exact sample count | [Precise Throughput Timer](./references/timers/PreciseThroughputTimer.md) | [Schema](./references/timers/PreciseThroughputTimer.schema.yaml) |
 
