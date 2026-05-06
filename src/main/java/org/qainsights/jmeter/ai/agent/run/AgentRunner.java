@@ -170,12 +170,10 @@ public class AgentRunner {
             LLMResponse response = callLLM(currentMessages, llmOptions);
             context.setLastLlmResponse(response);
 
-            // Accumulate usage from LLM response
+            // Capture usage from LLM response (last iteration wins, matching Nanobot)
             Map<String, Integer> respUsage = response.getUsage();
             if (respUsage != null && !respUsage.isEmpty()) {
-                for (Map.Entry<String, Integer> entry : respUsage.entrySet()) {
-                    context.addUsage(entry.getKey(), entry.getValue());
-                }
+                context.setUsage(respUsage);
             }
 
             if (response.isError()) {

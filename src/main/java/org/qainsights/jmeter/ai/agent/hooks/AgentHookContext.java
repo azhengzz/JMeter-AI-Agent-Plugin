@@ -76,7 +76,6 @@ public class AgentHookContext {
     public void putMetadata(String key, Object value) { this.metadata.put(key, value); }
     public void setUsage(Map<String, Integer> usage) { this.usage = usage != null ? usage : new HashMap<>(); }
     public void setUsage(String key, int value) { this.usage.put(key, value); }
-    public void addUsage(String key, int value) { this.usage.merge(key, value, Integer::sum); }
     public void setStopReason(String stopReason) { this.stopReason = stopReason; }
     public void setError(String error) { this.error = error; }
     public void addToolEvent(ToolEvent event) { this.toolEvents.add(event); }
