@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.SystemPrompt;
 import org.qainsights.jmeter.ai.usage.OpenAiUsage;
+import org.qainsights.jmeter.ai.agent.model.GenerationSettings;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
@@ -37,10 +38,8 @@ public class OpenAiService implements AiService {
 
     private final int maxHistorySize;
     private String currentModelId;
-    private float temperature;
     private String systemPrompt;
-    private long maxTokens;
-    private final String reasoningEffort;
+    private GenerationSettings generationSettings;
 
     // Provider prefixes that use OpenAI-compatible API
     private static final String[] OPENAI_COMPATIBLE_PROVIDERS = {
@@ -51,9 +50,7 @@ public class OpenAiService implements AiService {
         // Use global defaults with per-provider override fallback
         this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("openai", "max.history.size", "10"));
         this.currentModelId = AiConfig.getDefaultModel();
-        this.temperature = Float.parseFloat(AiConfig.getPropertyWithFallback("openai", "temperature", "0.7"));
-        this.maxTokens = Long.parseLong(AiConfig.getPropertyWithFallback("openai", "max.tokens", "4096"));
-        this.reasoningEffort = AiConfig.getPropertyWithFallback("openai", "reasoning.effort", "medium");
+        this.generationSettings = GenerationSettings.fromConfig();
 
         // Initialize client with default (openai) configuration
         initializeClient("openai");
@@ -190,27 +187,38 @@ public class OpenAiService implements AiService {
         return currentModelId;
     }
 
+    @Override
+    public GenerationSettings getGenerationSettings() {
+        return generationSettings;
+    }
+
+    @Override
+    public void setGenerationSettings(GenerationSettings settings) {
+        this.generationSettings = settings;
+        log.info("Generation settings updated: {}", settings);
+    }
+
     public void setTemperature(float temperature) {
         if (temperature < 0 || temperature >= 1) {
             log.warn("Temperature must be between 0 and 1. Provided value: {}. Setting to default 0.7", temperature);
-            this.temperature = 0.7f;
+            generationSettings.setTemperature(0.7);
         } else {
-            this.temperature = temperature;
+            generationSettings.setTemperature(temperature);
             log.info("Temperature set to: {}", temperature);
         }
     }
 
     public float getTemperature() {
-        return temperature;
+        return (float) generationSettings.getTemperature();
     }
 
     public void setMaxTokens(long maxTokens) {
-        this.maxTokens = maxTokens;
+        generationSettings.setMaxTokens((int) maxTokens);
         log.info("Max tokens set to: {}", maxTokens);
     }
 
     public long getMaxTokens() {
-        return maxTokens;
+        return generationSettings.getMaxTokens();
     }
 
     /**
@@ -251,9 +259,10 @@ public class OpenAiService implements AiService {
             log.info("====================================");
 
             // Ensure a temperature is set
+            double temperature = generationSettings.getTemperature();
             if (temperature < 0 || temperature > 1) {
-                temperature = 0.7f;
-                log.warn("Invalid temperature value ({}), defaulting to: {}", temperature, 0.7f);
+                temperature = 0.7;
+                log.warn("Invalid temperature value, defaulting to: 0.7");
             }
 
             // Log which model is being used for this conversation
@@ -282,12 +291,12 @@ public class OpenAiService implements AiService {
 
             // Create a fresh builder for parameters following the working example
             ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
-                    .maxCompletionTokens(maxTokens)
+                    .maxCompletionTokens((long) generationSettings.getMaxTokens())
                     .temperature(temperature)
-                    .model(modelNameForApi);  // Use model name without prefix
+                    .model(modelNameForApi);
 
             // Apply reasoning effort for reasoning-capable models
-            ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+            ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
             if (effort != null) {
                 paramsBuilder.reasoningEffort(effort);
             }
@@ -548,11 +557,11 @@ public class OpenAiService implements AiService {
     private LLMResponse doGenerateWithTools(List<Message> messages, List<ToolDefinition> tools, String forcedToolName, LlmCallOptions options) {
         log.info("Generating response: {} tools, forcedTool={}", tools != null ? tools.size() : 0, forcedToolName);
 
-        // Resolve per-call overrides (fallback to instance defaults when null)
+        // Resolve per-call overrides (fallback to generation settings when null)
         String effectiveModel = (options != null && options.getModel() != null) ? options.getModel() : this.currentModelId;
-        double effectiveTemperature = (options != null && options.getTemperature() != null) ? options.getTemperature() : this.temperature;
-        long effectiveMaxTokens = (options != null && options.getMaxTokens() != null) ? options.getMaxTokens().longValue() : this.maxTokens;
-        String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.reasoningEffort;
+        double effectiveTemperature = (options != null && options.getTemperature() != null) ? options.getTemperature() : this.generationSettings.getTemperature();
+        long effectiveMaxTokens = (options != null && options.getMaxTokens() != null) ? options.getMaxTokens().longValue() : this.generationSettings.getMaxTokens();
+        String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.generationSettings.getReasoningEffort();
 
         String modelNameForApi = extractModelName(effectiveModel);
 

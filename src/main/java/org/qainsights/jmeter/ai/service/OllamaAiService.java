@@ -3,6 +3,7 @@ package org.qainsights.jmeter.ai.service;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.qainsights.jmeter.ai.agent.model.GenerationSettings;
 import io.github.ollama4j.models.request.ThinkMode;
 import io.github.ollama4j.utils.Options;
 import io.github.ollama4j.utils.OptionsBuilder;
@@ -24,12 +25,12 @@ public class OllamaAiService implements AiService {
     private final Ollama ollamaClient;
     private String model;
     private final String host;
-    private float temperature;
     private final int maxHistorySize;
     private final boolean isThinkingModeEnabled;
     private final ThinkMode thinkingMode;
     private final long requestTimeoutSeconds;
     private final String systemPrompt;
+    private GenerationSettings generationSettings;
 
     public OllamaAiService() {
         this.host = buildHost(
@@ -37,7 +38,7 @@ public class OllamaAiService implements AiService {
                 AiConfig.getProperty("ollama.port", "11434"));
 
         this.model = AiConfig.getDefaultModel();
-        this.temperature = parseTemperature(AiConfig.getPropertyWithFallback("ollama", "temperature", "0.7"));
+        this.generationSettings = GenerationSettings.fromConfig();
         this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("ollama", "max.history.size", "10"));
         this.isThinkingModeEnabled = AiConfig.getProperty("ollama.thinking.mode", "DISABLED").equalsIgnoreCase("enabled");
 
@@ -223,16 +224,28 @@ public class OllamaAiService implements AiService {
     }
 
     private OllamaChatRequest buildOllamaChatRequest(OllamaChatRequest request) {
+        float temperature = (float) generationSettings.getTemperature();
 
         if(isThinkingModeEnabled && isThinkingModeValid()) {
             return request.withThinking(this.thinkingMode)
-                    .withOptions(new OptionsBuilder().setTemperature(this.temperature).build())
+                    .withOptions(new OptionsBuilder().setTemperature(temperature).build())
                     .withModel(this.model).build();
         }
         else {
             return request.withThinking(ThinkMode.DISABLED)
-                    .withOptions(new OptionsBuilder().setTemperature(this.temperature).build())
+                    .withOptions(new OptionsBuilder().setTemperature(temperature).build())
                     .withModel(this.model).build();
         }
+    }
+
+    @Override
+    public GenerationSettings getGenerationSettings() {
+        return generationSettings;
+    }
+
+    @Override
+    public void setGenerationSettings(GenerationSettings settings) {
+        this.generationSettings = settings;
+        logger.info("Generation settings updated: {}", settings);
     }
 }

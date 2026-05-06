@@ -1,5 +1,6 @@
 package org.qainsights.jmeter.ai.service;
 
+import org.qainsights.jmeter.ai.agent.model.GenerationSettings;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
@@ -16,6 +17,16 @@ public interface AiService {
     String generateResponse(List<String> conversation);
     String generateResponse(List<String> conversation, String model);
     String getName();
+
+    /**
+     * Get the generation settings (default parameters) for this provider.
+     */
+    GenerationSettings getGenerationSettings();
+
+    /**
+     * Update the generation settings for this provider.
+     */
+    void setGenerationSettings(GenerationSettings settings);
 
     /**
      * Generate response with tool calling support.

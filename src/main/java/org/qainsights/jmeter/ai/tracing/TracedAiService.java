@@ -1,5 +1,6 @@
 package org.qainsights.jmeter.ai.tracing;
 
+import org.qainsights.jmeter.ai.agent.model.GenerationSettings;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
@@ -177,6 +178,16 @@ public class TracedAiService implements AiService {
     @Override
     public String getName() {
         return delegate.getName();
+    }
+
+    @Override
+    public GenerationSettings getGenerationSettings() {
+        return delegate.getGenerationSettings();
+    }
+
+    @Override
+    public void setGenerationSettings(GenerationSettings settings) {
+        delegate.setGenerationSettings(settings);
     }
 
     // --- Helper methods ---

@@ -40,6 +40,7 @@ public class AgentLoop {
     private final MemoryConsolidator memoryConsolidator;
     private final ExecutorService executorService;
     private final int defaultMaxIterations;
+    private final GenerationSettings generationSettings;
     private final CommandRouter commandRouter;
     private final ConcurrentHashMap<String, CompletableFuture<AgentResponse>> activeTasks = new ConcurrentHashMap<>();
 
@@ -75,6 +76,7 @@ public class AgentLoop {
         this.memoryConsolidator = memoryConsolidator;
         this.sessionManager = sessionManager;
         this.defaultMaxIterations = maxIterations;
+        this.generationSettings = aiService.getGenerationSettings();
         this.executorService = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "agent-loop");
             thread.setDaemon(true);
@@ -135,13 +137,17 @@ public class AgentLoop {
                 return AgentResponse.success(cmdResult);
             }
 
-            // Build run spec
+            // Build run spec with generation defaults
             AgentRunSpec spec = AgentRunSpec.builder()
                 .userMessage(message)
                 .sessionKey(sessionKey)
                 .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
                 .maxIterations(defaultMaxIterations)
-                .concurrentTools(false) // Default to serial for backward compatibility
+                .concurrentTools(false)
+                .model(AiConfig.getDefaultModel())
+                .temperature(generationSettings.getTemperature())
+                .maxTokens(generationSettings.getMaxTokens())
+                .reasoningEffort(generationSettings.getReasoningEffort())
                 .build();
 
             // Run agent

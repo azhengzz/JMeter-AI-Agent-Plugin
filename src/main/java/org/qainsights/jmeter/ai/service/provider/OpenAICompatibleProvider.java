@@ -14,6 +14,7 @@ import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
 import com.openai.models.ReasoningEffort;
+import org.qainsights.jmeter.ai.agent.model.GenerationSettings;
 import org.qainsights.jmeter.ai.agent.model.LLMResponse;
 import org.qainsights.jmeter.ai.agent.model.LlmCallOptions;
 import org.qainsights.jmeter.ai.agent.model.Message;
@@ -50,11 +51,9 @@ public class OpenAICompatibleProvider implements AiService {
 
     private final int maxHistorySize;
     private String currentModelId;
-    private float temperature;
     private String systemPrompt;
-    private long maxTokens;
+    private GenerationSettings generationSettings;
     private boolean systemPromptInitialized = false;
-    private final String reasoningEffort;
 
     public OpenAICompatibleProvider(ProviderSpec spec) {
         this.providerName = spec.getName();
@@ -85,11 +84,9 @@ public class OpenAICompatibleProvider implements AiService {
         // Initialize configuration with global defaults fallback
         this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback(providerName, "max.history.size", "10"));
         this.currentModelId = AiConfig.getDefaultModel();
-        this.temperature = Float.parseFloat(AiConfig.getPropertyWithFallback(providerName, "temperature", "0.7"));
+        this.generationSettings = GenerationSettings.fromConfig();
         // Load system prompt using centralized utility
         this.systemPrompt = SystemPrompt.get();
-        this.maxTokens = Long.parseLong(AiConfig.getPropertyWithFallback(providerName, "max.tokens", "4096"));
-        this.reasoningEffort = AiConfig.getPropertyWithFallback(providerName, "reasoning.effort", "medium");
 
         log.info("Initialized {} provider with model: {}", providerName, currentModelId);
     }
@@ -135,7 +132,7 @@ public class OpenAICompatibleProvider implements AiService {
                 .model(modelName);
 
         // Apply reasoning effort
-        ReasoningEffort effort = toReasoningEffort(reasoningEffort);
+        ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
         if (effort != null) {
             paramsBuilder.reasoningEffort(effort);
         }
@@ -185,8 +182,8 @@ public class OpenAICompatibleProvider implements AiService {
             ObjectMapper mapper = new ObjectMapper();
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", modelName);
-            requestBody.put("temperature", temperature);
-            requestBody.put("max_tokens", maxTokens);
+            requestBody.put("temperature", generationSettings.getTemperature());
+            requestBody.put("max_tokens", generationSettings.getMaxTokens());
 
             // Build messages array
             List<Map<String, String>> messages = new ArrayList<>();
@@ -324,11 +321,11 @@ public class OpenAICompatibleProvider implements AiService {
         log.info("Generating response for {}: {} tools, forcedTool={}", providerName,
                 tools != null ? tools.size() : 0, forcedToolName);
 
-        // Resolve per-call overrides (fallback to instance defaults when null)
+        // Resolve per-call overrides (fallback to generation settings when null)
         String effectiveModel = (options != null && options.getModel() != null) ? options.getModel() : this.currentModelId;
-        double effectiveTemperature = (options != null && options.getTemperature() != null) ? options.getTemperature() : this.temperature;
-        long effectiveMaxTokens = (options != null && options.getMaxTokens() != null) ? options.getMaxTokens().longValue() : this.maxTokens;
-        String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.reasoningEffort;
+        double effectiveTemperature = (options != null && options.getTemperature() != null) ? options.getTemperature() : this.generationSettings.getTemperature();
+        long effectiveMaxTokens = (options != null && options.getMaxTokens() != null) ? options.getMaxTokens().longValue() : this.generationSettings.getMaxTokens();
+        String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.generationSettings.getReasoningEffort();
 
         String modelName = stripProviderPrefix(effectiveModel);
 
@@ -596,21 +593,32 @@ public class OpenAICompatibleProvider implements AiService {
         return currentModelId;
     }
 
+    @Override
+    public GenerationSettings getGenerationSettings() {
+        return generationSettings;
+    }
+
+    @Override
+    public void setGenerationSettings(GenerationSettings settings) {
+        this.generationSettings = settings;
+        log.info("Generation settings updated for {}: {}", providerName, settings);
+    }
+
     public void setTemperature(float temperature) {
-        this.temperature = temperature;
+        generationSettings.setTemperature(temperature);
         log.info("Temperature set to: {}", temperature);
     }
 
     public float getTemperature() {
-        return temperature;
+        return (float) generationSettings.getTemperature();
     }
 
     public void setMaxTokens(long maxTokens) {
-        this.maxTokens = maxTokens;
+        generationSettings.setMaxTokens((int) maxTokens);
     }
 
     public long getMaxTokens() {
-        return maxTokens;
+        return generationSettings.getMaxTokens();
     }
 
     public void resetSystemPromptInitialization() {
@@ -621,8 +629,8 @@ public class OpenAICompatibleProvider implements AiService {
 
     private Map<String, Object> buildChatParams(String model) {
         Map<String, Object> params = new HashMap<>();
-        params.put("temperature", (double) temperature);
-        params.put("max_tokens", maxTokens);
+        params.put("temperature", generationSettings.getTemperature());
+        params.put("max_tokens", (long) generationSettings.getMaxTokens());
 
         // Apply model-specific overrides
         Map<String, Object> overrides = modelOverrides.get(model);
