@@ -351,8 +351,9 @@ public class SchemaBasedPropertyHandler {
                 String metadata = getStringValue(argProps, "Argument.metadata", "=");
 
                 if (argName == null) {
-                    log.warn("Missing required property Argument.name in: {}", argProps);
-                    continue;
+                    // In postBodyRaw mode, the body data argument has no name
+                    argName = "";
+                    log.info("Argument.name not provided, defaulting to empty string (postBodyRaw mode)");
                 }
 
                 Object httpArg = httpArgClass

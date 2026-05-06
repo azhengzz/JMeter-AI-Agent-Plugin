@@ -213,6 +213,7 @@ public class ComponentValidator {
             properties = new java.util.HashMap<>();
         }
 
+        // Pass 1: Check top-level required properties are present
         for (ComponentSchema.PropertyDefinition propDef : schema.getRequiredProperties()) {
             String paramName = propDef.getName();
             if (paramName == null || paramName.isEmpty()) {
@@ -235,9 +236,23 @@ public class ComponentValidator {
             if (propDef.getType() == ComponentSchema.PropertyType.OBJECT && propValue instanceof Map) {
                 validateNestedRequiredParameters(propDef, (Map<String, Object>) propValue, builder);
             }
+        }
+
+        // Pass 2: Validate required item properties in ALL provided array properties
+        // (not just required ones — optional arrays can have required item fields)
+        for (ComponentSchema.PropertyDefinition propDef : schema.getProperties()) {
+            String paramName = propDef.getName();
+            if (paramName == null || paramName.isEmpty()) {
+                continue;
+            }
+
+            Object propValue = properties.get(paramName);
+            if (propValue == null || !isArrayValue(propValue)) {
+                continue;
+            }
 
             // Validate required array item parameters (e.g., HTTPsampler.Arguments)
-            if (propDef.hasItemProperties() && isArrayValue(propValue)) {
+            if (propDef.hasItemProperties()) {
                 validateArrayItemRequiredParameters(propDef, propValue, builder);
             }
         }

@@ -91,8 +91,8 @@ properties:
     itemProperties:
       - name: Argument.name
         type: String
-        required: true
-        description: Parameter name
+        required: false
+        description: Parameter name. Required for parameter mode, omit for postBodyRaw mode.
 
       - name: Argument.value
         type: String
