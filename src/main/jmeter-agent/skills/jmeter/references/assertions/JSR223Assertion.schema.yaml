@@ -1,0 +1,37 @@
+component:
+  type: jsr223assertion
+  name: JSR223 Assertion
+  description: "Executes JSR223 scripts (Groovy, JavaScript, etc.) to validate sampler results. Groovy is recommended for best performance. Use AssertionResult.setFailure(true) and setFailureMessage() to report failures."
+
+properties:
+  - name: scriptLanguage
+    type: String
+    required: true
+    enum: ["groovy", "beanshell", "bsh", "java", "jexl", "jexl2"]
+    default: "groovy"
+    description: "Scripting language engine to use. Groovy is strongly recommended."
+
+  - name: parameters
+    type: String
+    required: false
+    default: ""
+    description: "Parameters to pass to the script. Available as 'Parameters' string and 'args' array."
+
+  - name: filename
+    type: String
+    required: false
+    default: ""
+    description: "External script file path. If set, script content from file will be used instead of inline script."
+
+  - name: cacheKey
+    type: String
+    required: false
+    default: "true"
+    enum: ["true", "false"]
+    description: "Compile and cache the script for better performance. 'true'=enabled, 'false'=disabled. Only effective when the language engine supports Compilable interface (Groovy does)."
+
+  - name: script
+    type: String
+    required: false
+    default: ""
+    description: "Script code to execute. Required if filename is not set. Use AssertionResult to report failures."

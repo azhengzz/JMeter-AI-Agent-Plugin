@@ -112,6 +112,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) | [Schema](./references/assertions/ResponseAssertion.schema.yaml) |
 | `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) | [Schema](./references/assertions/JSONPathAssertion.schema.yaml) |
 | `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) | [Schema](./references/assertions/XPathAssertion.schema.yaml) |
+| `jsr223assertion` | Custom assertion using JSR223 scripts | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) | [Schema](./references/assertions/JSR223Assertion.schema.yaml) |
 | `beanshellassertion` | Custom assertion script | [BeanShell Assertion](./references/assertions/BeanShellAssertion.md) | [Schema](./references/assertions/BeanShellAssertion.schema.yaml) |
 | `md5hexassertion` | Validate response checksum | MD5Hex Assertion | |
 | `xmlassertion` | Validate XML well-formedness | [XML Assertion](./references/assertions/XMLAssertion.md) | [Schema](./references/assertions/XMLAssertion.schema.yaml) |
