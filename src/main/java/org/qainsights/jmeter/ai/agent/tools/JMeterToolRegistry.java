@@ -3,6 +3,7 @@ package org.qainsights.jmeter.ai.agent.tools;
 import org.qainsights.jmeter.ai.agent.tools.exec.ExecTool;
 import org.qainsights.jmeter.ai.agent.tools.filesystem.*;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.*;
+import org.qainsights.jmeter.ai.agent.tools.jmeter.execution.*;
 import org.qainsights.jmeter.ai.agent.tools.web.*;
 import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.utils.AiConfig;
@@ -46,6 +47,11 @@ public class JMeterToolRegistry {
 
         // Register tools without AI service dependency
         registry.register(new WrapSamplersTool());
+
+        // Register test execution tools
+        registry.register(new RunTestTool());
+        registry.register(new GetTestStatusTool());
+        registry.register(new GetTestResultsTool());
 
         // Register filesystem tools if enabled
         registerFilesystemTools(registry);
@@ -123,6 +129,9 @@ public class JMeterToolRegistry {
         registry.register(new DeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
         registry.register(new WrapSamplersTool());
+        registry.register(new RunTestTool());
+        registry.register(new GetTestStatusTool());
+        registry.register(new GetTestResultsTool());
     }
 
     /**
