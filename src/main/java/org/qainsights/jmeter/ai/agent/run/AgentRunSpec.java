@@ -4,6 +4,7 @@ import org.qainsights.jmeter.ai.agent.hooks.AgentHook;
 import org.qainsights.jmeter.ai.agent.model.Message;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Specification for running an agent.
@@ -23,6 +24,7 @@ public class AgentRunSpec {
     private final Integer maxTokens;
     private final String reasoningEffort;
     private final List<Message> initialMessages;
+    private final AtomicBoolean abortFlag;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -37,6 +39,7 @@ public class AgentRunSpec {
         this.maxTokens = builder.maxTokens;
         this.reasoningEffort = builder.reasoningEffort;
         this.initialMessages = builder.initialMessages;
+        this.abortFlag = builder.abortFlag;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -51,6 +54,7 @@ public class AgentRunSpec {
     public Integer getMaxTokens() { return maxTokens; }
     public String getReasoningEffort() { return reasoningEffort; }
     public List<Message> getInitialMessages() { return initialMessages; }
+    public AtomicBoolean getAbortFlag() { return abortFlag; }
 
     public static Builder builder() {
         return new Builder();
@@ -69,6 +73,7 @@ public class AgentRunSpec {
         private Integer maxTokens;
         private String reasoningEffort;
         private List<Message> initialMessages;
+        private AtomicBoolean abortFlag;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -130,6 +135,11 @@ public class AgentRunSpec {
 
         public Builder initialMessages(List<Message> messages) {
             this.initialMessages = messages;
+            return this;
+        }
+
+        public Builder abortFlag(AtomicBoolean flag) {
+            this.abortFlag = flag;
             return this;
         }
 

@@ -159,6 +159,12 @@ public class AgentRunner {
             iteration++;
             context.setCurrentIteration(iteration);
 
+            // Check abort flag (set by /stop) and thread interrupt
+            if (isAborted(spec)) {
+                log.info("Agent loop aborted at iteration {} for session {}", iteration, spec.getSessionKey());
+                break;
+            }
+
             if (hook != null) hook.beforeIteration(context);
 
             // Check for iteration limit
@@ -169,6 +175,12 @@ public class AgentRunner {
             // Call LLM
             LLMResponse response = callLLM(currentMessages, llmOptions);
             context.setLastLlmResponse(response);
+
+            // Check abort after LLM call returns
+            if (isAborted(spec)) {
+                log.info("Agent loop aborted after LLM call at iteration {}", iteration);
+                break;
+            }
 
             // Capture usage from LLM response (last iteration wins, matching Nanobot)
             Map<String, Integer> respUsage = response.getUsage();
@@ -228,6 +240,12 @@ public class AgentRunner {
 
                 if (hook != null) hook.afterExecuteTools(response.getToolCalls(), context);
 
+                // Check abort after tool execution
+                if (isAborted(spec)) {
+                    log.info("Agent loop aborted after tool execution at iteration {}", iteration);
+                    break;
+                }
+
                 // Add tool results to messages
                 for (int i = 0; i < response.getToolCalls().size(); i++) {
                     ToolCall call = response.getToolCalls().get(i);
@@ -270,18 +288,20 @@ public class AgentRunner {
             finalContent = "I reached the maximum number of tool call iterations. Please try breaking the task into smaller steps.";
         }
 
-        // Finalize content through hook
-        if (hook != null) {
+        // Finalize content through hook (skip if aborted)
+        boolean wasAborted = isAborted(spec);
+        if (!wasAborted && hook != null) {
             finalContent = hook.finalizeContent(finalContent, context);
         }
 
-        // Save messages to session
-        // Include user message (last of initial messages) and all new messages
-        int skipCount = Math.max(0, messages.size() - 1);
-        saveMessagesToSession(session, currentMessages, skipCount);
+        // Save messages to session (skip if aborted — matching Nanobot behavior)
+        if (!wasAborted) {
+            int skipCount = Math.max(0, messages.size() - 1);
+            saveMessagesToSession(session, currentMessages, skipCount);
 
-        // Trigger background memory consolidation
-        memoryConsolidator.maybeConsolidate(session);
+            // Trigger background memory consolidation
+            memoryConsolidator.maybeConsolidate(session);
+        }
 
         // Build result
         java.util.Map<String, Object> resultMetadata = new java.util.HashMap<>();
@@ -428,5 +448,10 @@ public class AgentRunner {
             }
         }
         sessionManager.saveSession(session);
+    }
+
+    private boolean isAborted(AgentRunSpec spec) {
+        return (spec.getAbortFlag() != null && spec.getAbortFlag().get())
+                || Thread.currentThread().isInterrupted();
     }
 }

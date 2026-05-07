@@ -23,8 +23,11 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Facade for Agent Loop operations.
@@ -43,6 +46,8 @@ public class AgentLoop {
     private final GenerationSettings generationSettings;
     private final CommandRouter commandRouter;
     private final ConcurrentHashMap<String, CompletableFuture<AgentResponse>> activeTasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicBoolean> abortFlags = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CountDownLatch> completionLatches = new ConcurrentHashMap<>();
 
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
@@ -128,6 +133,11 @@ public class AgentLoop {
         }
 
         // Phase 2: Normal processing (via executor)
+        final AtomicBoolean abortFlag = new AtomicBoolean(false);
+        final CountDownLatch completionLatch = new CountDownLatch(1);
+        abortFlags.put(sessionKey, abortFlag);
+        completionLatches.put(sessionKey, completionLatch);
+
         CompletableFuture<AgentResponse> future = CompletableFuture.supplyAsync(() -> {
             // Check regular commands first (inside executor)
             Session session = sessionManager.getOrCreate(sessionKey);
@@ -148,6 +158,7 @@ public class AgentLoop {
                 .temperature(generationSettings.getTemperature())
                 .maxTokens(generationSettings.getMaxTokens())
                 .reasoningEffort(generationSettings.getReasoningEffort())
+                .abortFlag(abortFlag)
                 .build();
 
             // Run agent
@@ -172,7 +183,12 @@ public class AgentLoop {
 
         // Track active task for /stop support
         activeTasks.put(sessionKey, future);
-        future.whenComplete((r, e) -> activeTasks.remove(sessionKey));
+        future.whenComplete((r, e) -> {
+            activeTasks.remove(sessionKey);
+            abortFlags.remove(sessionKey);
+            completionLatches.remove(sessionKey);
+            completionLatch.countDown();
+        });
 
         return future;
     }
@@ -245,13 +261,34 @@ public class AgentLoop {
      * @return true if a task was cancelled
      */
     public boolean cancelActiveTask(String sessionKey) {
-        CompletableFuture<AgentResponse> future = activeTasks.remove(sessionKey);
-        if (future != null && !future.isDone()) {
-            boolean cancelled = future.cancel(true);
-            log.info("Cancelled active task for session {}: {}", sessionKey, cancelled);
-            return cancelled;
+        // 1. Set abort flag first (signals agent loop to stop)
+        AtomicBoolean abort = abortFlags.get(sessionKey);
+        if (abort != null) {
+            abort.set(true);
         }
-        return false;
+
+        // 2. Cancel the future (interrupts the thread)
+        CompletableFuture<AgentResponse> future = activeTasks.remove(sessionKey);
+        boolean cancelled = false;
+        if (future != null && !future.isDone()) {
+            cancelled = future.cancel(true);
+            log.info("Cancelled active task for session {}: {}", sessionKey, cancelled);
+        }
+
+        // 3. Wait for actual completion (matching Nanobot's `await t`)
+        CountDownLatch latch = completionLatches.get(sessionKey);
+        if (latch != null) {
+            try {
+                boolean completed = latch.await(5, TimeUnit.SECONDS);
+                if (!completed) {
+                    log.warn("Timed out waiting for task cleanup in session {}", sessionKey);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        return cancelled || (abort != null);
     }
 
     /**

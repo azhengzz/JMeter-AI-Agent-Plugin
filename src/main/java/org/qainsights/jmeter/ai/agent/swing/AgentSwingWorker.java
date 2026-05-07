@@ -79,6 +79,11 @@ public class AgentSwingWorker extends SwingWorker<AgentResponse, ProgressUpdate>
 
     @Override
     protected void done() {
+        // If cancelled, the UI fast-path already handled display — skip callback
+        if (isCancelled()) {
+            log.info("AgentSwingWorker was cancelled");
+            return;
+        }
         try {
             AgentResponse response = get();
             if (callback != null) {
