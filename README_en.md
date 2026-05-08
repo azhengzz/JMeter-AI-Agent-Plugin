@@ -53,6 +53,8 @@ Response to Chat UI
 ### Manual Installation
 
 1. Place the `jmeter-agent-xxx.jar` file into the `jmeter/lib/ext` directory
+2. Copy all contents from the `src/main/jmeter-agent/` directory into the `jmeter/bin/jmeter-agent/` directory (includes skills, templates, etc.)
+3. Append the contents of `jmeter-ai-sample.properties` to `jmeter/bin/user.properties` and adjust the configuration as needed
 
 
 

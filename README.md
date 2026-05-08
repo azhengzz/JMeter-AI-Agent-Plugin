@@ -52,6 +52,8 @@ AgentLoop（主循环）
 
 ### 手动安装
 1. 将 `jmeter-agent-xxx.jar` jar包放到 `jmeter/lib/ext` 目录下
+2. 将 `src/main/jmeter-agent/` 目录下的所有内容复制到 `jmeter/bin/jmeter-agent/` 目录下（包含技能文件、模板等）
+3. 将 `jmeter-ai-sample.properties` 的内容追加到 `jmeter/bin/user.properties` 中，并按需修改配置
 
 ## 快速开始
 
