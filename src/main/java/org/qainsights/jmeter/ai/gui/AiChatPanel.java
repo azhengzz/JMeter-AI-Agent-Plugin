@@ -304,6 +304,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         sendButton = new JButton("Send");
         sendButton.setFont(new Font(sendButton.getFont().getName(), Font.BOLD, 12));
         sendButton.setFocusPainted(false);
+        sendButton.setOpaque(true);
         sendButton.addActionListener(e -> sendMessage());
         inputPanel.add(sendButton, BorderLayout.EAST);
 
@@ -634,23 +635,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Check for /stop command to cancel active worker immediately
         if (message.trim().equalsIgnoreCase("/stop")) {
-            if (activeWorker != null && !activeWorker.isDone()) {
-                activeWorker.cancel(true);
-                activeWorker = null;
-            }
-            // Also cancel at AgentLoop level
-            if (agentLoop != null) {
-                agentLoop.cancelActiveTask(CHAT_SESSION_KEY);
-            }
-            removeLoadingIndicator();
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "Stopped.", getThemeColor("Label.disabledForeground", Color.GRAY), false);
-            } catch (BadLocationException e) {
-                log.error("Error displaying stop message", e);
-            }
-            sendButton.setEnabled(true);
-            messageField.requestFocusInWindow();
+            stopActiveTask();
             return;
         }
 
@@ -662,7 +647,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         "The @code command is disabled. Please use the right-click context menu in the JSR223 editor instead.",
                         Color.RED, false);
                 removeLoadingIndicator();
-                sendButton.setEnabled(true);
+                setButtonToSendMode();
                 messageField.requestFocusInWindow();
             } catch (BadLocationException e) {
                 log.error("Error displaying message", e);
@@ -680,7 +665,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                             "Agent Loop is not available. Please check your configuration.",
                             Color.RED, false);
                     removeLoadingIndicator();
-                    sendButton.setEnabled(true);
+                    setButtonToSendMode();
                     return;
                 } catch (BadLocationException e) {
                     log.error("Error displaying error message", e);
@@ -688,8 +673,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         }
 
-        // Disable send button while processing (keep messageField enabled for /stop)
-        sendButton.setEnabled(false);
+        // Switch button to Stop mode while processing
+        setButtonToStopMode();
 
         // Use AgentSwingWorker to process the message through AgentLoop
         activeWorker = new AgentSwingWorker(
@@ -737,7 +722,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Re-enable input
         messageField.setEnabled(true);
-        sendButton.setEnabled(true);
+        setButtonToSendMode();
         messageField.requestFocusInWindow();
     }
 
@@ -890,6 +875,54 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return "{}";
         }
         return arguments.toString();
+    }
+
+    /**
+     * Stop the active AI task. Shared by Stop button and /stop text command.
+     */
+    private void stopActiveTask() {
+        if (activeWorker != null && !activeWorker.isDone()) {
+            activeWorker.cancel(true);
+            activeWorker = null;
+        }
+        if (agentLoop != null) {
+            agentLoop.cancelActiveTask(CHAT_SESSION_KEY);
+        }
+        removeLoadingIndicator();
+        try {
+            messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                    "Stopped.", getThemeColor("Label.disabledForeground", Color.GRAY), false);
+        } catch (BadLocationException e) {
+            log.error("Error displaying stop message", e);
+        }
+        setButtonToSendMode();
+        messageField.requestFocusInWindow();
+    }
+
+    private void setButtonToStopMode() {
+        sendButton.setText("■ Stop");
+        sendButton.setForeground(new Color(180, 40, 40));
+        sendButton.setBackground(new Color(255, 210, 210));
+        sendButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 80, 80), 1, true),
+                BorderFactory.createEmptyBorder(4, 12, 4, 12)));
+        sendButton.setEnabled(true);
+        for (ActionListener al : sendButton.getActionListeners()) {
+            sendButton.removeActionListener(al);
+        }
+        sendButton.addActionListener(e -> stopActiveTask());
+    }
+
+    private void setButtonToSendMode() {
+        sendButton.setText("Send");
+        sendButton.setForeground(null);
+        sendButton.setBackground(null);
+        sendButton.setBorder(UIManager.getBorder("Button.border"));
+        sendButton.setEnabled(true);
+        for (ActionListener al : sendButton.getActionListeners()) {
+            sendButton.removeActionListener(al);
+        }
+        sendButton.addActionListener(e -> sendMessage());
     }
 
     /**
