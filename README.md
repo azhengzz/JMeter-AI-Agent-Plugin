@@ -1,317 +1,315 @@
-# 🚀 Feather Wand - JMeter Agent
-
-This plugin provides a simple way to chat with AI in JMeter. Feather Wand serves as your intelligent assistant for JMeter test plan development, optimization, and troubleshooting.
-
-> 🪄 **About the name**: The name "Feather Wand" was suggested by my children who were inspired by an episode of the animated show Bluey. In the episode, a simple feather becomes a magical wand that transforms the ordinary into something special (heavy) - much like how this plugin aims to transform your JMeter experience with a touch of AI magic!
-
-![Feather Wand](./images/Feather-Wand-AI-Agent-JMeter.png)
-![Feather Wand - JSR223 Context Menu](./images/Feather-Wand-JSR223-Menu.png)
+# Gitee Ai - JMeter Agent
+
+[English](README_en.md) | 中文
+
+Gitee Ai 是一个 JMeter AI Agent 插件，通过 Agent Loop 架构驱动 LLM 调用、工具执行与结果反馈的迭代循环，在 JMeter 中实现智能化的测试计划创建、优化和调试。
+
+![Gitee Ai](./images/Feather-Wand-AI-Agent-JMeter.png)
+![JSR223 Context Menu](./images/Feather-Wand-JSR223-Menu.png)
+
+## 核心特性
+
+- **Agent Loop 架构** — LLM 调用 → 工具执行 → 结果反馈的完整迭代循环，支持多轮工具调用完成复杂任务
+- **20+ Agent 工具** — 覆盖 JMeter 元素 CRUD、测试执行、文件系统、Web 搜索、命令执行等场景
+- **技能系统** — 从文件系统动态加载技能模块，内置 JMeter 专业知识（60+ 组件参考文档）、API 自动化测试等
+- **7 个 AI 提供者** — 支持 DeepSeek、智谱 GLM、Moonshot Kimi、MiniMax
+- **组件 Schema 校验** — 46 个 YAML Schema 文件，为 JMeter 组件参数提供类型、必填、枚举、范围等校验
+- **记忆系统** — 双层记忆架构（长期记忆 + 事件历史），支持跨会话记忆整合
+- **安全控制** — 文件访问白名单、SSRF 防护、危险命令拦截
+- **链路追踪** — 可选 LangSmith 集成，提供 LLM 调用追踪与监控
+- **Claude Code 集成** — 内嵌终端，可在 JMeter 中直接使用 Claude Code CLI
+
+## 架构概览
+
+```
+用户消息
+  ↓
+CommandRouter（命令路由）
+  ↓
+AgentLoop（主循环）
+  ├── ContextBuilder（构建上下文）
+  ├── LLM API 调用（Claude / OpenAI / Ollama / ...）
+  ├── ToolRegistry（工具注册中心）
+  │   ├── JMeter Element Tools（元素 CRUD）
+  │   ├── Test Execution Tools（测试运行/状态/结果）
+  │   ├── Filesystem Tools（文件读写编辑）
+  │   ├── Web Tools（搜索/抓取）
+  │   └── Exec Tool（命令执行）
+  ├── SkillsLoader（技能加载）
+  ├── MemoryStore（记忆存储）
+  └── SessionManager（会话管理）
+  ↓
+响应输出到 Chat UI
+```
+
+**工具调用流程：** LLM 决定调用工具 → ToolRegistry 查找并执行 → SchemaBasedPropertyHandler 校验参数 → 结果反馈给 LLM → 继续迭代或返回最终响应
+
+## 安装
+
+### 手动安装
+1. 将 `jmeter-agent-xxx.jar` jar包放到 `jmeter/lib/ext` 目录下
+
+## 快速开始
 
-## ✨ Features
+1. **配置 API Key** — 在 `user.properties` 中设置你的 AI 提供者密钥，例如：
+   ```properties
+   # 使用 MiniMax（默认提供者）
+   minimax.api.key=your-api-key
+
+   # 或使用 Anthropic Claude
+   anthropic.api.key=your-api-key
+   jmeter.ai.default.provider=anthropic
+   ```
+2. **打开聊天面板** — 右键 `Add > Non-Test Elements > Gitee Ai`
+3. **开始对话** — 直接描述你的需求，例如"创建一个包含 10 个线程的线程组，发送 GET 请求到 http://example.com"
 
-- Chat with AI directly within JMeter using Claude, OpenAI, or Ollama models
-- Get suggestions for JMeter elements based on your needs
-- Ask questions about JMeter functionality and best practices
-- Command intellisense with auto-completion for special commands in the chat input box
-- Use `@this` command to get detailed information about the currently selected element
-- Use `@code` command to extract code blocks from AI responses into the JSR223 editor
-- Use `@usage` command to get usage examples for JMeter components
-- Use `@lint` command to automatically rename elements in your test plan for better organization and readability
-- Use `@optimize` command to get optimization recommendations for the currently selected element in your test plan
-- Use `@wrap` command to intelligently group HTTP samplers under Transaction Controllers for better organization and reporting
-- Use right click context menu to refactor code, format code, and add functions in JSR223 script editor
-- Customize AI behavior through configuration properties
-- Switch between Claude, OpenAI, and Ollama models based on your preference or specific needs
-- **New!** Embedded **Claude Code** terminal: run Claude Code interactively within JMeter, with full awareness of your current test plan structure.
+## Agent 工具
 
-## 📥 Installation
+### JMeter 元素工具（默认启用）
 
-### Plugins Manager (Recommended)
+| 工具名 | 说明 |
+|--------|------|
+| `create_jmeter_element` | 创建 JMeter 元素（线程组、采样器、控制器、断言、定时器等） |
+| `update_jmeter_element` | 更新已有元素的属性 |
+| `delete_jmeter_element` | 删除指定元素（不可删除 TestPlan 根节点） |
+| `move_jmeter_element` | 移动元素到不同父节点，支持精确位置控制 |
+| `get_test_plan_tree` | 获取完整测试计划树结构（JSON） |
+| `get_selected_element` | 获取当前选中元素的详细信息 |
+| `find_element` | 按名称、类型或路径查找元素 |
+
+### AI 增强工具
 
-1. Install the JMeter Plugins Manager from [Plugins Manager](https://jmeter-plugins.org/).
-2. Restart JMeter.
-3. Launch Plugins Manager.
-4. Search for `feather wand` under `Available Plugins` tab.
-5. Select it and click `Apply Changes and Restart JMeter` button.
+| 工具名 | 说明 |
+|--------|------|
+| `optimize_jmeter_element` | AI 分析并优化选中元素的配置 |
+| `lint_jmeter_elements` | AI 重命名元素以改善可读性和组织性 |
+| `get_usage` | 查看 Token 使用统计 |
+
+### 测试执行工具
 
-### Manual Installation (Alternative)
+| 工具名 | 说明 |
+|--------|------|
+| `run_test` | 启动、停止或关闭当前测试计划 |
+| `get_test_status` | 获取测试执行状态（运行状态、线程进度、采样数） |
+| `get_test_results` | 获取测试结果（响应时间、吞吐量、错误率） |
+
+### 实用工具
 
-1. Download the latest release JAR file from the [Releases](https://github.com/QAInsights/jmeter-ai/releases) page.
-2. Place the JAR file in the `lib/ext` directory of your JMeter installation.
-3. Copy the contents of `jmeter-ai-sample.properties` into your `jmeter.properties` file (located in the `bin` directory of your JMeter installation) or into your `user.properties` file.
-4. Configure your API key(s) for Anthropic and/or OpenAI in the properties file.
-5. Restart JMeter.
-6. The Feather Wand plugin will appear as a new component in the right-click menu under "Add" > "Non-Test Elements" > "Feather Wand".
+| 工具名 | 说明 |
+|--------|------|
+| `wrap_http_samplers` | 将连续 HTTP 采样器包装到事务控制器下 |
 
-## ⚙️ Configuration
+### 文件系统工具（需启用）
 
-The Feather Wand plugin can be configured through JMeter properties. Copy the `jmeter-ai-sample.properties` file content to your `jmeter.properties` or `user.properties` file and modify the properties as needed.
+| 工具名 | 说明 |
+|--------|------|
+| `read_file` | 读取文件内容，支持分页 |
+| `write_file` | 写入文件，自动创建目录 |
+| `edit_file` | 编辑文件（字符串替换） |
+| `list_dir` | 列出目录内容，支持递归 |
 
-### 🔧 Available Configuration Options
+### Web 工具（需启用）
 
-#### Anthropic (Claude) Configuration
+| 工具名 | 说明 |
+|--------|------|
+| `web_search` | 搜索互联网（支持 Brave、Tavily、DuckDuckGo 等搜索引擎） |
+| `web_fetch` | 抓取网页内容，自动去除导航和广告 |
 
-| Property                  | Description                                                  | Default Value              |
-| ------------------------- | ------------------------------------------------------------ | -------------------------- |
-| `anthropic.api.key`       | Your Claude API key                                          | Required                   |
-| `claude.default.model`    | Default Claude model to use                                  | claude-3-sonnet-20240229   |
-| `claude.temperature`      | Temperature setting (0.0-1.0)                                | 0.7                        |
-| `claude.max.tokens`       | Maximum tokens for AI responses                              | 1024                       |
-| `claude.max.history.size` | Maximum conversation history size                            | 10                         |
-| `anthropic.log.level`     | Logging level for Anthropic API requests ("info" or "debug") | Empty (disabled)           |
+### 命令执行工具（需启用）
 
-#### OpenAI Configuration
+| 工具名 | 说明 |
+|--------|------|
+| `exec` | 执行 Shell 命令，支持超时和工作目录配置 |
 
-| Property                  | Description                                               | Default Value              |
-| ------------------------- | --------------------------------------------------------- | -------------------------- |
-| `openai.api.key`          | Your OpenAI API key                                       | Required                   |
-| `openai.default.model`    | Default OpenAI model to use                               | gpt-4o                     |
-| `openai.temperature`      | Temperature setting (0.0-1.0)                             | 0.5                        |
-| `openai.max.tokens`       | Maximum tokens for AI responses                           | 1024                       |
-| `openai.max.history.size` | Maximum conversation history size                         | 10                         |
-| `openai.log.level`        | Logging level for OpenAI API requests ("INFO" or "DEBUG") | Empty (disabled)           |
+## 命令
 
-#### Ollama Configuration
+### @ 命令
 
-| Property | Description | Default Value |
-| ---------------------------------------- | -------------------------------------------------------------- | -------------------------- |
-| `ollama.host` | Ollama server host | `http://localhost` |
-| `ollama.port` | Ollama server port | `11434` |
-| `ollama.default.model` | Default Ollama model to use | `deepseek-r1:1.5b` |
-| `ollama.temperature` | Temperature setting (0.0-1.0) | `0.5` |
-| `ollama.max.history.size` | Maximum conversation history size | `10` |
-| `ollama.thinking.mode` | Enable extended thinking (`ENABLED` or `DISABLED`) | `DISABLED` |
-| `ollama.thinking.level` | Thinking depth (`LOW`, `MEDIUM`, or `HIGH`) | `MEDIUM` |
-| `ollama.request.timeout.seconds` | HTTP request timeout in seconds (increase for thinking models) | `120` |
+在聊天输入框中使用，以 `@` 前缀触发：
 
-> ⚠️ When `ollama.thinking.mode=ENABLED`, increase `ollama.request.timeout.seconds` to at least `300` to avoid timeout errors during long inference.
+| 命令 | 说明 |
+|------|------|
+| `@this` | 获取当前选中元素的详细信息，可结合自然语言提问 |
+| `@optimize` | AI 分析并优化当前选中元素的配置 |
+| `@lint` | AI 重命名元素以改善组织性，支持撤销/重做 |
+| `@wrap` | 将 HTTP 采样器智能分组到事务控制器下 |
+| `@usage` | 查看 Token 使用统计和费用信息 |
 
-#### Code Refactoring Configuration
+### / 命令
 
-| Property                  | Description                                                  | Default Value              |
-| ------------------------- | ------------------------------------------------------------ | -------------------------- |
-| `jmeter.ai.refactoring.enabled` | Enable code refactoring for JSR223 script editor            | true                       |
-| `jmeter.ai.service.type` | The AI service to use for code refactoring ("openai" or "anthropic") | "openai"                   |
+斜杠命令，用于会话管理：
 
-#### Claude Code Terminal Configuration
+| 命令 | 说明 |
+|------|------|
+| `/new` | 开始新对话（清空当前会话） |
+| `/stop` | 取消当前会话的所有活跃任务 |
+| `/status` | 显示 Bot 状态（版本、模型、Token 用量、会话信息） |
+| `/help` | 显示可用命令列表 |
 
-Install Claude Code from https://code.claude.com/docs/en/quickstart
+## 技能系统
 
-| Property                                     | Description                                                                                           | Default Value              |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------- |
-| `jmeter.ai.terminal.claudecode.enabled`      | Enable the embedded Claude Code terminal feature                                                      | true                       |
-| `jmeter.ai.terminal.claudecode.path`         | Full path to the `claude` executable (e.g., `/usr/local/bin/claude` or `C:\...`)                      | Empty (auto-detect)        |
-| `jmeter.ai.terminal.claudecode.prompt`       | Custom system prompt passed to the Claude Code CLI (not recommended to change)                        | See sample properties file |
+Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md` 定义和可选的 `references/` 参考文档。
 
-### 💬 Customizing the System Prompt
+| 技能 | 说明 |
+|------|------|
+| **jmeter** | JMeter 核心技能 — 60+ 组件参考文档、46 个参数 Schema、JMeter 函数参考、编码规范、反模式指南 |
+| **api-autotest** | API 自动化测试 — 针对 Gitee-Scan OpenAPI 的专用技能，覆盖 25+ 接口 |
+| **memory** | 记忆管理 — 双层记忆（MEMORY.md 长期记忆 + HISTORY.md 事件历史），支持 grep 检索 |
+| **skill-creator** | 技能创建 — 元技能，用于创建和更新新的 Agent 技能 |
 
-The system prompt defines how the AI responds to your queries. You can customize this in the properties file to focus on specific aspects of JMeter or add your own guidelines.
+## 配置参考
 
-Use the `jmeter.ai.system.prompt` property to set a unified system prompt that applies to all AI providers (Claude, OpenAI, Ollama, DeepSeek, Zhipu, Moonshot, MiniMax). The default prompt is designed to provide helpful, JMeter-specific responses.
+将 `jmeter-ai-sample.properties` 的内容复制到 `user.properties`，按需修改。
 
-## 🔍 Special Commands
+### 全局 LLM 默认配置
 
-### 📊 @usage Command
+以下配置适用于所有 AI 提供者（除非被提供者专属配置覆盖）：
 
-Use the `@usage` command to view detailed token usage information for your AI interactions:
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `jmeter.ai.temperature` | 温度参数（0.0-1.0），越低越确定性 | `0.7` |
+| `jmeter.ai.max.tokens` | 单次响应最大 Token 数 | `65536` |
+| `jmeter.ai.max.history.size` | 对话历史保留条数 | `10` |
+| `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high | `none` |
+| `jmeter.ai.default.model` | 默认模型 | `MiniMax-M2.7` |
+| `jmeter.ai.default.provider` | 默认提供者 | `minimax` |
+| `jmeter.ai.context.window.tokens` | 上下文窗口大小 | `102400` |
+| `jmeter.ai.max.tool.iterations` | 单次 Agent 循环最大工具迭代数 | `50` |
 
-1. **How to Use**:
+### 提供者配置
 
-   - Simply type `@usage` in the chat
-   - The command will show usage statistics for either OpenAI or Anthropic depending on which service you're using
+#### Anthropic (Claude)
 
-2. **Information Provided**:
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `anthropic.api.key` | API 密钥 | 必填 |
+| `anthropic.api.base.url` | API 基础 URL | `https://api.anthropic.com` |
+| `anthropic.log.level` | 日志级别（info / debug） | 空（禁用） |
 
-   - Overall summary of total conversations and tokens used
-   - Detailed breakdown of recent conversations (last 10)
-   - Token usage per conversation (input and output tokens)
-   - Timestamps and model information
-   - Link to official pricing pages for cost information
+#### OpenAI
 
-3. **Example Output**:
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `openai.api.key` | API 密钥 | 必填 |
+| `openai.api.base.url` | API 基础 URL | `https://api.openai.com` |
+| `openai.log.level` | 日志级别 | 空（禁用） |
 
-   ``
-   # Usage Summary
+#### Ollama（本地）
 
-   ## Overall Summary
-   - Total Conversations: 5
-   - Total Input Tokens: 1500
-   - Total Output Tokens: 2000
-   - Total Tokens: 3500
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `ollama.enabled` | 是否启用 | `false` |
+| `ollama.host` | 服务地址 | `http://localhost` |
+| `ollama.port` | 服务端口 | `11434` |
+| `ollama.thinking.mode` | 思考模式（ENABLED / DISABLED） | `DISABLED` |
+| `ollama.thinking.level` | 思考深度（LOW / MEDIUM / HIGH） | 跟随全局设置 |
+| `ollama.request.timeout.seconds` | 请求超时（秒） | `120` |
 
-   ## Recent Conversations
-   - Conversation 1: 300 input, 400 output tokens
-   - Conversation 2: 250 input, 350 output tokens
-   ...
-   ``
+#### 国产大模型
 
-4. **Benefits**:
-   - Track your API usage and costs
-   - Monitor token consumption patterns
-   - Identify potential optimization opportunities
-   - Keep track of conversation history
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `deepseek.api.key` | DeepSeek API 密钥 | — |
+| `zhipu.api.key` | 智谱 GLM API 密钥 | — |
+| `moonshot.api.key` | Moonshot Kimi API 密钥 | — |
+| `minimax.api.key` | MiniMax API 密钥 | — |
 
-### 🪄 @this Command
+每个提供者均支持 `*.api.base.url` 配置自定义端点，以及 `*.temperature`、`*.max.history.size` 等覆盖全局默认值。
 
-Use the `@this` command in your message to get detailed information about the currently selected element in your test plan. For example:
+### Agent Loop 配置
 
-- "Tell me about @this element"
-- "How can I optimize @this?"
-- "What are the best practices for @this?"
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.enabled` | 启用 Agent Loop | `true` |
+| `agent.tool.result.max.chars` | 工具结果截断长度 | `16000` |
+| `agent.workspace.path` | 工作空间路径 | `jmeter-agent` |
 
-Feather Wand will analyze the selected element and provide tailored information and advice.
+### 记忆配置
 
-### 🔧 @optimize Command
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.memory.enabled` | 启用记忆系统 | `true` |
+| `agent.memory.consolidation.threshold` | 记忆整合触发阈值（0.0-1.0） | `0.5` |
 
-Use the `@optimize` command (or simply type "optimize") to get optimization recommendations for the currently selected element in your test plan. This command will:
+### 会话配置
 
-1. Analyze the selected element's configuration
-2. Identify potential performance bottlenecks
-3. Suggest specific, actionable improvements
-4. Provide best practices for that element type
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.session.timeout` | 会话超时时间（毫秒） | `3600000`（1 小时） |
+| `agent.session.max.sessions` | 最大活跃会话数 | `100` |
 
-For example, if you have an HTTP Request sampler selected, the optimization recommendations might include:
+### 工具配置
 
-- Connection and timeout settings adjustments
-- Proper header management
-- Efficient parameter handling
-- Encoding settings optimization
-- Redirect handling improvements
+#### JMeter 工具
 
-Simply select an element in your test plan and type `@optimize` or `optimize` in the chat to receive tailored optimization recommendations.
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.tools.jmeter.enabled` | 启用 JMeter 工具 | `true` |
 
-### 🧹 @lint Command
+#### 文件系统工具
 
-Use the `@lint` command to automatically rename elements in your test plan for better organization and readability:
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.tools.filesystem.enabled` | 启用文件系统工具 | `true` |
+| `agent.tools.filesystem.allowed.dirs` | 允许访问的目录（逗号分隔） | 用户主目录 |
+| `agent.tools.filesystem.denied.dirs` | 禁止访问的路径（逗号分隔） | — |
 
-1. **How to Use**:
+#### Web 搜索工具
 
-   - Type `@lint` in the chat to analyze your test plan structure
-   - The AI will suggest better names for elements based on their function and context
-   - Review the suggestions and confirm to apply the changes
-   - Use the undo/redo buttons to revert or reapply changes if needed
-   - e.g. `@lint rename the elements based on the URL` or `@lint rename the elements in pascal case`
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.tools.websearch.enabled` | 启用 Web 工具 | `true` |
+| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / duckduckgo / jina / serpapi） | `brave` |
+| `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
+| `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
+| `agent.tools.webfetch.max.length` | 网页抓取最大长度（字符） | `50000` |
+| `agent.tools.web.ssrf.protection` | SSRF 防护 | `true` |
 
-2. **Benefits**:
+#### 命令执行工具
 
-   - Improves test plan readability and maintenance
-   - Applies consistent naming conventions across your test plan
-   - Helps identify elements with generic or unclear names
-   - Makes test plans more understandable for team members
-   - Undo it if you don't like the changes
-   - Redo it if you like the changes
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.tools.exec.enabled` | 启用命令执行工具 | `true` |
+| `agent.tools.exec.timeout` | 默认超时（秒） | `60` |
+| `agent.tools.exec.working.dir` | 限定工作目录 | — |
+| `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则） | 内置默认规则 |
 
-3. **Best Practices**:
-   - Run `@lint` after creating a new test plan to establish good naming from the start
-   - Use it before sharing test plans with team members
-   - Apply it to imported test plans to make them conform to your naming standards
+### 聊天 UI 配置
 
-This feature is particularly valuable for large test plans or when working in teams where consistent naming is essential for collaboration.
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `ai.chat.show.tool.calls` | 显示工具调用信息 | `true` |
+| `ai.chat.show.thinking` | 显示模型思考内容 | `false` |
+| `ai.chat.tool.result.max.length` | 工具结果显示最大长度 | `500` |
 
-### 📦 @wrap Command
+### 链路追踪配置
 
-Use the `@wrap` command to intelligently group HTTP samplers under Transaction Controllers for better organization and reporting:
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `langsmith.enabled` | 启用 LangSmith 追踪 | `false` |
+| `langsmith.api.key` | LangSmith API 密钥 | — |
+| `langsmith.project.name` | 项目名称 | `jmeter-ai` |
+| `langsmith.endpoint` | API 端点 | `https://api.smith.langchain.com` |
 
-1. **How to Use**:
+## API 配置指南
 
-   - Select a Thread Group in your test plan
-   - Type `@wrap` in the chat
-   - The AI will analyze your HTTP samplers and group similar ones under Transaction Controllers
-   - Use the undo button to revert changes if needed
+### 国产大模型
 
-2. **Benefits**:
+| 提供者 | 获取 API Key |
+|--------|-------------|
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) |
+| 智谱 GLM | [open.bigmodel.cn](https://open.bigmodel.cn) |
+| Moonshot Kimi | [platform.moonshot.cn](https://platform.moonshot.cn) |
+| MiniMax | [api.minimax.com](https://api.minimax.com) |
 
-   - Improves test plan organization and readability
-   - Enhances test reports with meaningful transaction metrics
-   - Groups related HTTP requests logically
-   - Preserves the original order and hierarchy of samplers
-   - Maintains all child elements (like assertions and post-processors) with their parent samplers
+## 免责声明
 
-3. **How It Works**:
-   - Analyzes sampler names and paths to identify logical groupings
-   - Creates appropriately named Transaction Controllers
-   - Moves samplers under their respective Transaction Controllers
-   - Preserves the original order and hierarchy
-   - Uses pattern matching and structural analysis (not AI) for its grouping logic
+- **AI 局限性：** AI 可能产生错误信息，请在生产环境中验证所有建议
+- **备份测试计划：** 在实施 AI 建议的大规模修改前，务必备份测试计划
+- **API 费用：** 使用 API 会产生 Token 费用，请关注用量
+- **安全：** 不要在对话中分享敏感信息（凭证、专有代码等）
+- **性能影响：** 部分 AI 建议的配置可能影响测试性能，请监控资源使用
 
-This feature is especially useful for imported or recorded test plans that contain many individual HTTP samplers without proper organization.
+## 许可证
 
-## 💻 Claude Code Integration
-
-Feather Wand features a fully embedded interactive **Claude Code Terminal** using JediTerm. This allows you to interact directly with the [Claude Code CLI](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) from within JMeter, bringing agentic AI workflows into your performance testing environment.
-
-1. **Prerequisites**: You must have `claude-code` installed globally via npm (`npm install -g @anthropic-ai/claude-code`).
-2. **Setup**: Make sure to set `jmeter.ai.terminal.claudecode.enabled=true` in your properties file. You can also specify the executable path (`jmeter.ai.terminal.claudecode.path`) if it's not detected automatically in your system's PATH.
-3. **Capabilities**: 
-   - Start, reload, and interact with the JMeter test plan using natural language.
-   - Claude Code automatically receives the full structure/context of the currently open `.jmx` file.
-   - You can ask Claude Code to run the test plan, parse JTL files, and more.
-4. **Disabling**: If you do not want to use this feature, set `jmeter.ai.terminal.claudecode.enabled=false`. The terminal widget will gracefully start a dummy process with an instructional message.
-
-**⚠️ Disclaimer**: Claude Code is a powerful AI agent that can execute commands, modify files, and consume API tokens significantly faster than standard chat interfaces. Users are strongly encouraged to thoroughly review the [official Claude Code documentation](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) to fully understand its capabilities, security considerations, and potential costs before enabling and using this feature.
-
-## 🗝️ API Configuration
-
-Feather Wand supports Anthropic (Claude), OpenAI, and Ollama APIs. You can configure any combination in your properties file.
-
-### Anthropic API (Claude)
-
-1. Go to [Anthropic API](https://www.anthropic.com/) website
-2. Sign up for an account
-3. Create a new API key
-4. Copy the API key and paste it into the `anthropic.api.key` property in your `jmeter.properties` file
-5. For more information about the API key, visit the [API Key documentation](https://www.anthropic.com/api)
-
-### OpenAI API
-
-1. Go to [OpenAI API](https://platform.openai.com/) website
-2. Sign up for an account
-3. Create a new API key
-4. Copy the API key and paste it into the `openai.api.key` property in your `jmeter.properties` file
-5. For more information about the API key, visit the [API Key documentation](https://platform.openai.com/docs/api-reference)
-
-### Ollama (Local)
-
-1. Install Ollama from [ollama.com](https://ollama.com/)
-2. Pull a model, e.g. `ollama pull llama3.1` or `ollama pull deepseek-r1:1.5b`
-3. Set `jmeter.ai.service.type=ollama` in your `jmeter.properties` file
-4. Configure `ollama.host`, `ollama.port`, and `ollama.default.model` as needed
-5. No API key required - Ollama runs fully locally
-
-### Model Selection
-
-Feather Wand automatically filters available models to show only chat-compatible models. By default, it excludes audio, TTS, transcription, and other non-chat models. You can select your preferred model from the dropdown in the UI, or set default models in the properties file:
-
-- For Claude: `claude.default.model` (e.g., `claude-sonnet-4-6`)
-- For OpenAI: `openai.default.model` (e.g., `gpt-4o`)
-- For Ollama: `ollama.default.model` (e.g., `llama3.1`, `deepseek-r1:1.5b`)
-
-### Model Filtering
-
-Feather Wand applies intelligent filtering to the available models to ensure you only see relevant chat models in the dropdown:
-
-- **OpenAI Models**: Filters out audio, TTS, whisper, davinci, search, transcribe, realtime, and instruct models to show only GPT chat models.
-- **Claude Models**: Shows only the latest available Claude models.
-
-This filtering ensures that you only see models that are compatible with the chat interface and appropriate for JMeter-related tasks.
-
-## 🪲 Report Issues
-
-If you encounter any issues or have suggestions for improvement, please open an issue on the [GitHub repository](https://github.com/qainsights/jmeter-ai).
-
-## ⛳️ Roadmap
-
-Please check the [roadmap](https://github.com/users/QAInsights/projects/12) for more details.
-
-## ⚠️ Disclaimer and Best Practices
-
-While the Feather Wand plugin aims to provide helpful assistance, please keep the following in mind:
-
-- **AI Limitations**: The AI can make mistakes or provide incorrect information. Always verify critical suggestions before implementing them in production tests.
-- **Backup Your Test Plans**: Always backup your test plans before making significant changes, especially when implementing AI suggestions.
-- **Test Verification**: After making changes based on AI recommendations, thoroughly verify your test plan functionality in a controlled environment before running it against production systems.
-- **Performance Impact**: Some AI-suggested configurations may impact test performance. Monitor resource usage when implementing new configurations.
-- **Security Considerations**: Do not share sensitive information (credentials, proprietary code, etc.) in your conversations with the AI.
-- **API Costs**: Be aware that using the Claude API or OpenAI API incurs costs based on token usage. The plugin is designed to minimize token usage, but excessive use may result in higher costs.
-
-This plugin is provided as a tool to assist JMeter users, but the ultimate responsibility for test plan design, implementation, and execution remains with the user.
+Apache License 2.0
