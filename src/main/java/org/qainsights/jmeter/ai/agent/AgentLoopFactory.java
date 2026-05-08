@@ -63,12 +63,14 @@ public class AgentLoopFactory {
         ToolRegistry toolRegistry = new ToolRegistry();
         MemoryStore memoryStore = new MemoryStore(config.getWorkspacePath());
         SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
-        MemoryConsolidator consolidator = new MemoryConsolidator(memoryStore, aiService, sessionManager);
 
         ContextBuilder contextBuilder = new ContextBuilder(
                 memoryStore,
                 config.getWorkspacePath()
         );
+
+        MemoryConsolidator consolidator = new MemoryConsolidator(
+                memoryStore, aiService, sessionManager, contextBuilder, toolRegistry);
 
         // Register tools
         if (config.isJmeterToolsEnabled()) {

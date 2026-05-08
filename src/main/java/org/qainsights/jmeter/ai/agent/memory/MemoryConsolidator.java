@@ -1,8 +1,13 @@
 package org.qainsights.jmeter.ai.agent.memory;
 
+import com.knuddels.jtokkit.Encodings;
+import com.knuddels.jtokkit.api.Encoding;
+import com.knuddels.jtokkit.api.EncodingType;
+import org.qainsights.jmeter.ai.agent.context.ContextBuilder;
 import org.qainsights.jmeter.ai.agent.model.*;
 import org.qainsights.jmeter.ai.agent.session.Session;
 import org.qainsights.jmeter.ai.agent.session.SessionManager;
+import org.qainsights.jmeter.ai.agent.tools.ToolRegistry;
 import org.qainsights.jmeter.ai.service.AiService;
 import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -28,6 +33,10 @@ public class MemoryConsolidator {
     private static final int MAX_CONSOLIDATION_ROUNDS = 5;
     private static final int SAFETY_BUFFER = 1024;
 
+    // BPE tokenizer matching Nanobot's tiktoken cl100k_base
+    private static final Encoding ENCODING = Encodings.newDefaultEncodingRegistry()
+            .getEncoding(EncodingType.CL100K_BASE);
+
     private static final ToolDefinition SAVE_MEMORY_TOOL_DEF = ToolDefinition.builder()
             .name("save_memory")
             .description("Save the memory consolidation result to persistent storage.")
@@ -50,15 +59,20 @@ public class MemoryConsolidator {
     private final MemoryStore memoryStore;
     private final AiService aiService;
     private final SessionManager sessionManager;
+    private final ContextBuilder contextBuilder;
+    private final ToolRegistry toolRegistry;
     private final int contextWindowTokens;
     private final int maxCompletionTokens;
     private final double consolidationThreshold;
     private int consecutiveFailures = 0;
 
-    public MemoryConsolidator(MemoryStore memoryStore, AiService aiService, SessionManager sessionManager) {
+    public MemoryConsolidator(MemoryStore memoryStore, AiService aiService, SessionManager sessionManager,
+                              ContextBuilder contextBuilder, ToolRegistry toolRegistry) {
         this.memoryStore = memoryStore;
         this.aiService = aiService;
         this.sessionManager = sessionManager;
+        this.contextBuilder = contextBuilder;
+        this.toolRegistry = toolRegistry;
         this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
         this.maxCompletionTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
         this.consolidationThreshold = Double.parseDouble(AiConfig.getProperty("agent.memory.consolidation.threshold", "0.5"));
@@ -301,7 +315,7 @@ public class MemoryConsolidator {
 
         for (int i = start; i < all.size(); i++) {
             Message msg = all.get(i);
-            removedTokens += (msg.getContent() != null ? msg.getContent().length() / 4 : 0);
+            removedTokens += estimateMessageTokens(msg);
             if (i > start && msg.getRole() == Message.Role.USER) {
                 lastBoundary = i;
                 if (removedTokens >= tokensToRemove) {
@@ -411,17 +425,73 @@ public class MemoryConsolidator {
     }
 
     /**
-     * Estimate token count for a session (~4 chars per token).
-     * Public so commands like /status can use it.
+     * Estimate token count for a session by building a simulated prompt.
+     * Matches Nanobot's estimate_session_prompt_tokens: builds probe messages,
+     * collects all text fields, encodes with BPE tokenizer, adds per-message overhead.
      */
     public int estimateSessionTokens(Session session) {
-        List<Message> messages = session.getHistory(0);
-        int totalChars = 0;
-        for (Message message : messages) {
-            if (message.getContent() != null) {
-                totalChars += message.getContent().length();
+        // 1. Build simulated prompt (same format as what gets sent to LLM)
+        List<Message> history = session.getHistory(0);
+        List<Message> probeMessages;
+        if (contextBuilder != null) {
+            List<Map<String, Object>> toolDefs = toolRegistry != null ? toolRegistry.getToolDefinitions() : null;
+            probeMessages = contextBuilder.buildMessages(history, "[token-probe]", toolDefs);
+        } else {
+            probeMessages = new ArrayList<>(history);
+        }
+
+        // 2. Collect all text parts (matching Nanobot's estimate_prompt_tokens)
+        List<String> parts = new ArrayList<>();
+        for (Message msg : probeMessages) {
+            if (msg.getContent() != null) {
+                parts.add(msg.getContent());
+            }
+            if (msg.hasToolCalls()) {
+                for (ToolCall tc : msg.getToolCalls()) {
+                    if (tc.getName() != null) parts.add(tc.getName());
+                    parts.add(tc.getArgumentsAsString());
+                }
+            }
+            if (msg.getToolCallId() != null) {
+                parts.add(msg.getToolCallId());
+            }
+            String toolName = msg.getToolName();
+            if (toolName != null) {
+                parts.add(toolName);
             }
         }
-        return totalChars / 4;
+
+        // 3. Tool definitions
+        if (toolRegistry != null) {
+            for (Map<String, Object> def : toolRegistry.getToolDefinitions()) {
+                parts.add(def.toString());
+            }
+        }
+
+        // 4. Encode all text as one string (BPE accuracy depends on context),
+        //    then add per-message overhead (4 tokens per message, matching Nanobot)
+        String joined = String.join("\n", parts);
+        return ENCODING.countTokens(joined) + probeMessages.size() * 4;
+    }
+
+    /**
+     * Estimate tokens for a single message (for consolidation boundary calculation).
+     * Matches Nanobot's estimate_message_tokens.
+     */
+    private int estimateMessageTokens(Message msg) {
+        List<String> parts = new ArrayList<>();
+        if (msg.getContent() != null) parts.add(msg.getContent());
+        if (msg.hasToolCalls()) {
+            for (ToolCall tc : msg.getToolCalls()) {
+                if (tc.getName() != null) parts.add(tc.getName());
+                parts.add(tc.getArgumentsAsString());
+            }
+        }
+        if (msg.getToolCallId() != null) parts.add(msg.getToolCallId());
+        String toolName = msg.getToolName();
+        if (toolName != null) parts.add(toolName);
+
+        if (parts.isEmpty()) return 0;
+        return ENCODING.countTokens(String.join("\n", parts)) + 4;
     }
 }
