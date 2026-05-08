@@ -4,8 +4,7 @@
 
 Gitee Ai 是一个 JMeter AI Agent 插件，通过 Agent Loop 架构驱动 LLM 调用、工具执行与结果反馈的迭代循环，在 JMeter 中实现智能化的测试计划创建、优化和调试。
 
-![Gitee Ai](./images/Feather-Wand-AI-Agent-JMeter.png)
-![JSR223 Context Menu](./images/Feather-Wand-JSR223-Menu.png)
+![Gitee Ai](./images/Gitee-AI-Agent-JMeter.png)
 
 ## 核心特性
 
@@ -45,6 +44,11 @@ AgentLoop（主循环）
 **工具调用流程：** LLM 决定调用工具 → ToolRegistry 查找并执行 → SchemaBasedPropertyHandler 校验参数 → 结果反馈给 LLM → 继续迭代或返回最终响应
 
 ## 安装
+
+### 环境要求
+
+- **JMeter** 5.6.3
+- **JDK** 17 或更高版本
 
 ### 手动安装
 1. 将 `jmeter-agent-xxx.jar` jar包放到 `jmeter/lib/ext` 目录下

@@ -4,8 +4,7 @@ English | [中文](README.md)
 
 Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that drives iterative cycles of LLM calls, tool execution, and result feedback — enabling intelligent test plan creation, optimization, and debugging within JMeter.
 
-![Gitee Ai](./images/Feather-Wand-AI-Agent-JMeter.png)
-![JSR223 Context Menu](./images/Feather-Wand-JSR223-Menu.png)
+![Gitee Ai](./images/Gitee-AI-Agent-JMeter.png)
 
 ## Key Features
 
@@ -45,6 +44,11 @@ Response to Chat UI
 **Tool Call Flow:** LLM decides to call a tool → ToolRegistry finds and executes it → SchemaBasedPropertyHandler validates parameters → Result fed back to LLM → Continue iterating or return final response
 
 ## Installation
+
+### Prerequisites
+
+- **JMeter** 5.6.3
+- **JDK** 17 or higher
 
 ### Manual Installation
 
