@@ -45,6 +45,9 @@ public class AgentRunner {
     private final int defaultMaxIterations;
     private final long toolTimeoutMs;
 
+    // Track the thread running the agent loop so /stop can interrupt it
+    private volatile Thread runningThread;
+
     /**
      * Create an AgentRunner.
      */
@@ -140,6 +143,9 @@ public class AgentRunner {
             AgentHookContext context,
             Instant startTime) {
 
+        // Track the running thread so /stop can interrupt it
+        runningThread = Thread.currentThread();
+        try {
         List<Message> currentMessages = new ArrayList<>(messages);
         List<String> toolsUsed = new ArrayList<>();
         String finalContent = null;
@@ -172,6 +178,12 @@ public class AgentRunner {
                 log.debug("Iteration {}", iteration);
             }
 
+            // Check abort before making LLM call (avoid wasting tokens if already stopped)
+            if (isAborted(spec)) {
+                log.info("Agent loop aborted before LLM call at iteration {} for session {}", iteration, spec.getSessionKey());
+                break;
+            }
+
             // Call LLM
             LLMResponse response = callLLM(currentMessages, llmOptions);
             context.setLastLlmResponse(response);
@@ -189,6 +201,10 @@ public class AgentRunner {
             }
 
             if (response.isError()) {
+                if ("Interrupted".equals(response.getErrorMessage())) {
+                    log.info("Agent loop aborted during LLM call at iteration {}", iteration);
+                    break;
+                }
                 log.error("LLM returned error: {}", response.getErrorMessage());
                 finalContent = "I encountered an error: " + response.getErrorMessage();
                 if (hook != null) hook.onError(new RuntimeException(response.getErrorMessage()), context);
@@ -205,6 +221,12 @@ public class AgentRunner {
                 );
 
                 if (hook != null) hook.beforeExecuteTools(response.getToolCalls(), context);
+
+                // Check abort before executing tools
+                if (isAborted(spec)) {
+                    log.info("Agent loop aborted before tool execution at iteration {}", iteration);
+                    break;
+                }
 
                 // Execute tools (concurrent or serial)
                 ToolExecutionResult executionResult = executeToolCalls(
@@ -319,6 +341,9 @@ public class AgentRunner {
             .toolEvents(context.getToolEvents())
             .metadata(resultMetadata)
             .build();
+        } finally {
+            runningThread = null;
+        }
     }
 
     /**
@@ -453,5 +478,16 @@ public class AgentRunner {
     private boolean isAborted(AgentRunSpec spec) {
         return (spec.getAbortFlag() != null && spec.getAbortFlag().get())
                 || Thread.currentThread().isInterrupted();
+    }
+
+    /**
+     * Interrupt the thread running the agent loop, called by /stop.
+     */
+    public void interrupt() {
+        Thread t = runningThread;
+        if (t != null && t.isAlive()) {
+            log.info("Interrupting agent loop thread: {}", t.getName());
+            t.interrupt();
+        }
     }
 }

@@ -556,6 +556,12 @@ public class OpenAICompatibleProvider implements AiService {
             return responseBuilder.build();
 
         } catch (Exception e) {
+            // Kotlin SDK doesn't declare InterruptedException but can throw it at runtime
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                log.info("LLM request interrupted for {} (agent stopped)", providerName);
+                return LLMResponse.error("Interrupted");
+            }
             log.error("Error in generateResponseWithTools for {}", providerName, e);
             return LLMResponse.error("Error calling LLM: " + e.getMessage());
         }

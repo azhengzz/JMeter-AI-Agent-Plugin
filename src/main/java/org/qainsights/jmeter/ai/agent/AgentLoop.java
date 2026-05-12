@@ -267,7 +267,10 @@ public class AgentLoop {
             abort.set(true);
         }
 
-        // 2. Cancel the future (interrupts the thread)
+        // 2. Interrupt the actual agent loop thread (stops in-progress LLM calls)
+        agentRunner.interrupt();
+
+        // 3. Cancel the future
         CompletableFuture<AgentResponse> future = activeTasks.remove(sessionKey);
         boolean cancelled = false;
         if (future != null && !future.isDone()) {
@@ -275,7 +278,7 @@ public class AgentLoop {
             log.info("Cancelled active task for session {}: {}", sessionKey, cancelled);
         }
 
-        // 3. Wait for actual completion (matching Nanobot's `await t`)
+        // 4. Wait for actual completion
         CountDownLatch latch = completionLatches.get(sessionKey);
         if (latch != null) {
             try {

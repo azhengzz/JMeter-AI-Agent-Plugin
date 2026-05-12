@@ -163,7 +163,12 @@ public class LangSmithClient {
             return new LLMRun(runId, name, this, true);
 
         } catch (Exception e) {
-            log.error("Failed to create LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                log.debug("LangSmith create interrupted (agent stopped): runId={}", runId);
+            } else {
+                log.error("Failed to create LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            }
             return new LLMRun(runId, name, this, false);
         }
     }
@@ -233,7 +238,12 @@ public class LangSmithClient {
             log.info("LangSmith run updated successfully: runId={}", runId);
 
         } catch (Exception e) {
-            log.error("Failed to update LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                log.debug("LangSmith update interrupted (agent stopped): runId={}", runId);
+            } else {
+                log.error("Failed to update LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            }
         }
     }
 

@@ -789,6 +789,11 @@ public class OpenAiService implements AiService {
             return responseBuilder.build();
 
         } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                log.info("LLM request interrupted (agent stopped)");
+                return LLMResponse.error("Interrupted");
+            }
             log.error("Error in generateResponseWithTools", e);
             return LLMResponse.error("Error calling LLM: " + e.getMessage());
         }
