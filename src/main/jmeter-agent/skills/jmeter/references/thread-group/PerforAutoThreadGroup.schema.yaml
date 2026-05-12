@@ -1,0 +1,99 @@
+component:
+  type: perforautothreadgroup
+  name: PerforAuto Thread Group
+  class: com.gitee.qa.jmeter.threads.PerforAutoThreadGroup
+  description: Performance automation thread group with scenario tracking, record file output, and stop delay support
+
+properties:
+
+  - name: ThreadGroup.on_sample_error
+    type: String
+    required: false
+    enum: ["continue", "startnextloop", "stopthread", "stoptest", "stoptestnow"]
+    default: "continue"
+    description: Behavior on sampler error
+
+  - name: ThreadGroup.num_threads
+    type: String
+    required: true
+    default: "100"
+    description: Number of virtual users to simulate
+
+  - name: PerforAutoThreadGroup.ramp_time
+    type: String
+    required: false
+    default: "1"
+    description: Ramp-up time in seconds to start all threads
+
+  - name: PerforAutoThreadGroup.delayedStart
+    type: Boolean
+    required: false
+    default: false
+    description: Delay thread creation until the appropriate ramp-up time elapses
+
+  - name: PerforAutoThreadGroup.scheduler
+    type: Boolean
+    required: false
+    default: false
+    description: Enable scheduler for time-bound testing
+
+  - name: PerforAutoThreadGroup.duration
+    type: String
+    required: false
+    default: "0"
+    description: Test duration in seconds (requires scheduler enabled)
+
+  - name: PerforAutoThreadGroup.delay
+    type: String
+    required: false
+    default: "0"
+    description: Startup delay in seconds (requires scheduler enabled)
+
+  - name: PerforAutoThreadGroup.scenario
+    type: String
+    required: false
+    enum: ["单交易基准", "单交易负载梯度", "混合容量梯度", "稳定性测试"]
+    default: "单交易基准"
+    description: Test scenario name for tracking and recording
+
+  - name: PerforAutoThreadGroup.record_file_path
+    type: String
+    required: false
+    default: ""
+    description: File path to save test execution records (thread group lifecycle data)
+
+  - name: PerforAutoThreadGroup.stop_delay
+    type: String
+    required: false
+    default: "0"
+    description: Delay in seconds before stopping threads after test completion
+
+  - name: PerforAutoThreadGroup.perfor_auto_args
+    type: String
+    required: false
+    default: ""
+    description: Extra arguments for performance automation (passed to record output)
+
+  - name: ThreadGroup.main_controller
+    type: Object
+    class: org.apache.jmeter.control.LoopController
+    required: true
+    description: Main controller (LoopController) for this thread group
+    properties:
+      - name: LoopController.loops
+        type: String
+        required: true
+        default: "1"
+        description: Number of loops (-1 for infinite)
+
+      - name: LoopController.continue_forever
+        type: Boolean
+        required: false
+        default: false
+        description: Loop infinitely
+
+  - name: ThreadGroup.same_user_on_next_iteration
+    type: Boolean
+    required: false
+    default: true
+    description: Same user on each iteration

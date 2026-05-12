@@ -51,6 +51,11 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `threadgroup` | Basic thread group for virtual users | [Thread Group](./references/thread-group/ThreadGroup.md) | [Schema](./references/thread-group/ThreadGroup.schema.yaml) |
 | `setupthreadgroup` | Runs before regular thread groups | (see Thread Group) | [Schema](./references/thread-group/setUpThreadGroup.schema.yaml) |
 | `teardownthreadgroup` | Runs after regular thread groups | (see Thread Group) | [Schema](./references/thread-group/tearDownThreadGroup.schema.yaml) |
+| `steppingthreadgroup` | Step-based load ramp-up/ramp-down (Custom Thread Groups plugin) | [Stepping Thread Group](./references/thread-group/SteppingThreadGroup.md) | [Schema](./references/thread-group/SteppingThreadGroup.schema.yaml) |
+| `ultimatethreadgroup` | Per-row schedule control with flexible thread batches (Custom Thread Groups plugin) | [Ultimate Thread Group](./references/thread-group/UltimateThreadGroup.md) | [Schema](./references/thread-group/UltimateThreadGroup.schema.yaml) |
+| `perforautothreadgroup` | Performance automation thread group with scenario tracking and record output | [PerforAuto Thread Group](./references/thread-group/PerforAutoThreadGroup.md) | [Schema](./references/thread-group/PerforAutoThreadGroup.schema.yaml) |
+| `perforautosteppingthreadgroup` | Stepping thread group with automation tracking | [PerforAuto Stepping Thread Group](./references/thread-group/PerforAutoSteppingThreadGroup.md) | [Schema](./references/thread-group/PerforAutoSteppingThreadGroup.schema.yaml) |
+| `perforautoultimatethreadgroup` | Ultimate thread group with per-row schedule and automation tracking | [PerforAuto Ultimate Thread Group](./references/thread-group/PerforAutoUltimateThreadGroup.md) | [Schema](./references/thread-group/PerforAutoUltimateThreadGroup.schema.yaml) |
 
 
 ### Samplers

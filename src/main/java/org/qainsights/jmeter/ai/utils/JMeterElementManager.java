@@ -242,6 +242,16 @@ public class JMeterElementManager {
                 "org.apache.jmeter.threads.gui.SetupThreadGroupGui"));
         ELEMENT_CLASS_MAP.put("teardownthreadgroup", new ElementClassInfo("org.apache.jmeter.threads.PostThreadGroup",
                 "org.apache.jmeter.threads.gui.PostThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("steppingthreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.SteppingThreadGroup",
+                "kg.apc.jmeter.threads.SteppingThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("ultimatethreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.UltimateThreadGroup",
+                "kg.apc.jmeter.threads.UltimateThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("perforautothreadgroup", new ElementClassInfo("com.gitee.qa.jmeter.threads.PerforAutoThreadGroup",
+                "com.gitee.qa.jmeter.threads.gui.PerforAutoThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("perforautosteppingthreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.PerforAutoSteppingThreadGroup",
+                "kg.apc.jmeter.threads.PerforAutoSteppingThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("perforautoultimatethreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.PerforAutoUltimateThreadGroup",
+                "kg.apc.jmeter.threads.PerforAutoUltimateThreadGroupGui"));
 
         // Assertions
         ELEMENT_CLASS_MAP.put("responseassert", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
