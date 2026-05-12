@@ -88,6 +88,8 @@ public class SchemaBasedPropertyHandler {
                     handleHeaderManagerProperty(element, propName, propValue);
                 } else if ("CookieManager.cookies".equals(propName) && propDef.hasItemProperties()) {
                     handleCookieManagerProperty(element, propName, propValue);
+                } else if ("ultimatethreadgroupdata".equals(propName)) {
+                    handleUltimateThreadGroupData(element, propName, propValue);
                 } else {
                     handleGenericCollectionProperty(element, propName, propValue);
                 }
@@ -501,6 +503,72 @@ public class SchemaBasedPropertyHandler {
                     .map(Object::toString)
                     .collect(java.util.stream.Collectors.joining(","));
             element.setProperty(propName, joinedValue);
+        }
+    }
+
+    /**
+     * Handle ultimatethreadgroupdata: convert list of Maps to 2D CollectionProperty.
+     * Each row is [Start Threads Count, Initial Delay, Startup Time, Hold Load For, Shutdown Time].
+     */
+    @SuppressWarnings("unchecked")
+    private void handleUltimateThreadGroupData(TestElement element, String propName, Object propValue) {
+        try {
+            Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
+            Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
+            Class<?> jMeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
+
+            List<Object> rows = convertToList(propValue);
+
+            Object outerCollectionProp = collectionPropClass
+                    .getConstructor(String.class, java.util.Collection.class)
+                    .newInstance(propName, new ArrayList<>());
+
+            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jMeterPropClass);
+
+            String[] fieldOrder = {"Start Threads Count", "Initial Delay", "Startup Time", "Hold Load For", "Shutdown Time"};
+
+            for (int i = 0; i < rows.size(); i++) {
+                Object row = rows.get(i);
+                List<String> values;
+
+                if (row instanceof Map) {
+                    Map<String, Object> rowMap = (Map<String, Object>) row;
+                    values = new ArrayList<>();
+                    for (String field : fieldOrder) {
+                        Object val = rowMap.get(field);
+                        values.add(val != null ? val.toString() : "0");
+                    }
+                } else if (row instanceof List) {
+                    List<Object> listRow = (List<Object>) row;
+                    values = new ArrayList<>();
+                    for (Object item : listRow) {
+                        values.add(item != null ? item.toString() : "0");
+                    }
+                } else {
+                    log.warn("Row {} is neither Map nor List, skipping", i);
+                    continue;
+                }
+
+                Object innerCollectionProp = collectionPropClass
+                        .getConstructor(String.class, java.util.Collection.class)
+                        .newInstance(String.valueOf(System.currentTimeMillis() + i), new ArrayList<>());
+
+                for (int j = 0; j < values.size(); j++) {
+                    String uniqueName = String.valueOf(System.currentTimeMillis() + i + j);
+                    Object stringProp = stringPropClass
+                            .getConstructor(String.class, String.class)
+                            .newInstance(uniqueName, values.get(j));
+                    addPropertyMethod.invoke(innerCollectionProp, stringProp);
+                }
+
+                addPropertyMethod.invoke(outerCollectionProp, innerCollectionProp);
+            }
+
+            element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) outerCollectionProp);
+            log.info("Set UltimateThreadGroup data: {} with {} rows", propName, rows.size());
+
+        } catch (Exception e) {
+            log.error("Failed to create CollectionProperty for {}", propName, e);
         }
     }
 
