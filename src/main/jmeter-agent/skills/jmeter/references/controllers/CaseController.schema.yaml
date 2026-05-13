@@ -1,0 +1,10 @@
+component:
+  type: casecontroller
+  name: Case Controller
+  description: A controller for labeling and managing test cases, identified by the case_name property. Useful for API automation testing scenarios.
+
+properties:
+  - name: CaseController.case_name
+    type: String
+    required: false
+    description: Case name used to identify the current test case

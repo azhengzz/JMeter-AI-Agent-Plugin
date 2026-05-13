@@ -520,6 +520,14 @@ public class JMeterElementManager {
                 "org.apache.jmeter.control.gui.IncludeControllerGui"));
         ELEMENT_CLASS_MAP.put("recordingcontroller", new ElementClassInfo(
                 "org.apache.jmeter.control.RecordingController", "org.apache.jmeter.control.gui.RecordController"));
+        ELEMENT_CLASS_MAP.put("casecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.CaseController",
+                "com.gitee.qa.jmeter.control.gui.CaseControlPanel"));
+        ELEMENT_CLASS_MAP.put("dowhilecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.DoWhileController",
+                "com.gitee.qa.jmeter.control.gui.DoWhileControllerGui"));
+        ELEMENT_CLASS_MAP.put("loopvarcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.LoopController",
+                "com.gitee.qa.jmeter.control.gui.LoopControlPanel"));
+        ELEMENT_CLASS_MAP.put("probabilitycontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ProbabilityController",
+                "com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui"));
         ELEMENT_CLASS_MAP.put("criticalsectioncontroller",
                 new ElementClassInfo("org.apache.jmeter.control.CriticalSectionController",
                         "org.apache.jmeter.control.gui.CriticalSectionControllerPanel"));
@@ -851,6 +859,14 @@ public class JMeterElementManager {
                 return "While Controller";
             case "transactioncontroller":
                 return "Transaction Controller";
+            case "casecontroller":
+                return "Case Controller";
+            case "dowhilecontroller":
+                return "DoWhile Controller";
+            case "loopvarcontroller":
+                return "Loop Controller (with Variable)";
+            case "probabilitycontroller":
+                return "Probability Controller";
             case "runtimecontroller":
                 return "Runtime Controller";
             case "headermanager":

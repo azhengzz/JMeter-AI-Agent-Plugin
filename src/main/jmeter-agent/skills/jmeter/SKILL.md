@@ -81,6 +81,10 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `simplecontroller` | Organize elements sequentially | [Simple Controller](./references/controllers/SimpleController.md) | [Schema](./references/controllers/SimpleController.schema.yaml) |
 | `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
 | `includecontroller` | Include external JMX test fragment | [Include Controller](./references/controllers/IncludeController.md) | [Schema](./references/controllers/IncludeController.schema.yaml) |
+| `casecontroller` | Label and manage test cases with case_name property | [Case Controller](./references/controllers/CaseController.md) | [Schema](./references/controllers/CaseController.schema.yaml) |
+| `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
+| `loopvarcontroller` | Loop with configurable counter variable | [Loop Controller (with Variable)](./references/controllers/LoopVarController.md) | [Schema](./references/controllers/LoopVarController.schema.yaml) |
+| `probabilitycontroller` | Randomly select children based on weight | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |
