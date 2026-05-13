@@ -84,7 +84,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `casecontroller` | Label and manage test cases with case_name property | [Case Controller](./references/controllers/CaseController.md) | [Schema](./references/controllers/CaseController.schema.yaml) |
 | `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
 | `loopvarcontroller` | Loop with configurable counter variable | [Loop Controller (with Variable)](./references/controllers/LoopVarController.md) | [Schema](./references/controllers/LoopVarController.schema.yaml) |
-| `probabilitycontroller` | Randomly select children based on weight | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
+| `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |

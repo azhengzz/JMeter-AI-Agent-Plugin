@@ -2,21 +2,33 @@
 
 ## Description
 
-The Probability Controller randomly selects and executes one of its child Probability Controllers based on their assigned weights. This enables weighted random distribution of test scenarios, useful for simulating realistic traffic patterns where different operations occur with different frequencies.
+The Probability Controller randomly selects and executes **one** of its child Probability Controllers based on their assigned weights. This enables weighted random distribution of test scenarios, useful for simulating realistic traffic patterns where different operations occur with different frequencies.
+
+## ⚠️ Important: How It Works
+
+**Key Requirement**: Probability Controller **must have a parent Probability Controller** to function correctly.
+
+### Weight Calculation Mechanism
+
+1. A parent Probability Controller collects all direct child Probability Controllers
+2. Calculates total weight = sum of all child weights
+3. Generates a random number between 0 and total weight
+4. Selects the child whose cumulative weight range covers the random number
+5. Only the selected child executes; other children are skipped
+6. On each iteration, a new random selection is made
+
+### Weight Distribution Formula
+
+For weights 60/30/10:
+- GET selected if: `0 ≤ random < 60` (probability = 60/100 = 60%)
+- POST selected if: `60 ≤ random < 90` (probability = 30/100 = 30%)
+- DELETE selected if: `90 ≤ random ≤ 100` (probability = 10/100 = 10%)
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | ProbabilityController.weight | String | No | 0 | Weight value for probability calculation. Higher weight means higher chance of being selected |
-
-## How It Works
-
-1. The controller calculates the total weight of all direct child Probability Controllers
-2. It generates a random number between 0 and the total weight
-3. It selects the child whose weight range covers the random number
-4. Only the selected child (and its subtree) executes; other children are skipped
-5. On each iteration, a new random selection is made
 
 ## Usage Examples
 
@@ -108,15 +120,44 @@ create_jmeter_element with:
 
 ## Best Practices
 
-1. **Use integer weights**: E.g., `80` and `20` instead of `0.8` and `0.2` for clarity
-2. **Ensure weights sum to 100**: Makes it intuitive to understand percentages (though not required)
-3. **Name with percentage**: Include the percentage in the element name for readability, e.g., `"Browse (80%)"`
-4. **Keep scenarios independent**: Each child Probability Controller should contain a self-contained test scenario
-5. **Nest for complex distributions**: Use nested Probability Controllers for multi-level random selection
+1. **Always nest under a parent Probability Controller**: This is the most critical requirement. Without a parent PC, weights will not work.
 
-## Notes
+2. **Use integer weights**: E.g., `80` and `20` instead of `0.8` and `0.2` for clarity
 
-- Only direct child Probability Controllers participate in the weight calculation; other element types (samplers, controllers) are always executed
-- If no weight is set, the default is `0`, meaning the child is never selected
-- The random selection is re-evaluated on each iteration
-- This is a Gitee QA extension component and requires the corresponding plugin to be installed
+3. **Ensure weights sum to 100**: Makes it intuitive to understand percentages (though not required)
+
+4. **Name with percentage**: Include the percentage in the element name for readability, e.g., `"Browse (80%)"`
+
+5. **Keep scenarios independent**: Each child Probability Controller should contain a self-contained test scenario
+
+6. **Nest for complex distributions**: Use nested Probability Controllers for multi-level random selection
+
+7. **Parent PC can be empty**: The parent Probability Controller doesn't need a weight - it just needs to exist as a container. It can have weight `0` or no weight set at all.
+
+8. **Child elements are always executed**: Only direct child Probability Controllers participate in random selection; samplers and other controllers inside a child PC will always execute if that child is selected.
+
+## ⚠️ Common Pitfall
+
+**Incorrect Usage**: Placing Probability Controllers directly under a Thread Group or Simple Controller will NOT work as expected. The weights will not be respected, and distribution will be uneven.
+
+**Correct Usage**: Always nest Probability Controllers under a parent Probability Controller.
+
+```
+❌ Incorrect:
+Thread Group
+└── Probability Controller (weight: 60)
+    └── HTTP Request GET
+└── Probability Controller (weight: 30)
+    └── HTTP Request POST
+
+✓ Correct:
+Thread Group
+└── Simple Controller (optional wrapper)
+    └── Probability Controller (parent - no weight needed)
+        └── Probability Controller (weight: 60)
+            └── HTTP Request GET
+        └── Probability Controller (weight: 30)
+            └── HTTP Request POST
+```
+
+The parent Probability Controller can have weight `0` or be empty - it only acts as a container for random selection.
