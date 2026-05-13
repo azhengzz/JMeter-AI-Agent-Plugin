@@ -197,6 +197,19 @@ public class ContextBuilder {
         return messages;
     }
 
+    /**
+     * Add an assistant message with reasoning content to the message list.
+     */
+    public List<Message> addAssistantMessage(
+            List<Message> messages,
+            String content,
+            List<ToolCall> toolCalls,
+            String reasoningContent) {
+
+        messages.add(Message.assistant(content, toolCalls, reasoningContent));
+        return messages;
+    }
+
     // /**
     //  * Build system prompt with tool descriptions
     //  */

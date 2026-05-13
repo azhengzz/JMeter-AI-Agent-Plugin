@@ -19,6 +19,13 @@ public final class ProviderSpec {
     private final Map<String, Map<String, Object>> modelOverrides;
     private final boolean rawHttpClientOnly;  // Use raw HTTP instead of SDK (for incompatible APIs)
 
+    // How to inject the thinking on/off toggle into extra_body.
+    // ""              — no extra_body needed (default)
+    // "thinking_type" — {"thinking": {"type": "enabled"/"disabled"}}  (DeepSeek, VolcEngine, BytePlus)
+    // "enable_thinking" — {"enable_thinking": true/false}  (DashScope)
+    // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
+    private final String thinkingStyle;
+
     private ProviderSpec(Builder builder) {
         this.name = builder.name;
         this.displayName = builder.displayName;
@@ -28,6 +35,7 @@ public final class ProviderSpec {
         this.backend = builder.backend;
         this.modelOverrides = Collections.unmodifiableMap(new HashMap<>(builder.modelOverrides));
         this.rawHttpClientOnly = builder.rawHttpClientOnly;
+        this.thinkingStyle = builder.thinkingStyle;
     }
 
     public String getName() {
@@ -66,6 +74,10 @@ public final class ProviderSpec {
         return rawHttpClientOnly;
     }
 
+    public String getThinkingStyle() {
+        return thinkingStyle;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -101,6 +113,7 @@ public final class ProviderSpec {
         private String backend = "openai_compat";
         private final Map<String, Map<String, Object>> modelOverrides = new HashMap<>();
         private boolean rawHttpClientOnly = false;
+        private String thinkingStyle = "";
 
         public Builder name(String name) {
             this.name = name;
@@ -141,6 +154,16 @@ public final class ProviderSpec {
          */
         public Builder rawHttpClientOnly(boolean rawHttpClientOnly) {
             this.rawHttpClientOnly = rawHttpClientOnly;
+            return this;
+        }
+
+        /**
+         * Set the thinking style for this provider.
+         * @param thinkingStyle one of "", "thinking_type", "enable_thinking", "reasoning_split"
+         * @return this builder
+         */
+        public Builder thinkingStyle(String thinkingStyle) {
+            this.thinkingStyle = thinkingStyle != null ? thinkingStyle : "";
             return this;
         }
 

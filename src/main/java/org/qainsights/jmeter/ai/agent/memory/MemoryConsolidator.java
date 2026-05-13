@@ -17,13 +17,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * AI-powered memory consolidation aligned with Nanobot's MemoryConsolidator.
+ * AI-powered memory consolidation aligned with Nanobot's MemoryStore.consolidate().
  * Uses forced tool calling (save_memory) for structured output,
- * with text-based fallback and raw-archive degradation.
+ * with auto retry and raw-archive degradation.
  */
 public class MemoryConsolidator {
     private static final Logger log = LoggerFactory.getLogger(MemoryConsolidator.class);
@@ -33,7 +31,6 @@ public class MemoryConsolidator {
     private static final int MAX_CONSOLIDATION_ROUNDS = 5;
     private static final int SAFETY_BUFFER = 1024;
 
-    // BPE tokenizer matching Nanobot's tiktoken cl100k_base
     private static final Encoding ENCODING = Encodings.newDefaultEncodingRegistry()
             .getEncoding(EncodingType.CL100K_BASE);
 
@@ -99,7 +96,6 @@ public class MemoryConsolidator {
 
     /**
      * Consolidate a session when needed — multi-round support (Nanobot alignment).
-     * Archives old messages in rounds until token count drops to target.
      */
     public CompletableFuture<Boolean> maybeConsolidate(Session session) {
         if (!needsConsolidation(session)) {
@@ -166,7 +162,7 @@ public class MemoryConsolidator {
                 log.warn("AI consolidation attempt {}/{} failed", i + 1, MAX_RETRIES);
             }
 
-            // All retries failed — raw archive as last resort
+            // All retries failed — raw archive as last resort (Nanobot: _fail_or_raw_archive)
             log.warn("All AI consolidation attempts failed, falling back to raw archive");
             rawArchive(messages);
             return true;
@@ -174,67 +170,76 @@ public class MemoryConsolidator {
     }
 
     /**
-     * Core AI consolidation logic — tries forced tool calling, falls back to text-based.
+     * Core AI consolidation — aligned with Nanobot's MemoryStore.consolidate().
+     * Uses forced tool_choice → auto retry → failure tracking → raw-archive.
      */
     private boolean consolidateWithAi(List<Message> messages) {
-        try {
-            String currentMemory = memoryStore.readLongTermMemory();
-            String messagesText = formatMessages(messages);
+        String currentMemory = memoryStore.readLongTermMemory();
+        String messagesText = formatMessages(messages);
 
-            if (aiService.supportsForcedToolChoice()) {
-                return consolidateViaToolCall(currentMemory, messagesText, messages);
-            } else {
-                return consolidateViaText(currentMemory, messagesText, messages);
-            }
-        } catch (Exception e) {
-            log.warn("AI consolidation attempt failed: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Nanobot-mode: use forced tool calling to get structured save_memory output.
-     * Aligned with Nanobot: only retries with auto if forced returns error about unsupported tool_choice.
-     * If LLM ignores tool_choice (finishReason=stop, no tool calls), returns failure for outer retry loop.
-     */
-    private boolean consolidateViaToolCall(String currentMemory, String messagesText, List<Message> originalMessages) {
         List<Message> chatMessages = List.of(
                 Message.system("You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."),
-                Message.user(buildConsolidationPrompt(currentMemory, messagesText))
+                Message.user(String.format("""
+                        Process this conversation and call the save_memory tool with your consolidation.
+
+                        ## Current Long-term Memory
+                        %s
+
+                        ## Conversation to Process
+                        %s
+                        """,
+                        currentMemory.isEmpty() ? "(empty)" : currentMemory,
+                        messagesText))
         );
 
         try {
-            // Nanobot line 139-145: try forced tool_choice first
+            // Step 1: try forced tool_choice (Nanobot line 139-145)
             LLMResponse response = aiService.generateResponseWithForcedTool(
                     chatMessages, List.of(SAVE_MEMORY_TOOL_DEF), "save_memory");
 
-            // Nanobot line 147-156: if error about unsupported tool_choice, retry with auto
+            // Step 2: if tool_choice unsupported, retry with auto (Nanobot line 147-156)
             if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
                 log.warn("Forced tool_choice unsupported, retrying with auto");
                 response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
             }
 
-            // Nanobot line 158-166: if no tool calls, fail
-            if (!response.hasToolCalls()) {
-                log.warn("LLM did not call save_memory tool (finishReason={}, content_len={}, content_preview={})",
-                        response.getFinishReason(),
-                        response.getContent() != null ? response.getContent().length() : 0,
-                        response.getContent() != null ? response.getContent().substring(0, Math.min(200, response.getContent().length())) : "");
-                return handleConsolidationFailure(originalMessages);
+            // Step 3: if no tool calls, track failure (Nanobot line 158-166)
+            if (response.isError()) {
+                log.warn("Tool-call consolidation failed: {}", response.getErrorMessage());
+                return handleConsolidationFailure(messages);
             }
 
-            // Nanobot line 168-196: validate args and save
-            return extractAndSaveToolCallResult(response, currentMemory, originalMessages);
+            if (!response.hasToolCalls()) {
+                log.warn("LLM did not call save_memory tool (finishReason={}, content_len={})",
+                        response.getFinishReason(),
+                        response.getContent() != null ? response.getContent().length() : 0);
+                return handleConsolidationFailure(messages);
+            }
+
+            // Step 4: extract and save (Nanobot line 168-196)
+            return extractAndSaveToolCallResult(response, currentMemory, messages);
 
         } catch (Exception e) {
-            // Nanobot line 197-199: exception → fail_or_raw_archive
-            log.error("Memory consolidation failed", e);
-            return handleConsolidationFailure(originalMessages);
+            // Step 5: if forced tool_choice caused the exception, try auto
+            if (isToolChoiceUnsupported(e.getMessage())) {
+                log.warn("Forced tool_choice unsupported (exception), retrying with auto");
+                try {
+                    LLMResponse response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
+                    if (!response.isError() && response.hasToolCalls()) {
+                        return extractAndSaveToolCallResult(response, currentMemory, messages);
+                    }
+                } catch (Exception e2) {
+                    log.warn("Auto tool-call also failed: {}", e2.getMessage());
+                }
+            } else {
+                log.error("Memory consolidation failed", e);
+            }
+            return handleConsolidationFailure(messages);
         }
     }
 
     /**
-     * Extract save_memory tool call result and persist.
+     * Extract save_memory tool call result and persist (Nanobot line 168-196).
      */
     private boolean extractAndSaveToolCallResult(LLMResponse response, String currentMemory, List<Message> originalMessages) {
         ToolCall saveCall = response.getToolCalls().stream()
@@ -260,8 +265,7 @@ public class MemoryConsolidator {
             memoryStore.writeLongTermMemory(memoryUpdate);
         }
 
-        log.info("Memory consolidation done (tool-call mode): history={} chars, memory_changed={}",
-                historyEntry.length(), !memoryUpdate.equals(currentMemory));
+        log.info("Memory consolidation done for {} messages", originalMessages.size());
         return true;
     }
 
@@ -273,23 +277,8 @@ public class MemoryConsolidator {
     }
 
     /**
-     * Text-mode fallback: parse HISTORY_ENTRY / MEMORY_UPDATE markers from response.
-     */
-    private boolean consolidateViaText(String currentMemory, String messagesText, List<Message> originalMessages) {
-        String prompt = buildConsolidationPrompt(currentMemory, messagesText);
-        String response = aiService.generateResponse(List.of(prompt));
-        boolean success = parseAndSaveConsolidation(response);
-
-        if (!success) {
-            return handleConsolidationFailure(originalMessages);
-        }
-
-        log.info("Memory consolidation done (text mode)");
-        return true;
-    }
-
-    /**
      * Handle consolidation failure — track consecutive failures, raw-archive if threshold reached.
+     * Aligned with Nanobot's _fail_or_raw_archive.
      */
     private boolean handleConsolidationFailure(List<Message> messages) {
         consecutiveFailures++;
@@ -327,54 +316,6 @@ public class MemoryConsolidator {
         return lastBoundary > start ? lastBoundary : all.size();
     }
 
-    // --- Prompt building and parsing ---
-
-    private String buildConsolidationPrompt(String currentMemory, String messagesText) {
-        return String.format("""
-                Process this conversation and call the save_memory tool with your consolidation.
-
-                ## Current Long-term Memory
-                %s
-
-                ## Conversation to Process
-                %s
-                """,
-                currentMemory.isEmpty() ? "(empty)" : currentMemory,
-                messagesText);
-    }
-
-    private boolean parseAndSaveConsolidation(String consolidation) {
-        try {
-            String historyEntry = extractSection(consolidation, "HISTORY_ENTRY");
-            String memoryUpdate = extractSection(consolidation, "MEMORY_UPDATE");
-
-            if (historyEntry != null && !historyEntry.trim().isEmpty()) {
-                memoryStore.appendHistory(historyEntry.trim());
-            }
-
-            if (memoryUpdate != null && !memoryUpdate.trim().isEmpty()) {
-                String currentMemory = memoryStore.readLongTermMemory();
-                if (!memoryUpdate.equals(currentMemory)) {
-                    memoryStore.writeLongTermMemory(memoryUpdate);
-                }
-            }
-
-            return true;
-        } catch (Exception e) {
-            log.error("Error parsing consolidation result", e);
-            return false;
-        }
-    }
-
-    private String extractSection(String text, String sectionName) {
-        Pattern pattern = Pattern.compile(sectionName + ":\\s*([\\s\\S]*?)(?=\\n[A-Z_]+:|$)", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(text);
-        if (matcher.find()) {
-            return matcher.group(1).trim();
-        }
-        return null;
-    }
-
     // --- Formatting utilities ---
 
     private String formatMessages(List<Message> messages) {
@@ -410,13 +351,17 @@ public class MemoryConsolidator {
         return str.trim();
     }
 
+    /**
+     * Fallback: dump raw messages to HISTORY.md without LLM summarization.
+     * Aligned with Nanobot's _raw_archive.
+     */
     private boolean rawArchive(List<Message> messages) {
         try {
             String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
             String entry = "[" + timestamp + "] [RAW] " + messages.size() + " messages\n" +
                     formatMessages(messages);
             memoryStore.appendHistory(entry);
-            log.warn("Performed raw archive (AI consolidation failed)");
+            log.warn("Memory consolidation degraded: raw-archived {} messages", messages.size());
             return true;
         } catch (Exception e) {
             log.error("Raw archive also failed", e);
@@ -426,11 +371,8 @@ public class MemoryConsolidator {
 
     /**
      * Estimate token count for a session by building a simulated prompt.
-     * Matches Nanobot's estimate_session_prompt_tokens: builds probe messages,
-     * collects all text fields, encodes with BPE tokenizer, adds per-message overhead.
      */
     public int estimateSessionTokens(Session session) {
-        // 1. Build simulated prompt (same format as what gets sent to LLM)
         List<Message> history = session.getHistory(0);
         List<Message> probeMessages;
         if (contextBuilder != null) {
@@ -440,7 +382,6 @@ public class MemoryConsolidator {
             probeMessages = new ArrayList<>(history);
         }
 
-        // 2. Collect all text parts (matching Nanobot's estimate_prompt_tokens)
         List<String> parts = new ArrayList<>();
         for (Message msg : probeMessages) {
             if (msg.getContent() != null) {
@@ -461,23 +402,16 @@ public class MemoryConsolidator {
             }
         }
 
-        // 3. Tool definitions
         if (toolRegistry != null) {
             for (Map<String, Object> def : toolRegistry.getToolDefinitions()) {
                 parts.add(def.toString());
             }
         }
 
-        // 4. Encode all text as one string (BPE accuracy depends on context),
-        //    then add per-message overhead (4 tokens per message, matching Nanobot)
         String joined = String.join("\n", parts);
         return ENCODING.countTokens(joined) + probeMessages.size() * 4;
     }
 
-    /**
-     * Estimate tokens for a single message (for consolidation boundary calculation).
-     * Matches Nanobot's estimate_message_tokens.
-     */
     private int estimateMessageTokens(Message msg) {
         List<String> parts = new ArrayList<>();
         if (msg.getContent() != null) parts.add(msg.getContent());

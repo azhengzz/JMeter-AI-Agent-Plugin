@@ -90,8 +90,8 @@ public class MessageOptimizer {
      * Check if a message should be skipped during persistence.
      */
     public static boolean shouldSkip(Message msg) {
-        // Skip empty assistant messages without tool calls
-        if (msg.getRole() == Message.Role.ASSISTANT && !msg.hasToolCalls()) {
+        // Skip empty assistant messages without tool calls or reasoning content
+        if (msg.getRole() == Message.Role.ASSISTANT && !msg.hasToolCalls() && !msg.hasReasoningContent()) {
             if (msg.getContent() == null || msg.getContent().isEmpty()) {
                 return true;
             }

@@ -258,6 +258,11 @@ public class SessionManager {
             node.set("tool_calls", toolCallsNode);
         }
 
+        // Reasoning content for thinking-mode models
+        if (message.getReasoningContent() != null) {
+            node.put("reasoning_content", message.getReasoningContent());
+        }
+
         // Tool result fields
         if (message.getRole() == Message.Role.TOOL) {
             if (message.getToolCallId() != null) {
@@ -303,6 +308,11 @@ public class SessionManager {
                     toolCalls.add(new ToolCall(id, name, arguments));
                 }
                 builder.toolCalls(toolCalls);
+            }
+
+            // Parse reasoning content
+            if (node.has("reasoning_content") && !node.get("reasoning_content").isNull()) {
+                builder.reasoningContent(node.get("reasoning_content").asText());
             }
 
             // Parse tool result fields

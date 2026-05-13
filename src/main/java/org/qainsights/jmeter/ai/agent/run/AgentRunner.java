@@ -217,7 +217,8 @@ public class AgentRunner {
                 currentMessages = contextBuilder.addAssistantMessage(
                     currentMessages,
                     response.getContent(),
-                    response.getToolCalls()
+                    response.getToolCalls(),
+                    response.getReasoningContent()
                 );
 
                 if (hook != null) hook.beforeExecuteTools(response.getToolCalls(), context);
@@ -295,7 +296,8 @@ public class AgentRunner {
                 currentMessages = contextBuilder.addAssistantMessage(
                     currentMessages,
                     response.getContent(),
-                    null
+                    null,
+                    response.getReasoningContent()
                 );
                 finalContent = response.getContent();
                 break;
@@ -467,6 +469,7 @@ public class AgentRunner {
                     .content(optimizedContent)
                     .toolCalls(msg.getToolCalls())
                     .toolCallId(msg.getToolCallId())
+                    .reasoningContent(msg.getReasoningContent())
                     .metadata(msg.getMetadata())
                     .build();
                 session.addMessage(optimizedMsg);

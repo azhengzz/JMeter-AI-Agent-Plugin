@@ -87,6 +87,11 @@ public class ContextWindowManager {
                 count += msg.getContent().length() / AVG_TOKENS_PER_CHAR;
             }
 
+            // Count reasoning content
+            if (msg.getReasoningContent() != null) {
+                count += msg.getReasoningContent().length() / AVG_TOKENS_PER_CHAR;
+            }
+
             // Count tool calls
             if (msg.hasToolCalls()) {
                 for (ToolCall tc : msg.getToolCalls()) {
@@ -169,6 +174,10 @@ public class ContextWindowManager {
 
         if (msg.getContent() != null) {
             tokens += msg.getContent().length() / AVG_TOKENS_PER_CHAR;
+        }
+
+        if (msg.getReasoningContent() != null) {
+            tokens += msg.getReasoningContent().length() / AVG_TOKENS_PER_CHAR;
         }
 
         if (msg.hasToolCalls()) {

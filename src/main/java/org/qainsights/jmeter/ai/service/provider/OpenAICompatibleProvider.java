@@ -41,6 +41,14 @@ import java.util.stream.Collectors;
 public class OpenAICompatibleProvider implements AiService {
     private static final Logger log = LoggerFactory.getLogger(OpenAICompatibleProvider.class);
 
+    // Maps thinking_style -> extra_body builder (mirrors Nanobot's _THINKING_STYLE_MAP).
+    // Each builder takes a boolean (thinkingEnabled) and returns the dict to merge into extra_body.
+    private static final Map<String, java.util.function.Function<Boolean, Map<String, Object>>> THINKING_STYLE_MAP = Map.of(
+            "thinking_type", on -> Map.of("thinking", Map.of("type", on ? "enabled" : "disabled")),
+            "enable_thinking", on -> Map.of("enable_thinking", on),
+            "reasoning_split", on -> Map.of("reasoning_split", on)
+    );
+
     private final String providerName;
     private final OpenAIClient client;
     private final Map<String, Map<String, Object>> modelOverrides;
@@ -286,14 +294,14 @@ public class OpenAICompatibleProvider implements AiService {
         try {
             LLMResponse response = doGenerateWithTools(messages, tools, forcedToolName, null);
             if (response.isError() && isToolChoiceUnsupported(response.getErrorMessage())) {
-                log.warn("Forced tool_choice unsupported by {}, retrying with auto", providerName);
-                return doGenerateWithTools(messages, tools, null, null);
+                log.warn("Forced tool_choice unsupported by {}", providerName);
+                return response;
             }
             return response;
         } catch (Exception e) {
             if (isToolChoiceUnsupported(e)) {
-                log.warn("Forced tool_choice unsupported by {}, retrying with auto", providerName);
-                return doGenerateWithTools(messages, tools, null, null);
+                log.warn("Forced tool_choice unsupported by {}", providerName);
+                return LLMResponse.error(e.getMessage());
             }
             return LLMResponse.error("Error in forced tool calling: " + e.getMessage());
         }
@@ -342,6 +350,34 @@ public class OpenAICompatibleProvider implements AiService {
                 paramsBuilder.reasoningEffort(effort);
             }
 
+            // Determine if thinking mode is active (mirrors Nanobot's thinking_active logic).
+            // Only true when the provider has a thinking_style AND reasoning_effort is not none/minimal.
+            String semanticEffort = toSemanticEffort(effectiveReasoningEffort);
+            boolean thinkingActive = spec != null
+                    && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
+                    && effectiveReasoningEffort != null
+                    && semanticEffort != null
+                    && !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
+
+            // Provider-specific thinking parameters (mirrors Nanobot's _THINKING_STYLE_MAP).
+            // Only sent when reasoning_effort is explicitly configured so that
+            // the provider default is preserved otherwise.
+            if (spec != null && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
+                    && effectiveReasoningEffort != null) {
+                boolean thinkingEnabled = !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
+                java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
+                        THINKING_STYLE_MAP.get(spec.getThinkingStyle());
+                if (styleBuilder != null) {
+                    Map<String, Object> extra = styleBuilder.apply(thinkingEnabled);
+                    if (extra != null && !extra.isEmpty()) {
+                        for (Map.Entry<String, Object> entry : extra.entrySet()) {
+                            paramsBuilder.putAdditionalBodyProperty(entry.getKey(),
+                                    com.openai.core.JsonValue.from(entry.getValue()));
+                        }
+                    }
+                }
+            }
+
             // 添加系统提示词
             boolean systemPromptAdded = false;
             for (Message msg : messages) {
@@ -371,17 +407,27 @@ public class OpenAICompatibleProvider implements AiService {
                         break;
                     }
                     case ASSISTANT -> {
+                        // Build assistant message param (unified for both tool-call and text cases)
+                        ChatCompletionAssistantMessageParam.Builder assistantBuilder =
+                                ChatCompletionAssistantMessageParam.builder();
+
+                        if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                            assistantBuilder.content(msg.getContent());
+                        }
+
+                        // Pass back reasoning_content for thinking-mode providers (e.g., DeepSeek).
+                        // If the message already has reasoning_content from a previous turn, pass it
+                        // back intact. Otherwise, when thinking is active, backfill an empty string
+                        // to satisfy providers that require the field on all assistant messages.
+                        if (msg.hasReasoningContent()) {
+                            assistantBuilder.putAdditionalProperty("reasoning_content",
+                                    com.openai.core.JsonValue.from(msg.getReasoningContent()));
+                        } else if (thinkingActive) {
+                            assistantBuilder.putAdditionalProperty("reasoning_content",
+                                    com.openai.core.JsonValue.from(""));
+                        }
+
                         if (msg.hasToolCalls()) {
-                            // Build assistant message with tool calls
-                            ChatCompletionAssistantMessageParam.Builder assistantBuilder =
-                                    ChatCompletionAssistantMessageParam.builder();
-
-                            // Set content if present
-                            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
-                                assistantBuilder.content(msg.getContent());
-                            }
-
-                            // Add tool calls
                             for (ToolCall tc : msg.getToolCalls()) {
                                 ChatCompletionMessageFunctionToolCall toolCall =
                                         ChatCompletionMessageFunctionToolCall.builder()
@@ -396,14 +442,9 @@ public class OpenAICompatibleProvider implements AiService {
                                                 .build();
                                 assistantBuilder.addToolCall(toolCall);
                             }
-
-                            paramsBuilder.addMessage(assistantBuilder.build());
-                        } else {
-                            // Regular assistant message
-                            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
-                                paramsBuilder.addAssistantMessage(msg.getContent());
-                            }
                         }
+
+                        paramsBuilder.addMessage(assistantBuilder.build());
                         break;
                     }
                     case TOOL -> {
@@ -518,6 +559,21 @@ public class OpenAICompatibleProvider implements AiService {
             String content = choice.message().content().orElse(null);
             String finishReason = choice.finishReason() != null ? choice.finishReason().toString() : "unknown";
 
+            // Extract reasoning_content from additional properties (DeepSeek reasoning models)
+            String reasoningContent = null;
+            Map<String, com.openai.core.JsonValue> additionalProps = choice.message()._additionalProperties();
+            if (additionalProps != null && additionalProps.containsKey("reasoning_content")) {
+                com.openai.core.JsonValue reasoningValue = additionalProps.get("reasoning_content");
+                if (reasoningValue != null) {
+                    try {
+                        reasoningContent = reasoningValue.convert(String.class);
+                        log.debug("Extracted reasoning_content from {} response (length: {})", providerName, reasoningContent.length());
+                    } catch (Exception e) {
+                        log.debug("Could not convert reasoning_content to String: {}", e.getMessage());
+                    }
+                }
+            }
+
             // 提取 tool calls
             List<ToolCall> toolCalls = new ArrayList<>();
             var toolCallsOpt = choice.message().toolCalls();
@@ -547,6 +603,7 @@ public class OpenAICompatibleProvider implements AiService {
             LLMResponse.Builder responseBuilder = LLMResponse.builder()
                     .content(content)
                     .finishReason(finishReason)
+                    .reasoningContent(reasoningContent)
                     .usage(usageMap);
 
             if (!toolCalls.isEmpty()) {
@@ -562,7 +619,12 @@ public class OpenAICompatibleProvider implements AiService {
                 log.info("LLM request interrupted for {} (agent stopped)", providerName);
                 return LLMResponse.error("Interrupted");
             }
-            log.error("Error in generateResponseWithTools for {}", providerName, e);
+            // tool_choice unsupported is expected for some models (e.g. deepseek-reasoner), log as WARN
+            if (isToolChoiceUnsupported(e)) {
+                log.warn("tool_choice unsupported by {}: {}", providerName, e.getMessage());
+            } else {
+                log.error("Error in generateResponseWithTools for {}", providerName, e);
+            }
             return LLMResponse.error("Error calling LLM: " + e.getMessage());
         }
     }
@@ -717,5 +779,13 @@ public class OpenAICompatibleProvider implements AiService {
             case "high" -> ReasoningEffort.HIGH;
             default -> ReasoningEffort.MEDIUM;
         };
+    }
+
+    /** Normalize reasoning_effort into a semantic form (mirrors Nanobot). */
+    private static String toSemanticEffort(String effort) {
+        if (effort == null) return null;
+        String normalized = effort.toLowerCase();
+        if ("minimum".equals(normalized)) normalized = "minimal";
+        return normalized;
     }
 }

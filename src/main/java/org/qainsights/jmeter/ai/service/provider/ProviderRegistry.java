@@ -29,6 +29,7 @@ public class ProviderRegistry {
                 .defaultApiBase("https://api.deepseek.com")
                 .envKey("deepseek.api.key")
                 .keywords("deepseek")
+                .thinkingStyle("thinking_type")
                 .build());
 
         // Zhipu AI (GLM)
@@ -58,6 +59,7 @@ public class ProviderRegistry {
                 .envKey("minimax.api.key")
                 .keywords("minimax")
                 .rawHttpClientOnly(true)  // MiniMax returns extra fields not compatible with OpenAI SDK
+                .thinkingStyle("reasoning_split")
                 .build());
 
         // =====================================================

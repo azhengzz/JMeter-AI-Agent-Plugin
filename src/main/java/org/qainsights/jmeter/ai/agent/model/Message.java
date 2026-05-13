@@ -18,14 +18,17 @@ public class Message {
     private final String content;
     private final List<ToolCall> toolCalls;
     private final String toolCallId;
+    private final String reasoningContent;
     private final LocalDateTime timestamp;
     private final Map<String, Object> metadata;
 
-    private Message(Role role, String content, List<ToolCall> toolCalls, String toolCallId, Map<String, Object> metadata) {
+    private Message(Role role, String content, List<ToolCall> toolCalls, String toolCallId,
+                    String reasoningContent, Map<String, Object> metadata) {
         this.role = role;
         this.content = content;
         this.toolCalls = toolCalls != null ? toolCalls : Collections.emptyList();
         this.toolCallId = toolCallId;
+        this.reasoningContent = reasoningContent;
         this.timestamp = LocalDateTime.now();
         this.metadata = metadata != null ? metadata : Collections.emptyMap();
     }
@@ -34,21 +37,28 @@ public class Message {
      * Create a system message
      */
     public static Message system(String content) {
-        return new Message(Role.SYSTEM, content, null, null, null);
+        return new Message(Role.SYSTEM, content, null, null, null, null);
     }
 
     /**
      * Create a user message
      */
     public static Message user(String content) {
-        return new Message(Role.USER, content, null, null, null);
+        return new Message(Role.USER, content, null, null, null, null);
     }
 
     /**
      * Create an assistant message with optional tool calls
      */
     public static Message assistant(String content, List<ToolCall> toolCalls) {
-        return new Message(Role.ASSISTANT, content, toolCalls, null, null);
+        return new Message(Role.ASSISTANT, content, toolCalls, null, null, null);
+    }
+
+    /**
+     * Create an assistant message with optional tool calls and reasoning content
+     */
+    public static Message assistant(String content, List<ToolCall> toolCalls, String reasoningContent) {
+        return new Message(Role.ASSISTANT, content, toolCalls, null, reasoningContent, null);
     }
 
     /**
@@ -62,7 +72,7 @@ public class Message {
      * Create a tool result message
      */
     public static Message tool(String toolCallId, String toolName, String content) {
-        return new Message(Role.TOOL, content, null, toolCallId, Collections.singletonMap("toolName", toolName));
+        return new Message(Role.TOOL, content, null, toolCallId, null, Collections.singletonMap("toolName", toolName));
     }
 
     // Getters
@@ -80,6 +90,14 @@ public class Message {
 
     public String getToolCallId() {
         return toolCallId;
+    }
+
+    public String getReasoningContent() {
+        return reasoningContent;
+    }
+
+    public boolean hasReasoningContent() {
+        return reasoningContent != null && !reasoningContent.isEmpty();
     }
 
     public LocalDateTime getTimestamp() {
@@ -107,6 +125,7 @@ public class Message {
                 "role=" + role +
                 ", content='" + (content != null ? truncate(content, 50) : "null") + '\'' +
                 ", hasToolCalls=" + hasToolCalls() +
+                ", hasReasoning=" + hasReasoningContent() +
                 ", timestamp=" + timestamp +
                 '}';
     }
@@ -131,6 +150,7 @@ public class Message {
         private String content;
         private List<ToolCall> toolCalls;
         private String toolCallId;
+        private String reasoningContent;
         private Map<String, Object> metadata;
 
         public Builder role(Role role) {
@@ -153,13 +173,18 @@ public class Message {
             return this;
         }
 
+        public Builder reasoningContent(String reasoningContent) {
+            this.reasoningContent = reasoningContent;
+            return this;
+        }
+
         public Builder metadata(Map<String, Object> metadata) {
             this.metadata = metadata;
             return this;
         }
 
         public Message build() {
-            return new Message(role, content, toolCalls, toolCallId, metadata);
+            return new Message(role, content, toolCalls, toolCallId, reasoningContent, metadata);
         }
     }
 }
