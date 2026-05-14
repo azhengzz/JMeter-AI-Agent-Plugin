@@ -30,7 +30,8 @@ Allows the user to extract values from a server response using a Perl-type regul
 | `false` | Body - the body of the response (excluding headers) |
 | `unescaped` | Body (unescaped) - HTML escape codes replaced. Note: impacts performance |
 | `as_document` | Body as a Document - extract text via Apache Tika. Note: impacts performance |
-| `true` or `request_headers` | Request Headers - may not be present for non-HTTP samples |
+| `true` | Response Headers |
+| `request_headers` | Request Headers - may not be present for non-HTTP samples |
 | `URL` | Request URL |
 | `code` | Response Code (e.g. 200) |
 | `message` | Response Message (e.g. OK) |

@@ -26,8 +26,8 @@ properties:
       - "false": Body (response body content, excluding headers)
       - "unescaped": Body unescaped (HTML escape codes replaced)
       - "as_document": Body as a Document (extract text via Apache Tika)
-      - "true" or "request_headers": Request Headers
-      - "response_headers": Response Headers
+      - "true": Response Headers
+      - "request_headers": Request Headers
       - "URL": Request URL
       - "code": Response Code (e.g. 200)
       - "message": Response Message (e.g. OK)

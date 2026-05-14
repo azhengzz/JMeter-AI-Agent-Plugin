@@ -25,11 +25,13 @@ This component is designed for automated performance testing pipelines that requ
 | `Stop users period` | No | `0` | Seconds between each thread-stop step. | `10` |
 | `Stop users count` | No | `0` | Threads to stop per step. `0` = all at once. | `10` |
 | `ThreadGroup.on_sample_error` | No | `continue` | Behavior on sampler error. | `continue` |
-| `AbstractPerforAutoSimpleThreadGroup.scenario` | No | — | Scenario name for tracking and recording. | `阶梯加压场景` |
-| `AbstractPerforAutoSimpleThreadGroup.record_file_path` | No | — | File path for test execution records. | `/data/records/step_test.csv` |
+| `AbstractPerforAutoSimpleThreadGroup.scenario` | No | `单交易基准` | Scenario name for tracking and recording. | `阶梯加压场景` |
+| `AbstractPerforAutoSimpleThreadGroup.record_file_path` | No | `""` | File path for test execution records. | `/data/records/step_test.csv` |
 | `AbstractPerforAutoSimpleThreadGroup.stop_delay` | No | `0` | Delay in seconds after test completion. | `10` |
-| `AbstractPerforAutoSimpleThreadGroup.perfor_auto_args` | No | — | Extra arguments for record output. | `env=staging` |
+| `AbstractPerforAutoSimpleThreadGroup.perfor_auto_args` | No | `""` | Extra arguments for record output. | `env=staging` |
 | `ThreadGroup.main_controller` | Yes | — | Loop controller (contains `LoopController.loops`, `LoopController.continue_forever`). | — |
+| `LoopController.loops` | Yes | `1` | Number of times to perform the test case. `-1` for infinite. | `-1` |
+| `LoopController.continue_forever` | No | `false` | Whether to loop infinitely. | `true` |
 
 ## Usage Examples
 

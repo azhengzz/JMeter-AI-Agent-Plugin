@@ -136,8 +136,6 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 |-------------|-------------|------|--------|
 | `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) | [Schema](./references/timers/ConstantTimer.schema.yaml) |
 | `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) | [Schema](./references/timers/UniformRandomTimer.schema.yaml) |
-| `gaussianrandomtimer` | Random pause with Gaussian distribution | [Gaussian Random Timer](./references/timers/GaussianRandomTimer.md) | |
-| `poissonrandomtimer` | Random pause with Poisson distribution | [Poisson Random Timer](./references/timers/PoissonRandomTimer.md) | |
 | `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) | [Schema](./references/timers/ConstantThroughputTimer.schema.yaml) |
 | `precisethroughputTimer` | Precise throughput with exact sample count | [Precise Throughput Timer](./references/timers/PreciseThroughputTimer.md) | [Schema](./references/timers/PreciseThroughputTimer.schema.yaml) |
 

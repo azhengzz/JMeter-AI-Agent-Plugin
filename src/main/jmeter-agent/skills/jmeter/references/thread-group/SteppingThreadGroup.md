@@ -26,7 +26,7 @@ This is particularly useful for load testing scenarios where you need to observe
 | `Threads initial delay` | No | `0` | Initial delay in seconds before the first batch of threads starts. | `5` |
 | `Start users count` | No | `0` | Number of threads to start per step during ramp-up. If `0`, defaults to total thread count (all threads start at once). | `10` |
 | `Start users count burst` | No | `0` | Number of threads to start in the first (burst) batch. If `0` or negative, defaults to `Start users count`. Useful for starting more threads initially than in subsequent steps. | `20` |
-| `Start users period` | No | `0` | Time interval in seconds between each thread-start step. | `30` |
+| `Start users period` | No | `30` | Time interval in seconds between each thread-start step. | `30` |
 | `rampUp` | No | `0` | Ramp-up time in seconds within each step. Threads within a step are evenly distributed across this time. | `5` |
 | `flighttime` | No | `0` | Hold time in seconds after all threads have started and before ramp-down begins. | `60` |
 | `Stop users period` | No | `0` | Time interval in seconds between each thread-stop step. | `10` |

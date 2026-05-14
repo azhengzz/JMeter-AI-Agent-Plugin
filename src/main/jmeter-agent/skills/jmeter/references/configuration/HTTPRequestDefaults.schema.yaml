@@ -89,4 +89,4 @@ properties:
         type: String
         required: false
         default: "text/plain"
-        description: 
+        description: Content type for this parameter

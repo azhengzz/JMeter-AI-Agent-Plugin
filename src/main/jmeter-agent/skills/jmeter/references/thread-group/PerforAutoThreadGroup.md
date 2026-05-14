@@ -15,17 +15,17 @@ This thread group is designed for integration with automated performance testing
 
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
-| `ThreadGroup.num_threads` | Yes | `1` | Number of virtual users to simulate. | `100` |
+| `ThreadGroup.num_threads` | Yes | `100` | Number of virtual users to simulate. | `100` |
 | `PerforAutoThreadGroup.ramp_time` | No | `1` | Ramp-up time in seconds to start all threads. | `10` |
 | `PerforAutoThreadGroup.delayedStart` | No | `false` | If `true`, threads are created only when the appropriate proportion of the ramp-up time has elapsed. | `true` |
 | `PerforAutoThreadGroup.scheduler` | No | `false` | If `true`, enables scheduler for time-bound testing. | `true` |
 | `PerforAutoThreadGroup.duration` | No | `0` | Test duration in seconds. Requires scheduler enabled. | `600` |
 | `PerforAutoThreadGroup.delay` | No | `0` | Startup delay in seconds. Requires scheduler enabled. | `5` |
 | `ThreadGroup.on_sample_error` | No | `continue` | Behavior on sampler error. | `continue` |
-| `PerforAutoThreadGroup.scenario` | No | — | Scenario name for tracking and recording. | `登录接口压测` |
-| `PerforAutoThreadGroup.record_file_path` | No | — | File path for test execution records. | `/data/records/test.csv` |
+| `PerforAutoThreadGroup.scenario` | No | `单交易基准` | Scenario name for tracking and recording. | `登录接口压测` |
+| `PerforAutoThreadGroup.record_file_path` | No | `""` | File path for test execution records. | `/data/records/test.csv` |
 | `PerforAutoThreadGroup.stop_delay` | No | `0` | Delay in seconds after test completion before stopping threads. | `10` |
-| `PerforAutoThreadGroup.perfor_auto_args` | No | — | Extra arguments for performance automation record output. | `env=staging` |
+| `PerforAutoThreadGroup.perfor_auto_args` | No | `""` | Extra arguments for performance automation record output. | `env=staging` |
 | `ThreadGroup.main_controller` | Yes | — | Loop controller (contains `LoopController.loops`, `LoopController.continue_forever`). | — |
 | `ThreadGroup.same_user_on_next_iteration` | No | `true` | Same user on each iteration. | `true` |
 

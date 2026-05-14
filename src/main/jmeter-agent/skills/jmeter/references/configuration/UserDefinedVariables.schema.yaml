@@ -27,7 +27,7 @@ properties:
         type: String
         required: true
         default: ""
-        description: Parameter value
+        description: Description for this variable
 
       - name: Argument.metadata
         type: String
