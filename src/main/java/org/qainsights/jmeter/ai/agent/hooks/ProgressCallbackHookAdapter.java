@@ -34,8 +34,20 @@ public class ProgressCallbackHookAdapter implements AgentHook {
         if (callback == null) return;
 
         if (context.getLastLlmResponse() != null) {
+            String reasoningContent = context.getLastLlmResponse().getReasoningContent();
             String content = context.getLastLlmResponse().getContent();
-            String display = showThinking ? content : TextUtils.stripThink(content);
+
+            String display;
+            if (reasoningContent != null && !reasoningContent.isEmpty()) {
+                // Structured reasoning_content is separated from content
+                display = showThinking
+                        ? "<think>" + reasoningContent + "</think>" + "\n" + content
+                        : TextUtils.stripThink(content);
+            } else {
+                // No structured field — thinking may be embedded as <think/> tags in content
+                display = showThinking ? content : TextUtils.stripThink(content);
+            }
+
             if (display != null && !display.isEmpty()) {
                 publish(ProgressUpdate.thinking(display));
             }
