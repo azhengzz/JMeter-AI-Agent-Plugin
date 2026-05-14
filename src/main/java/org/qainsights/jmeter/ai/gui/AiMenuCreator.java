@@ -17,8 +17,9 @@ public class AiMenuCreator implements MenuCreator {
                 // Create a temporary parent component to pass to AiMenuItem
                 JMenu parentMenu = new JMenu("AI");
                 return new JMenuItem[] {
-                        new AiMenuItem(parentMenu),
-                        new ClaudeCodeMenuItem(parentMenu)
+                        new AiMenuItem(parentMenu)
+                        // ClaudeCodeMenuItem temporarily disabled
+                        // , new ClaudeCodeMenuItem(parentMenu)
                 };
             } catch (Throwable e) {
                 log.error("Failed to load validate thread group plugin", e);
