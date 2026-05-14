@@ -528,6 +528,10 @@ public class JMeterElementManager {
                 "com.gitee.qa.jmeter.control.gui.LoopControlPanel"));
         ELEMENT_CLASS_MAP.put("probabilitycontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ProbabilityController",
                 "com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui"));
+        ELEMENT_CLASS_MAP.put("parameterincludecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterIncludeController",
+                "com.gitee.qa.jmeter.control.gui.ParameterIncludeControllerGui"));
+        ELEMENT_CLASS_MAP.put("parametertestfragmentcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterTestFragmentController",
+                "com.gitee.qa.jmeter.control.gui.ParameterTestFragmentControllerGui"));
         ELEMENT_CLASS_MAP.put("criticalsectioncontroller",
                 new ElementClassInfo("org.apache.jmeter.control.CriticalSectionController",
                         "org.apache.jmeter.control.gui.CriticalSectionControllerPanel"));
@@ -867,6 +871,10 @@ public class JMeterElementManager {
                 return "Loop Controller (with Variable)";
             case "probabilitycontroller":
                 return "Probability Controller";
+            case "parameterincludecontroller":
+                return "Include Controller (with Parameters)";
+            case "parametertestfragmentcontroller":
+                return "Test Fragment (with Parameters)";
             case "runtimecontroller":
                 return "Runtime Controller";
             case "headermanager":

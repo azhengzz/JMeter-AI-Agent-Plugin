@@ -90,6 +90,10 @@ public class SchemaBasedPropertyHandler {
                     handleCookieManagerProperty(element, propName, propValue);
                 } else if ("ultimatethreadgroupdata".equals(propName)) {
                     handleUltimateThreadGroupData(element, propName, propValue);
+                } else if ("ParameterTestFragmentController.arguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
+                } else if ("ParameterTestFragmentController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleParameterTestFragmentReturnValueProperty(element, propName, propValue);
                 } else {
                     handleGenericCollectionProperty(element, propName, propValue);
                 }
@@ -812,6 +816,106 @@ public class SchemaBasedPropertyHandler {
             }
         }
         return defaultValue;
+    }
+
+    /**
+     * Handle ParameterTestFragmentController.arguments property.
+     * Creates ParameterIncludeControllerArgument objects with name, value, desc, required, notNull.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleParameterTestFragmentArgumentsProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        try {
+            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterIncludeControllerArgument");
+
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) {
+                    continue;
+                }
+
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                Boolean required = getBooleanValue(argProps, "ParameterIncludeControllerArgument.required", false);
+                Boolean notNull = getBooleanValue(argProps, "ParameterIncludeControllerArgument.notNull", false);
+
+                Object arg = argClass
+                        .getConstructor(String.class, String.class, String.class, boolean.class, boolean.class)
+                        .newInstance(name, value, desc, notNull, required);
+
+                args.addArgument((org.apache.jmeter.config.Argument) arg);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create ParameterIncludeControllerArgument, falling back to standard Argument", e);
+            // Fallback to standard Argument
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) continue;
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) continue;
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
+                args.addArgument(argument);
+            }
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set {} with {} arguments", propName, args.getArguments().size());
+    }
+
+    /**
+     * Handle ParameterTestFragmentController.ReturnValueArguments property.
+     * Creates ParameterTestFragmentReturnValueArgument objects with name and desc.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleParameterTestFragmentReturnValueProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        try {
+            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterTestFragmentReturnValueArgument");
+
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) {
+                    continue;
+                }
+
+                String desc = getStringValue(argProps, "Argument.desc", "");
+
+                Object arg = argClass
+                        .getConstructor(String.class, String.class)
+                        .newInstance(name, desc);
+
+                args.addArgument((org.apache.jmeter.config.Argument) arg);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create ParameterTestFragmentReturnValueArgument, falling back to standard Argument", e);
+            // Fallback to standard Argument
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) continue;
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) continue;
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, "", "=", desc);
+                args.addArgument(argument);
+            }
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set {} with {} arguments", propName, args.getArguments().size());
     }
 
     /**

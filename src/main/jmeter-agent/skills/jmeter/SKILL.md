@@ -85,6 +85,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
 | `loopvarcontroller` | Loop with configurable counter variable | [Loop Controller (with Variable)](./references/controllers/LoopVarController.md) | [Schema](./references/controllers/LoopVarController.schema.yaml) |
 | `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
+| `parameterincludecontroller` | Include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
+| `parametertestfragmentcontroller` | Define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/controllers/ParameterTestFragmentController.md) | [Schema](./references/controllers/ParameterTestFragmentController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |

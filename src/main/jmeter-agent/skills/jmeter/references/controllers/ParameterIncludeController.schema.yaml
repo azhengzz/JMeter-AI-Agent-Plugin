@@ -1,0 +1,10 @@
+component:
+  type: parameterincludecontroller
+  name: Include Controller (with Parameters)
+  description: Enhanced Include Controller that passes input parameters to an included Test Fragment and receives return values. Works with ParameterTestFragmentController.
+
+properties:
+  - name: ParameterIncludeController.includepath
+    type: String
+    required: true
+    description: Path to the JMX file containing a Test Fragment (with Parameters).
