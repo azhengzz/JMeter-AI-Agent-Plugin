@@ -86,7 +86,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
     }
 
     public static ImageIcon getButtonIcon(int pixelSize) {
-        String sizedImage = String.format("/org/qainsights/jmeter/ai/featherwand-%dx%d.png", pixelSize, pixelSize);
+        String sizedImage = String.format("/org/qainsights/jmeter/ai/JMeterAgent-%dx%d.png", pixelSize, pixelSize);
         return new ImageIcon(Objects.requireNonNull(AiMenuItem.class.getResource(sizedImage)));
     }
 
@@ -120,7 +120,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
 
     private JButton getToolbarButton() {
         JButton button = new JButton(getButtonIcon(22));
-        button.setToolTipText("Toggle FeatherWand Panel");
+        button.setToolTipText("Toggle JMeterAgent Chat Panel");
         button.addActionListener(this);
         button.setActionCommand("toggle_ai_panel");
         return button;
