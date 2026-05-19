@@ -1,202 +1,98 @@
-# JMeter Built-in Functions
+# JMeter Functions Reference
+
+> Based on [Apache JMeter Functions and Variables](https://jmeter.apache.org/usermanual/functions.html)
 
 ## Overview
 
-JMeter functions are special values that can populate fields of any Sampler or other element in a test plan. They have the syntax: `${__functionName(var1,var2)}`.
+JMeter functions are special values that can populate fields of any Sampler or other element in a test tree. A function call looks like this:
 
-## Common Functions
-
-### Variable and Property Functions
-
-#### `${__V(variable)}`
-Evaluate a variable name from a variable.
-
-**Example:**
 ```
-# If userId=123 and user_123=Alice
-${__V(user_${userId})} → Returns "Alice"
+${__functionName(var1,var2,var3)}
 ```
 
-#### `${__P(property, default)}`
-Read a property (global across thread groups).
+Where `__functionName` matches the name of a function. Functions that require no parameters can leave off the parentheses.
 
-**Example:**
-```
-${__P(base_url,http://localhost)} → Returns property value or default
-```
+## Functions List
 
-#### `${__setProperty(property, value, scope)}`
-Set a property value.
+| Type of function | Name | Comment |
+|-----------------|------|---------|
+| Information | [threadNum](threadNum.md) | get thread number |
+| Information | [threadGroupName](threadGroupName.md) | get thread group name |
+| Information | [samplerName](samplerName.md) | get the sampler name (label) |
+| Information | [machineIP](machineIP.md) | get the local machine IP address |
+| Information | [machineName](machineName.md) | get the local machine name |
+| Information | [time](time.md) | return current time in various formats |
+| Information | [timeShift](timeShift.md) | return a date in various formats with the specified amount of seconds/minutes/hours/days added |
+| Information | [log](log.md) | log (or display) a message (and return the value) |
+| Information | [logn](logn.md) | log (or display) a message (empty return value) |
+| Input | [StringFromFile](StringFromFile.md) | read a line from a file |
+| Input | [FileToString](FileToString.md) | read an entire file |
+| Input | [CSVRead](CSVRead.md) | read from CSV delimited file |
+| Input | [XPath](XPath.md) | use an XPath expression to read from a file |
+| Input | [StringToFile](StringToFile.md) | write a string to a file |
+| Calculation | [counter](counter.md) | generate an incrementing number |
+| Formatting | [dateTimeConvert](dateTimeConvert.md) | convert a date or time from source to target format |
+| Calculation | [digest](digest.md) | generate a digest (SHA-1, SHA-256, MD5...) |
+| Calculation | [intSum](intSum.md) | add int numbers |
+| Calculation | [longSum](longSum.md) | add long numbers |
+| Calculation | [Random](Random.md) | generate a random number |
+| Calculation | [RandomDate](RandomDate.md) | generate random date within a specific date range |
+| Calculation | [RandomFromMultipleVars](RandomFromMultipleVars.md) | extract an element from the values of a set of variables separated by `\|` |
+| Calculation | [RandomString](RandomString.md) | generate a random string |
+| Calculation | [UUID](UUID.md) | generate a random type 4 UUID |
+| Scripting | [groovy](groovy.md) | run an Apache Groovy script |
+| Scripting | [BeanShell](BeanShell.md) | run a BeanShell script |
+| Scripting | [javaScript](javaScript.md) | process JavaScript (Nashorn) |
+| Scripting | [jexl2](jexl2.md) | evaluate a Commons Jexl2 expression |
+| Scripting | [jexl3](jexl3.md) | evaluate a Commons Jexl3 expression |
+| Properties | [isPropDefined](isPropDefined.md) | test if a property exists |
+| Properties | [property](property.md) | read a property |
+| Properties | [P](P.md) | read a property (shorthand method) |
+| Properties | [setProperty](setProperty.md) | set a JMeter property |
+| Properties | [isVarDefined](isVarDefined.md) | test if a variable exists |
+| Variables | [split](split.md) | split a string into variables |
+| Variables | [eval](eval.md) | evaluate a variable expression |
+| Variables | [evalVar](evalVar.md) | evaluate an expression stored in a variable |
+| Variables | [V](V.md) | evaluate a variable name |
+| String | [char](char.md) | generate Unicode char values from a list of numbers |
+| String | [changeCase](changeCase.md) | change case following different modes |
+| String | [escapeHtml](escapeHtml.md) | encode strings using HTML encoding |
+| String | [escapeOroRegexpChars](escapeOroRegexpChars.md) | quote meta chars used by ORO regular expression |
+| String | [escapeXml](escapeXml.md) | encode strings using XML encoding |
+| String | [regexFunction](regexFunction.md) | parse previous response using a regular expression |
+| String | [unescape](unescape.md) | process strings containing Java escapes (e.g. \n & \t) |
+| String | [unescapeHtml](unescapeHtml.md) | decode HTML-encoded strings |
+| String | [urldecode](urldecode.md) | decode a application/x-www-form-urlencoded string |
+| String | [urlencode](urlencode.md) | encode a string to a application/x-www-form-urlencoded string |
+| String | [TestPlanName](TestPlanName.md) | return name of current test plan |
+| Encryption | [aesEncrypt](aesEncrypt.md) | AES/CBC/PKCS5Padding encryption with Base64 output |
+| Encryption | [rsaEncrypt](rsaEncrypt.md) | RSA public key encryption with Base64 output |
+| Information | [threadGroupActiveThreadNum](threadGroupActiveThreadNum.md) | get active thread count in current thread group |
+| Calculation | [timePick](timePick.md) | pick a specific date by week/month/year day index |
+| Calculation | [timeToTimestamp](timeToTimestamp.md) | convert formatted date string to Unix timestamp |
+| Input | [FileToBase64](FileToBase64.md) | read a file and return Base64-encoded content |
+| Variables | [O](O.md) | extract value from object variable using JsonPath |
+| Variables | [Oe](Oe.md) | extract and escape value from object variable using JsonPath |
 
-**Example:**
-```
-${__setProperty(token, ${token},)} → Store variable as property
-```
 
-#### `${__property(property, default)}`
-Read a property value.
 
-**Example:**
-```
-${__property(base_url,)} → Returns property value
-```
+## Usage Notes
 
-### Time Functions
+1. **Function Parameter Escaping**: If a function parameter contains a comma, escape it with `\`:
+   ```
+   ${__time(EEE\, d MMM yyyy)}
+   ```
 
-#### `${__time(format, variable)}`
-Return current time in various formats.
+2. **Variables vs Properties**:
+   - Variables are local to a thread
+   - Properties are common to all threads and need to be referenced using `__P` or `__property`
 
-**Examples:**
-```
-${__time()} → 1699123456789 (milliseconds since epoch)
-${__time(yyyy-MM-dd)} → 2024-11-04
-${__time(HH:mm:ss)} → 14:30:45
-${__time(,timestamp)} → Stores in variable 'timestamp'
-```
+3. **Undefined Functions**: If an undefined function or variable is referenced, JMeter does not report/log an error - the reference is returned unchanged.
 
-#### `${__timeShift(format, date, shift, locale, variable)}`
-Shift a time by a given amount.
+4. **Case Sensitivity**: Variables, functions, and properties are all case-sensitive.
 
-**Examples:**
-```
-${__timeShift(yyyy-MM-dd,,P1D)} → Tomorrow's date
-${__timeShift(yyyy-MM-dd,,P-1D)} → Yesterday's date
-${__timeShift(yyyy-MM-dd HH:mm:ss,,PT2H)} → 2 hours from now
-```
+5. **Whitespace Trimming**: JMeter trims spaces from variable names before use.
 
-### Random Functions
+## Reference
 
-#### `${__Random(min, max, variable)}`
-Generate a random number.
-
-**Examples:**
-```
-${__Random(1,100)} → Random number between 1 and 100
-${__Random(0,10000,orderId)} → Stores in variable 'orderId'
-```
-
-#### `${__RandomString(length, characters, variable)}`
-Generate a random string.
-
-**Examples:**
-```
-${__RandomString(10)} → Random 10-character string
-${__RandomString(5,abcdefghijklmnopqrstuvwxyz,userName)} → Random lowercase name
-${__RandomString(8,0123456789,pinCode)} → Random 8-digit PIN
-```
-
-#### `${__UUID()}`
-Generate a random UUID.
-
-**Example:**
-```
-${__UUID()} → 550e8400-e29b-41d4-a716-446655440000
-```
-
-### Data Input Functions
-
-#### `${__CSVRead(file, alias)}`
-Read from CSV file.
-
-**Example:**
-```
-${__CSVRead(users.csv,0)} → First column from current row
-${__CSVRead(users.csv,1)} → Second column from current row
-${__CSVRead(users.csv,next)} → Move to next row
-```
-
-*Note: Prefer CSV Data Set Config over this function for better performance.*
-
-#### `${__StringFromFile(file, variable, start, end)}`
-Read from a file.
-
-**Example:**
-```
-${__StringFromFile(data.txt)} → Read line from file
-```
-
-### Information Functions
-
-#### `${__threadNum()}`
-Return the current thread number.
-
-**Example:**
-```
-Thread-${__threadNum()} → Thread-1, Thread-2, etc.
-```
-
-#### `${__machineName()}`
-Return the local machine name.
-
-#### `${__machineIP()}`
-Return the local IP address.
-
-### Calculation Functions
-
-#### `${__intSum(val1,val2,variable)}`
-Sum integers.
-
-**Example:**
-```
-${__intSum(1,2)} → 3
-${__intSum(${counter},1,counter)} → Increment counter
-```
-
-#### `${__longSum(val1,val2,variable)}`
-Sum long integers.
-
-#### `${__eval(var expression)}`
-Evaluate a variable expression.
-
-**Example:**
-```
-# If userId=123
-${__eval(user_${userId})} → Returns value of user_123
-```
-
-### Encoding Functions
-
-#### `${__urlencode(string)}`
-URL encode a string.
-
-**Example:**
-```
-${__urlencode(hello world)} → hello+world
-```
-
-#### `${__urldecode(string)}`
-URL decode a string.
-
-#### `${__escapeHtml(string)}`
-Escape HTML characters.
-
-#### `${__unescapeHtml(string)}`
-Unescape HTML characters.
-
-### Script Functions
-
-#### `${__groovy(expression, variable)}`
-Evaluate Groovy expression.
-
-**Example:**
-```
-${__groovy(${__time(yyyy-MM-dd)})} → Execute Groovy code
-```
-
-#### `${__javaScript(expression, variable)}`
-Evaluate JavaScript expression.
-
-## Best Practices
-
-1. **Use CSV Data Set Config** instead of `${__CSVRead}` for better performance
-2. **Cache random values** in variables if used multiple times
-3. **Use properties** for cross-thread group data sharing
-4. **Test functions** in View Results Tree before using in production
-5. **Document custom variables** with clear names
-
-## Function Helper
-
-JMeter provides a Function Helper dialog (Tools → Function Helper Dialog) to:
-- Browse available functions
-- Test function output
-- Generate function syntax
+- [Apache JMeter Official Documentation](https://jmeter.apache.org/usermanual/functions.html)

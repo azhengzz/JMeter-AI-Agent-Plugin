@@ -372,6 +372,8 @@ HTTP Header Manager: Authorization: Bearer ${__P(token,)}
 
 ## JMeter Functions
 
+For the complete functions reference, see [references/functions/Functions.md](references/functions/Functions.md).
+
 - `${__functionName(var1,var2)}` - Built-in functions
 - `${__P(property, default)}` - Read property
 - `${__V(variable)}` - Evaluate variable
