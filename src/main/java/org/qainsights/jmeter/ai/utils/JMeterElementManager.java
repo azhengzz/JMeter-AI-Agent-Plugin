@@ -378,6 +378,8 @@ public class JMeterElementManager {
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("csvdataset", new ElementClassInfo("org.apache.jmeter.config.CSVDataSet",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("exceldataconfig", new ElementClassInfo("com.gitee.qa.jmeter.config.ExcelDataConfig",
+                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("headermanager",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.control.HeaderManager",
                         "org.apache.jmeter.protocol.http.gui.HeaderPanel"));
@@ -881,6 +883,8 @@ public class JMeterElementManager {
                 return "HTTP Header Manager";
             case "csvdataset":
                 return "CSV Data Set";
+            case "exceldataconfig":
+                return "Excel Data Set Config";
             case "threadgroup":
             case "setupthreadgroup":
             case "teardownthreadgroup":

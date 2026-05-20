@@ -96,6 +96,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `headermanager` | Manage HTTP headers | [Header Manager](./references/configuration/HeaderManager.md) | [Schema](./references/configuration/HeaderManager.schema.yaml) |
 | `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration/CookieManager.md) | [Schema](./references/configuration/CookieManager.schema.yaml) |
 | `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration/UserDefinedVariables.md) | [Schema](./references/configuration/UserDefinedVariables.schema.yaml) |
+| `exceldataconfig` | Read Excel files for parameterization | [Excel Data Set Config](./references/configuration/ExcelDataConfig.md) | [Schema](./references/configuration/ExcelDataConfig.schema.yaml) |
 | `configtestelement` | Config test element (User Defined Variables alias) | (see User Defined Variables) | |
 
 ### Pre-Processors
