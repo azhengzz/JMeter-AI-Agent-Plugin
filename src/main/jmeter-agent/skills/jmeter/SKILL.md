@@ -68,6 +68,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `flowcontrolaction` | Pause/stop test or control loops | [Flow Control Action](./references/samplers/FlowControlAction.md) | [Schema](./references/samplers/FlowControlAction.schema.yaml) |
 | `debugsampler` | Display JMeter variables/properties for debugging | [Debug Sampler](./references/samplers/DebugSampler.md) | [Schema](./references/samplers/DebugSampler.schema.yaml) |
 | `osprocesssampler` | Execute system commands or native executables | [OS Process Sampler](./references/samplers/OSProcessSampler.md) | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
+| `s3sampler` | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/samplers/S3Sampler.md) | [Schema](./references/samplers/S3Sampler.schema.yaml) |
 
 
 ### Controllers
@@ -97,6 +98,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration/CookieManager.md) | [Schema](./references/configuration/CookieManager.schema.yaml) |
 | `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration/UserDefinedVariables.md) | [Schema](./references/configuration/UserDefinedVariables.schema.yaml) |
 | `exceldataconfig` | Read Excel files for parameterization | [Excel Data Set Config](./references/configuration/ExcelDataConfig.md) | [Schema](./references/configuration/ExcelDataConfig.schema.yaml) |
+| `s3configelement` | Configure S3 object storage connection | [S3 Connection Configuration](./references/configuration/S3ConfigElement.md) | [Schema](./references/configuration/S3ConfigElement.schema.yaml) |
 | `configtestelement` | Config test element (User Defined Variables alias) | (see User Defined Variables) | |
 
 ### Pre-Processors

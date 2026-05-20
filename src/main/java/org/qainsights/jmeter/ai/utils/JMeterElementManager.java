@@ -222,6 +222,8 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("osprocesssampler",
                 new ElementClassInfo("org.apache.jmeter.protocol.system.SystemSampler",
                         "org.apache.jmeter.protocol.system.gui.SystemSamplerGui"));
+        ELEMENT_CLASS_MAP.put("s3sampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.s3.sampler.S3Sampler",
+                "com.gitee.qa.jmeter.protocol.s3.gui.S3SamplerGui"));
         ELEMENT_CLASS_MAP.put("mongodbscript",
                 new ElementClassInfo("org.apache.jmeter.protocol.mongodb.sampler.MongoScriptSampler",
                         "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
@@ -380,6 +382,8 @@ public class JMeterElementManager {
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("exceldataconfig", new ElementClassInfo("com.gitee.qa.jmeter.config.ExcelDataConfig",
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("s3configelement", new ElementClassInfo("com.gitee.qa.jmeter.protocol.s3.config.S3ConfigElement",
+                "com.gitee.qa.jmeter.protocol.s3.config.gui.S3ConfigGui"));
         ELEMENT_CLASS_MAP.put("headermanager",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.control.HeaderManager",
                         "org.apache.jmeter.protocol.http.gui.HeaderPanel"));
@@ -885,6 +889,8 @@ public class JMeterElementManager {
                 return "CSV Data Set";
             case "exceldataconfig":
                 return "Excel Data Set Config";
+            case "s3configelement":
+                return "S3 Connection Configuration";
             case "threadgroup":
             case "setupthreadgroup":
             case "teardownthreadgroup":
@@ -1585,6 +1591,8 @@ public class JMeterElementManager {
                 return "Test Action allows you to pause or stop a test.";
             case "debugsampler":
                 return "Debug Sampler shows JMeter variables and properties.";
+            case "s3sampler":
+                return "S3 Sampler";
             case "jsonsamplerproxy":
                 return "JSON Request sends JSON requests to a server.";
             default:
