@@ -42,7 +42,7 @@ public class InputBoxIntellisense {
             public void keyPressed(KeyEvent e) {
                 // Handle Enter or Tab for intellisense selection
                 if (intellisensePopup.isVisible()) {
-                    if (e.getKeyCode() == KeyEvent.VK_ENTER || e.getKeyCode() == KeyEvent.VK_TAB) {
+                    if ((e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) || e.getKeyCode() == KeyEvent.VK_TAB) {
                         e.consume();
                         insertSelectedCommand();
                         return;

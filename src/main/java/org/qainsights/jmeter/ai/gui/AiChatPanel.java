@@ -65,6 +65,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     // Component managers
     private final MessageProcessor messageProcessor;
 
+    // Vertical split pane for drag-to-resize between chat area and input area
+    private JSplitPane verticalSplitPane;
+
     // Track active worker for /stop support
     private AgentSwingWorker activeWorker;
     // Track whether tool calls were displayed progressively during the loop
@@ -242,9 +245,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         chatPanel.add(scrollPane, BorderLayout.CENTER);
 
-        // Add the chat panel to the center of the main panel
-        add(chatPanel, BorderLayout.CENTER);
-
         // Create the bottom panel with model selector and input controls
         JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
@@ -276,13 +276,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Setup intellisense for command suggestions
         new InputBoxIntellisense(messageField);
 
-        // Add key listener for Enter to send message
+        // Add key listener for Enter to send message, Shift+Enter for newline
         messageField.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
-                    e.consume(); // Prevent newline from being added
-                    sendMessage();
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    e.consume();
+                    if (e.isShiftDown()) {
+                        messageField.insert("\n", messageField.getCaretPosition());
+                    } else {
+                        sendMessage();
+                    }
                 }
             }
         });
@@ -308,10 +312,18 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         sendButton.addActionListener(e -> sendMessage());
         inputPanel.add(sendButton, BorderLayout.EAST);
 
-        bottomPanel.add(inputPanel, BorderLayout.SOUTH);
+        bottomPanel.add(inputPanel, BorderLayout.CENTER);
 
-        // Add the bottom panel to the main panel
-        add(bottomPanel, BorderLayout.SOUTH);
+        // Create vertical split pane to allow resizing between chat area and input area
+        chatPanel.setMinimumSize(new Dimension(0, 100));
+        bottomPanel.setMinimumSize(new Dimension(0, 80));
+
+        verticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, chatPanel, bottomPanel);
+        verticalSplitPane.setResizeWeight(0.9);
+        verticalSplitPane.setDividerLocation(0.9);
+        verticalSplitPane.setContinuousLayout(true);
+        verticalSplitPane.setBorder(null);
+        add(verticalSplitPane, BorderLayout.CENTER);
 
         // Display welcome message
         displayWelcomeMessage();
