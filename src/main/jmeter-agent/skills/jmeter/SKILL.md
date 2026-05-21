@@ -80,6 +80,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `foreachcontroller` | Iterate over a list of variables | [ForEach Controller](./references/controllers/ForeachController.md) | [Schema](./references/controllers/ForeachController.schema.yaml) |
 | `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) | [Schema](./references/controllers/TransactionController.schema.yaml) |
 | `simplecontroller` | Organize elements sequentially | [Simple Controller](./references/controllers/SimpleController.md) | [Schema](./references/controllers/SimpleController.schema.yaml) |
+| `onceonlycontroller` | Execute children once per thread (first iteration only) | [Once Only Controller](./references/controllers/OnceOnlyController.md) | [Schema](./references/controllers/OnceOnlyController.schema.yaml) |
 | `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
 | `includecontroller` | Include external JMX test fragment | [Include Controller](./references/controllers/IncludeController.md) | [Schema](./references/controllers/IncludeController.schema.yaml) |
 | `casecontroller` | Label and manage test cases with case_name property | [Case Controller](./references/controllers/CaseController.md) | [Schema](./references/controllers/CaseController.schema.yaml) |
