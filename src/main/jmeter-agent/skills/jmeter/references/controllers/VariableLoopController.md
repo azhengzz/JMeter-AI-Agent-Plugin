@@ -1,4 +1,4 @@
-# Loop Controller (with Variable)
+# Variable Loop Controller
 
 ## Description
 
@@ -18,7 +18,7 @@ An enhanced Loop Controller that supports a configurable loop counter variable. 
 
 ```
 create_jmeter_element with:
-- elementType: "loopvarcontroller"
+- elementType: "variableloopcontroller"
 - elementName: "Loop with Counter"
 - properties:
     LoopController.loops: 10
@@ -35,7 +35,7 @@ create_jmeter_element with:
 
 ```
 create_jmeter_element with:
-- elementType: "loopvarcontroller"
+- elementType: "variableloopcontroller"
 - elementName: "Infinite Loop with Index"
 - properties:
     LoopController.loops: -1
@@ -47,7 +47,7 @@ create_jmeter_element with:
 
 ```
 create_jmeter_element with:
-- elementType: "loopvarcontroller"
+- elementType: "variableloopcontroller"
 - elementName: "Read Row Data"
 - properties:
     LoopController.loops: 5

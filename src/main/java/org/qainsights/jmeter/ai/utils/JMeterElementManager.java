@@ -526,7 +526,7 @@ public class JMeterElementManager {
                 "com.gitee.qa.jmeter.control.gui.CaseControlPanel"));
         ELEMENT_CLASS_MAP.put("dowhilecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.DoWhileController",
                 "com.gitee.qa.jmeter.control.gui.DoWhileControllerGui"));
-        ELEMENT_CLASS_MAP.put("loopvarcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.LoopController",
+        ELEMENT_CLASS_MAP.put("variableloopcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.LoopController",
                 "com.gitee.qa.jmeter.control.gui.LoopControlPanel"));
         ELEMENT_CLASS_MAP.put("probabilitycontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ProbabilityController",
                 "com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui"));
@@ -869,8 +869,8 @@ public class JMeterElementManager {
                 return "Case Controller";
             case "dowhilecontroller":
                 return "DoWhile Controller";
-            case "loopvarcontroller":
-                return "Loop Controller (with Variable)";
+            case "variableloopcontroller":
+                return "Variable Loop Controller";
             case "probabilitycontroller":
                 return "Probability Controller";
             case "parameterincludecontroller":
