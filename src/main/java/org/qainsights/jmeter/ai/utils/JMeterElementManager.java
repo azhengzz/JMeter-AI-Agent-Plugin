@@ -426,10 +426,6 @@ public class JMeterElementManager {
                 "org.apache.jmeter.config.gui.SimpleConfigGui"));
         ELEMENT_CLASS_MAP.put("tcpconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
                 "org.apache.jmeter.protocol.tcp.config.gui.TCPConfigGui"));
-        ELEMENT_CLASS_MAP.put("arguments", new ElementClassInfo("org.apache.jmeter.config.Arguments",
-                "org.apache.jmeter.config.gui.ArgumentsPanel"));
-        ELEMENT_CLASS_MAP.put("configtestelement", new ElementClassInfo("org.apache.jmeter.config.Arguments",
-                "org.apache.jmeter.config.gui.ArgumentsPanel"));
         ELEMENT_CLASS_MAP.put("userdefinedvariables", new ElementClassInfo("org.apache.jmeter.config.Arguments",
                 "org.apache.jmeter.config.gui.ArgumentsPanel"));
         ELEMENT_CLASS_MAP.put("ftprequestdefaults", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
@@ -941,7 +937,6 @@ public class JMeterElementManager {
             case "aggregatereport":
             case "statvisualizer":
                 return "Aggregate Report";
-            case "configtestelement":
             case "userdefinedvariables":
                 return "User Defined Variables";
             case "jsr223sampler":

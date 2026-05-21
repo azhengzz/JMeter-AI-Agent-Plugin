@@ -474,13 +474,23 @@ public class JMeterTreeUtils {
             return null;
         }
 
-        // Get the GUI class name to determine element type
+        // Get the GUI class name and model class name to determine element type
         String guiClass = element.getPropertyAsString(TestElement.GUI_CLASS);
+        String modelClass = element.getClass().getName();
         if (guiClass == null || guiClass.isEmpty()) {
             return null;
         }
 
-        // Reverse lookup from ELEMENT_CLASS_MAP to find element type
+        // First, try exact match on both GUI and model class (handles shared GUI classes like TestBeanGUI)
+        for (Map.Entry<String, JMeterElementManager.ElementClassInfo> entry :
+                JMeterElementManager.getElementClassMap().entrySet()) {
+            if (guiClass.equals(entry.getValue().getGuiClassName())
+                    && modelClass.equals(entry.getValue().getModelClassName())) {
+                return entry.getKey();
+            }
+        }
+
+        // Fallback: GUI class only (for backward compatibility)
         for (Map.Entry<String, JMeterElementManager.ElementClassInfo> entry :
                 JMeterElementManager.getElementClassMap().entrySet()) {
             if (guiClass.equals(entry.getValue().getGuiClassName())) {
