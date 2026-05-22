@@ -218,6 +218,33 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
     }
 
     /**
+     * Re-adds the toolbar icon after a locale change.
+     * JMeterToolBar.localeChanged() does removeAll() which removes plugin buttons,
+     * so this must be called via SwingUtilities.invokeLater to run after the rebuild.
+     */
+    void readdToolbarIcon() {
+        GuiPackage instance = GuiPackage.getInstance();
+        if (instance == null) return;
+        MainFrame mf = instance.getMainFrame();
+        if (mf == null) return;
+
+        ComponentFinder<JMeterToolBar> finder = new ComponentFinder<>(JMeterToolBar.class);
+        JMeterToolBar toolbar = finder.findComponentIn(mf);
+        if (toolbar == null) return;
+
+        for (Component comp : toolbar.getComponents()) {
+            if (comp instanceof JButton && "toggle_ai_panel".equals(((JButton) comp).getActionCommand())) {
+                return;
+            }
+        }
+
+        int pos = getPositionForIcon(toolbar.getComponents());
+        Component toolbarButton = getToolbarButton();
+        toolbarButton.setSize(toolbar.getComponent(pos).getSize());
+        toolbar.add(toolbarButton, pos);
+    }
+
+    /**
      * Adds a tree selection listener to detect when components are selected in
      * JMeter tree.
      * This allows us to add context menus to JSR223 components when they're
