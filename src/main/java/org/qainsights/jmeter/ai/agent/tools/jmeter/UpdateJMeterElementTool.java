@@ -253,6 +253,12 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                     // Refresh the GUI panel from the updated TestElement
                     // This calls bindingGroup.updateUi(element) which updates all bound fields
                     guiPackage.refreshCurrentGui();
+
+                    // Workaround: Some JMeter GUI panels (e.g., HeaderPanel) update their
+                    // internal model in configure() but don't fire tableChanged events,
+                    // so the JTable still shows stale data. Force-refresh any JTables.
+                    refreshTables(guiPackage.getCurrentGui());
+
                     log.info("Successfully refreshed GUI on EDT for element: {}", targetNode.getName());
                 } catch (Exception e) {
                     log.error("Failed to refresh GUI on EDT", e);
@@ -348,6 +354,25 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
         if (newComment != null) {
             element.setComment(newComment);
             log.info("Updated element comment to: {}", newComment);
+        }
+    }
+
+    /**
+     * Force-refresh JTable components in the GUI panel.
+     * Workaround for JMeter panels (e.g., HeaderPanel) whose configure() method
+     * updates the internal model but doesn't fire tableChanged events.
+     */
+    private void refreshTables(Object comp) {
+        if (!(comp instanceof java.awt.Container)) {
+            return;
+        }
+        for (java.awt.Component c : ((java.awt.Container) comp).getComponents()) {
+            if (c instanceof javax.swing.JTable) {
+                javax.swing.JTable table = (javax.swing.JTable) c;
+                table.tableChanged(new javax.swing.event.TableModelEvent(table.getModel()));
+            } else if (c instanceof java.awt.Container) {
+                refreshTables(c);
+            }
         }
     }
 

@@ -310,6 +310,14 @@ public class SchemaBasedPropertyHandler {
      */
     @SuppressWarnings("unchecked")
     private void handleArgumentsProperty(TestElement element, String propName, Object propValue) {
+        // Arguments.arguments is stored as CollectionProperty in JMeter,
+        // not as TestElementProperty wrapping an Arguments object.
+        // Must clear the existing collection and add items individually.
+        org.apache.jmeter.testelement.property.JMeterProperty existing = element.getProperty(propName);
+        if (existing instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
+            ((org.apache.jmeter.testelement.property.CollectionProperty) existing).clear();
+        }
+
         for (Object argItem : convertToList(propValue)) {
             if (!(argItem instanceof Map)) {
                 continue;
@@ -332,7 +340,7 @@ public class SchemaBasedPropertyHandler {
 
             ((org.apache.jmeter.config.Arguments) element).addArgument(argument);
         }
-        log.info("Added {} arguments to {}", convertToList(propValue).size(), propName);
+        log.info("Set {} with {} arguments", propName, ((org.apache.jmeter.config.Arguments) element).getArgumentCount());
     }
 
     /**
@@ -390,6 +398,8 @@ public class SchemaBasedPropertyHandler {
     private void handleHeaderManagerProperty(TestElement element, String propName, Object propValue) {
         List<Object> items = convertToList(propValue);
 
+        // Build new headers first, only clear existing if new items are valid
+        List<Object> newHeaders = new ArrayList<>();
         try {
             Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
 
@@ -411,12 +421,32 @@ public class SchemaBasedPropertyHandler {
                 Object header = headerClass
                         .getConstructor(String.class, String.class)
                         .newInstance(headerName, headerValue != null ? headerValue : "");
-
-                element.getClass().getMethod("add", headerClass).invoke(element, header);
-                log.info("Added header: {} = {}", headerName, headerValue);
+                newHeaders.add(header);
             }
         } catch (Exception e) {
             log.warn("Failed to create Header objects for {}", propName, e);
+        }
+
+        if (newHeaders.isEmpty() && !items.isEmpty()) {
+            log.warn("No valid headers created, skipping update to preserve existing data");
+            return;
+        }
+
+        // Clear existing then add new
+        org.apache.jmeter.testelement.property.JMeterProperty existingHeaders = element.getProperty(propName);
+        if (existingHeaders instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
+            ((org.apache.jmeter.testelement.property.CollectionProperty) existingHeaders).clear();
+        }
+
+        try {
+            Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
+            java.lang.reflect.Method addMethod = element.getClass().getMethod("add", headerClass);
+            for (Object header : newHeaders) {
+                addMethod.invoke(element, header);
+            }
+            log.info("Set HeaderManager.headers with {} header(s)", newHeaders.size());
+        } catch (Exception e) {
+            log.warn("Failed to add headers to HeaderManager", e);
         }
     }
 
