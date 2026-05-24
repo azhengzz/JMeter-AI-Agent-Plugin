@@ -27,7 +27,7 @@ properties:
     class: org.apache.jmeter.config.Arguments
     description: Backend-specific configuration parameters
     itemClass: org.apache.jmeter.config.Argument
-    properties:
+    itemProperties:
       - name: Argument.name
         type: String
         required: false
@@ -44,4 +44,4 @@ properties:
         type: String
         required: false
         default: "="
-        description: metadata alway is '='
+        description: metadata always is '='

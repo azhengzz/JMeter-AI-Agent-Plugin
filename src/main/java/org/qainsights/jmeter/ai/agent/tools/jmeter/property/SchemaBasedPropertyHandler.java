@@ -307,18 +307,16 @@ public class SchemaBasedPropertyHandler {
 
     /**
      * Handle Arguments.arguments property with itemProperties schema.
+     * Supports two storage patterns:
+     * 1. Element IS Arguments (e.g., UserDefinedVariables) - CollectionProperty on the element itself
+     * 2. Element HAS Arguments (e.g., BackendListener) - TestElementProperty wrapping an Arguments object
      */
     @SuppressWarnings("unchecked")
     private void handleArgumentsProperty(TestElement element, String propName, Object propValue) {
-        // Arguments.arguments is stored as CollectionProperty in JMeter,
-        // not as TestElementProperty wrapping an Arguments object.
-        // Must clear the existing collection and add items individually.
-        org.apache.jmeter.testelement.property.JMeterProperty existing = element.getProperty(propName);
-        if (existing instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
-            ((org.apache.jmeter.testelement.property.CollectionProperty) existing).clear();
-        }
+        List<Object> items = convertToList(propValue);
+        List<org.apache.jmeter.config.Argument> newArgs = new ArrayList<>();
 
-        for (Object argItem : convertToList(propValue)) {
+        for (Object argItem : items) {
             if (!(argItem instanceof Map)) {
                 continue;
             }
@@ -337,10 +335,57 @@ public class SchemaBasedPropertyHandler {
             if (argDesc != null && !argDesc.isEmpty()) {
                 argument.setDescription(argDesc);
             }
-
-            ((org.apache.jmeter.config.Arguments) element).addArgument(argument);
+            newArgs.add(argument);
         }
-        log.info("Set {} with {} arguments", propName, ((org.apache.jmeter.config.Arguments) element).getArgumentCount());
+
+        if (newArgs.isEmpty()) {
+            log.warn("No valid arguments provided, skipping Arguments.arguments update");
+            return;
+        }
+
+        // Build first, then replace to prevent data loss
+        org.apache.jmeter.config.Arguments targetArgs = resolveArgumentsTarget(element, propName);
+        if (targetArgs == null) {
+            log.error("Cannot find Arguments object on element: {}", element.getClass().getSimpleName());
+            return;
+        }
+
+        // Clear existing arguments
+        org.apache.jmeter.testelement.property.JMeterProperty existing = targetArgs.getProperty("Arguments.arguments");
+        if (existing instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
+            ((org.apache.jmeter.testelement.property.CollectionProperty) existing).clear();
+        }
+
+        for (org.apache.jmeter.config.Argument arg : newArgs) {
+            targetArgs.addArgument(arg);
+        }
+
+        log.info("Set Arguments.arguments with {} arguments on {}", newArgs.size(), element.getClass().getSimpleName());
+    }
+
+    /**
+     * Resolve the Arguments object to modify.
+     * - If element is Arguments (e.g., UserDefinedVariables), return element directly.
+     * - If element has Arguments as a TestElementProperty (e.g., BackendListener with "arguments" key),
+     *   return the nested Arguments object.
+     */
+    private org.apache.jmeter.config.Arguments resolveArgumentsTarget(TestElement element, String propName) {
+        if (element instanceof org.apache.jmeter.config.Arguments) {
+            return (org.apache.jmeter.config.Arguments) element;
+        }
+
+        // Search for a TestElementProperty wrapping Arguments
+        org.apache.jmeter.testelement.property.PropertyIterator iter = element.propertyIterator();
+        while (iter.hasNext()) {
+            org.apache.jmeter.testelement.property.JMeterProperty prop = iter.next();
+            if (prop instanceof org.apache.jmeter.testelement.property.TestElementProperty) {
+                TestElement nested = ((org.apache.jmeter.testelement.property.TestElementProperty) prop).getElement();
+                if (nested instanceof org.apache.jmeter.config.Arguments) {
+                    return (org.apache.jmeter.config.Arguments) nested;
+                }
+            }
+        }
+        return null;
     }
 
     /**
