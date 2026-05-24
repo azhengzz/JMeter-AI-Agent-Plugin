@@ -881,6 +881,8 @@ public class JMeterElementManager {
                 return "Runtime Controller";
             case "headermanager":
                 return "HTTP Header Manager";
+            case "jdbcdatasource":
+                return "JDBC Connection Configuration";
             case "csvdataset":
                 return "CSV Data Set";
             case "exceldataconfig":

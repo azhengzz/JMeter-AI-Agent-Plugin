@@ -99,6 +99,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration/CookieManager.md) | [Schema](./references/configuration/CookieManager.schema.yaml) |
 | `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration/UserDefinedVariables.md) | [Schema](./references/configuration/UserDefinedVariables.schema.yaml) |
 | `exceldataconfig` | Read Excel files for parameterization | [Excel Data Set Config](./references/configuration/ExcelDataConfig.md) | [Schema](./references/configuration/ExcelDataConfig.schema.yaml) |
+| `jdbcdatasource` | Configure JDBC database connection pool | [JDBC Connection Configuration](./references/configuration/JDBCConnectionConfiguration.md) | [Schema](./references/configuration/JDBCConnectionConfiguration.schema.yaml) |
 | `s3configelement` | Configure S3 object storage connection | [S3 Connection Configuration](./references/configuration/S3ConfigElement.md) | [Schema](./references/configuration/S3ConfigElement.schema.yaml) |
 
 ### Pre-Processors
