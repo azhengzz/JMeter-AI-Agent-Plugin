@@ -69,6 +69,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `debugsampler` | Display JMeter variables/properties for debugging | [Debug Sampler](./references/samplers/DebugSampler.md) | [Schema](./references/samplers/DebugSampler.schema.yaml) |
 | `osprocesssampler` | Execute system commands or native executables | [OS Process Sampler](./references/samplers/OSProcessSampler.md) | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
 | `s3sampler` | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/samplers/S3Sampler.md) | [Schema](./references/samplers/S3Sampler.schema.yaml) |
+| `gitsampler` | Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP | [Git Sampler](./references/samplers/GitSampler.md) | [Schema](./references/samplers/GitSampler.schema.yaml) |
 
 
 ### Controllers

@@ -224,6 +224,8 @@ public class JMeterElementManager {
                         "org.apache.jmeter.protocol.system.gui.SystemSamplerGui"));
         ELEMENT_CLASS_MAP.put("s3sampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.s3.sampler.S3Sampler",
                 "com.gitee.qa.jmeter.protocol.s3.gui.S3SamplerGui"));
+        ELEMENT_CLASS_MAP.put("gitsampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.git.GitSampler",
+                "com.gitee.qa.jmeter.protocol.git.gui.GitSamplerGui"));
         ELEMENT_CLASS_MAP.put("mongodbscript",
                 new ElementClassInfo("org.apache.jmeter.protocol.mongodb.sampler.MongoScriptSampler",
                         "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
@@ -302,6 +304,15 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("beanshellassertion",
                 new ElementClassInfo("org.apache.jmeter.assertions.BeanShellAssertion",
                         "org.apache.jmeter.assertions.gui.BeanShellAssertionGui"));
+        ELEMENT_CLASS_MAP.put("variableassertion",
+                new ElementClassInfo("com.gitee.qa.jmeter.assertions.VariableAssertion",
+                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("valueassertion",
+                new ElementClassInfo("com.gitee.qa.jmeter.assertions.ValueAssertion",
+                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("jsonautoassertion",
+                new ElementClassInfo("com.gitee.qa.jmeter.assertions.JsonAutoAssertion",
+                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
 
         // Timers
         ELEMENT_CLASS_MAP.put("constanttimer", new ElementClassInfo("org.apache.jmeter.timers.ConstantTimer",
@@ -947,6 +958,12 @@ public class JMeterElementManager {
                 return "JSR223 PreProcessor";
             case "jsr223postprocessor":
                 return "JSR223 PostProcessor";
+            case "variableassertion":
+                return "Variable Assertion";
+            case "valueassertion":
+                return "Value Assertion";
+            case "jsonautoassertion":
+                return "JSON Auto Assertion";
             default:
                 // Convert camelCase to Title Case with spaces
                 String name = normalizedType.replaceAll("([a-z])([A-Z])", "$1 $2");
@@ -1590,6 +1607,8 @@ public class JMeterElementManager {
                 return "Debug Sampler shows JMeter variables and properties.";
             case "s3sampler":
                 return "S3 Sampler";
+            case "gitsampler":
+                return "Git Sampler";
             case "jsonsamplerproxy":
                 return "JSON Request sends JSON requests to a server.";
             default:

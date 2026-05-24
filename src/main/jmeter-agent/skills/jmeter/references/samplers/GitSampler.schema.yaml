@@ -1,0 +1,58 @@
+component:
+  type: gitsampler
+  name: Git Sampler
+  class: com.gitee.qa.jmeter.protocol.git.GitSampler
+  description: Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP protocol
+
+properties:
+
+  - name: GitSampler.use_ssh_protocol
+    type: Boolean
+    required: false
+    default: true
+    description: Use SSH protocol for Git operations
+
+  - name: GitSampler.use_http_protocol
+    type: Boolean
+    required: false
+    default: false
+    description: Use HTTP protocol for Git operations
+
+  - name: GitSampler.ssh_key_path
+    type: String
+    required: false
+    default: ""
+    description: Path to SSH private key (id_rsa). Use forward slashes on Windows.
+
+  - name: GitSampler.user_name
+    type: String
+    required: false
+    default: ""
+    description: Username for HTTP authentication
+
+  - name: GitSampler.user_password
+    type: String
+    required: false
+    default: ""
+    description: Password for HTTP authentication
+
+  - name: GitSampler.action
+    type: String
+    required: true
+    default: "Clone"
+    enum: ["Clone", "Add", "Commit", "Push", "Pull", "Branch"]
+    description: Git operation to perform
+
+  - name: GitSampler.Arguments
+    type: Array
+    required: false
+    description: Action-specific key-value arguments
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Argument key (e.g. "--message", "<repo-path>", "<repository>")
+      - name: Argument.value
+        type: String
+        required: false
+        description: Argument value
