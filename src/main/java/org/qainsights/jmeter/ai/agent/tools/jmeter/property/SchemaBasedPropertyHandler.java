@@ -458,6 +458,8 @@ public class SchemaBasedPropertyHandler {
     private void handleCookieManagerProperty(TestElement element, String propName, Object propValue) {
         List<Object> items = convertToList(propValue);
 
+        // Build new cookies first, only clear existing if new items are valid
+        List<Object> newCookies = new ArrayList<>();
         try {
             Class<?> cookieClass = Class.forName("org.apache.jmeter.protocol.http.control.Cookie");
 
@@ -468,7 +470,11 @@ public class SchemaBasedPropertyHandler {
                 }
 
                 Map<String, Object> cookieProps = (Map<String, Object>) item;
+                // Cookie name is stored as TestElement.name in JMeter, not as Cookie.name
                 String cookieName = getStringValue(cookieProps, "Cookie.name");
+                if (cookieName == null) {
+                    cookieName = getStringValue(cookieProps, "TestElement.name");
+                }
                 String cookieValue = getStringValue(cookieProps, "Cookie.value");
                 String domain = getStringValue(cookieProps, "Cookie.domain");
                 String path = getStringValue(cookieProps, "Cookie.path", "/");
@@ -493,12 +499,32 @@ public class SchemaBasedPropertyHandler {
                                 expires,
                                 pathSpecified,
                                 domainSpecified);
-
-                element.getClass().getMethod("add", cookieClass).invoke(element, cookie);
-                log.info("Added cookie: {} (domain: {}, path: {})", cookieName, domain, path);
+                newCookies.add(cookie);
             }
         } catch (Exception e) {
             log.warn("Failed to create Cookie objects for {}", propName, e);
+        }
+
+        if (newCookies.isEmpty() && !items.isEmpty()) {
+            log.warn("No valid cookies created, skipping update to preserve existing data");
+            return;
+        }
+
+        // Clear existing then add new
+        org.apache.jmeter.testelement.property.JMeterProperty existingCookies = element.getProperty(propName);
+        if (existingCookies instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
+            ((org.apache.jmeter.testelement.property.CollectionProperty) existingCookies).clear();
+        }
+
+        try {
+            Class<?> cookieClass = Class.forName("org.apache.jmeter.protocol.http.control.Cookie");
+            java.lang.reflect.Method addMethod = element.getClass().getMethod("add", cookieClass);
+            for (Object cookie : newCookies) {
+                addMethod.invoke(element, cookie);
+            }
+            log.info("Set CookieManager.cookies with {} cookie(s)", newCookies.size());
+        } catch (Exception e) {
+            log.warn("Failed to add cookies to CookieManager", e);
         }
     }
 

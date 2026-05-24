@@ -226,6 +226,11 @@ public class JMeterTreeUtils {
                 TestElement itemElement = ((TestElementProperty) item).getElement();
                 if (itemElement != null) {
                     Map<String, Object> itemProps = new LinkedHashMap<>();
+                    // Include element name (e.g., cookie name is stored as TestElement.name)
+                    String elementName = itemElement.getName();
+                    if (elementName != null && !elementName.isEmpty()) {
+                        itemProps.put("TestElement.name", elementName);
+                    }
                     PropertyIterator itemPropIter = itemElement.propertyIterator();
                     while (itemPropIter.hasNext()) {
                         JMeterProperty itemProp = itemPropIter.next();
