@@ -94,6 +94,8 @@ public class SchemaBasedPropertyHandler {
                     handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
                 } else if ("ParameterTestFragmentController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
                     handleParameterTestFragmentReturnValueProperty(element, propName, propValue);
+                } else if (propDef.hasItemClass() && propDef.hasItemProperties()) {
+                    handleTestBeanTableProperty(element, propName, propValue, propDef);
                 } else {
                     handleGenericCollectionProperty(element, propName, propValue);
                 }
@@ -570,6 +572,63 @@ public class SchemaBasedPropertyHandler {
             log.info("Set CookieManager.cookies with {} cookie(s)", newCookies.size());
         } catch (Exception e) {
             log.warn("Failed to add cookies to CookieManager", e);
+        }
+    }
+
+    /**
+     * Handle TestBean table properties with itemClass (e.g., ValueAssertion.valuesCheckTable, VariableAssertion.variablesCheckTable).
+     * Creates item instances via reflection, sets their properties from itemProperties schema, wraps in TestElementProperty.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleTestBeanTableProperty(TestElement element, String propName, Object propValue,
+                                             ComponentSchema.PropertyDefinition propDef) {
+        String itemClassName = propDef.getItemClass();
+        if (itemClassName == null || itemClassName.isEmpty()) {
+            log.warn("itemClass not defined for property: {}, falling back to generic handler", propName);
+            handleGenericCollectionProperty(element, propName, propValue);
+            return;
+        }
+
+        try {
+            Class<?> itemClass = Class.forName(itemClassName);
+            List<Object> items = convertToList(propValue);
+            List<org.apache.jmeter.testelement.property.TestElementProperty> teProps = new ArrayList<>();
+
+            for (Object item : items) {
+                if (!(item instanceof Map)) {
+                    log.warn("TestBean table item must be a map, got: {}", item.getClass());
+                    continue;
+                }
+
+                Map<String, Object> itemProps = (Map<String, Object>) item;
+                TestElement rowElement = (TestElement) itemClass.getDeclaredConstructor().newInstance();
+                rowElement.setProperty(TestElement.TEST_CLASS, itemClassName);
+
+                for (ComponentSchema.PropertyDefinition itemPropDef : propDef.getItemProperties()) {
+                    String itemPropName = itemPropDef.getName();
+                    Object itemPropValue = itemProps.get(itemPropName);
+                    if (itemPropValue == null) {
+                        continue;
+                    }
+                    handleSimpleProperty(rowElement, itemPropName, itemPropValue);
+                }
+
+                teProps.add(new org.apache.jmeter.testelement.property.TestElementProperty(
+                        String.valueOf(System.currentTimeMillis()), rowElement));
+            }
+
+            org.apache.jmeter.testelement.property.CollectionProperty collectionProp =
+                    new org.apache.jmeter.testelement.property.CollectionProperty(propName, new ArrayList<>());
+            for (org.apache.jmeter.testelement.property.TestElementProperty tep : teProps) {
+                collectionProp.addProperty(tep);
+            }
+
+            element.setProperty(collectionProp);
+            log.info("Set TestBean table property: {} with {} rows (itemClass: {})", propName, teProps.size(), itemClassName);
+
+        } catch (Exception e) {
+            log.warn("Failed to handle TestBean table property: {}, falling back to generic handler", propName, e);
+            handleGenericCollectionProperty(element, propName, propValue);
         }
     }
 

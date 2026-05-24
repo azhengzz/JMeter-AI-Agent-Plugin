@@ -1,0 +1,33 @@
+component:
+  type: valueassertion
+  name: Value Assertion
+  description: Compares actual values against expected values with descriptions
+
+properties:
+  - name: valuesCheckTable
+    type: Array
+    required: true
+    description: Table of value comparison rules
+    itemClass: com.gitee.qa.jmeter.assertions.ValueAssertionTableElement
+    itemProperties:
+      - name: actual
+        type: String
+        required: true
+        description: Actual value (supports JMeter variables like ${var})
+
+      - name: expect
+        type: String
+        required: true
+        description: Expected value to compare against
+
+      - name: desc
+        type: String
+        required: false
+        default: ""
+        description: Description for this check (shown in failure message)
+
+      - name: enable
+        type: Boolean
+        required: false
+        default: true
+        description: Enable or disable this check row

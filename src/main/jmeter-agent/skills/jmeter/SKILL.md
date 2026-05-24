@@ -132,6 +132,9 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `md5hexassertion` | Validate response checksum | MD5Hex Assertion | |
 | `xmlassertion` | Validate XML well-formedness | [XML Assertion](./references/assertions/XMLAssertion.md) | [Schema](./references/assertions/XMLAssertion.schema.yaml) |
 | `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) | |
+| `variableassertion` | Validate JMeter variables/properties | [Variable Assertion](./references/assertions/VariableAssertion.md) | [Schema](./references/assertions/VariableAssertion.schema.yaml) |
+| `valueassertion` | Compare actual vs expected values | [Value Assertion](./references/assertions/ValueAssertion.md) | [Schema](./references/assertions/ValueAssertion.schema.yaml) |
+| `jsonautoassertion` | Auto-compare JSON with regex support | [JSON Auto Assertion](./references/assertions/JsonAutoAssertion.md) | [Schema](./references/assertions/JsonAutoAssertion.schema.yaml) |
 
 **Note:** `jsonassertion` is an alias for `jsonpathassertion`
 

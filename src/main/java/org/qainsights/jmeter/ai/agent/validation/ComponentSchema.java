@@ -102,6 +102,7 @@ public class ComponentSchema {
         private String className;  // Fully qualified class name for Object type
         private List<PropertyDefinition> nestedProperties;  // Nested properties for Object type
         private String itemType;  // Item type for collection properties (e.g., "HTTPArgument")
+        private String itemClass;  // Fully qualified class name for collection item (e.g., "com.gitee.qa.jmeter.assertions.ValueAssertionTableElement")
         private List<PropertyDefinition> itemProperties;  // Item property definitions for collection properties
         private PropertyType innerItemType;  // Inner element type for ARRAY_2D (e.g., STRING for UserParameters.thread_values)
 
@@ -234,6 +235,18 @@ public class ComponentSchema {
 
         public void setItemProperties(List<PropertyDefinition> itemProperties) {
             this.itemProperties = itemProperties;
+        }
+
+        public String getItemClass() {
+            return itemClass;
+        }
+
+        public void setItemClass(String itemClass) {
+            this.itemClass = itemClass;
+        }
+
+        public boolean hasItemClass() {
+            return itemClass != null && !itemClass.isEmpty();
         }
 
         /**
