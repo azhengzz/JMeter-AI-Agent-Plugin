@@ -19,12 +19,6 @@ import java.util.Map;
 public class BuiltinCommands {
     private static final Logger log = LoggerFactory.getLogger(BuiltinCommands.class);
 
-    /** Cancel all active tasks for the session. Priority command. */
-    public static String cmdStop(CommandContext ctx) {
-        boolean cancelled = ctx.getLoop().cancelActiveTask(ctx.getSessionKey());
-        return cancelled ? "Stopped active task." : "No active task to stop.";
-    }
-
     /** Start a fresh session. Exact command. */
     public static String cmdNew(CommandContext ctx) {
         Session session = ctx.getSessionOrCreate();
@@ -86,7 +80,6 @@ public class BuiltinCommands {
         return String.join("\n",
                 "Gitee Ai commands:",
                 "/new — Start a new conversation",
-                "/stop — Stop the current task",
                 "/status — Show bot status",
                 "/help — Show available commands"
         );
@@ -94,7 +87,6 @@ public class BuiltinCommands {
 
     /** Register the default set of slash commands. */
     public static void registerBuiltinCommands(CommandRouter router) {
-        router.priority("/stop", BuiltinCommands::cmdStop);
         router.priority("/status", BuiltinCommands::cmdStatus);
         router.exact("/new", BuiltinCommands::cmdNew);
         router.exact("/status", BuiltinCommands::cmdStatus);

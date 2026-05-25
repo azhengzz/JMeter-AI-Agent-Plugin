@@ -68,7 +68,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     // Vertical split pane for drag-to-resize between chat area and input area
     private JSplitPane verticalSplitPane;
 
-    // Track active worker for /stop support
+    // Track active worker for Stop button support
     private AgentSwingWorker activeWorker;
     // Track whether tool calls were displayed progressively during the loop
     private boolean toolCallsDisplayedProgressively;
@@ -560,7 +560,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
                 "**Slash commands:**\n" +
                 "- `/new` — Start a new conversation\n" +
-                "- `/stop` — Stop the current task\n" +
                 "- `/status` — Show agent status\n" +
                 "- `/help` — Show available commands\n\n" +
                 "How can I assist you today?";
@@ -570,7 +569,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         //         "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
         //         "**Slash commands:**\n" +
         //         "- `/new` — Start a new conversation\n" +
-        //         "- `/stop` — Stop the current task\n" +
         //         "- `/status` — Show agent status\n" +
         //         "- `/help` — Show available commands\n\n" +
         //         "**Agent commands:**\n" +
@@ -643,12 +641,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             messageProcessor.appendMessage(chatArea.getStyledDocument(), "AI is thinking...", getThemeColor("Label.disabledForeground", Color.GRAY), false);
         } catch (BadLocationException e) {
             log.error("Error adding loading indicator", e);
-        }
-
-        // Check for /stop command to cancel active worker immediately
-        if (message.trim().equalsIgnoreCase("/stop")) {
-            stopActiveTask();
-            return;
         }
 
         // Check for special commands that don't go through AgentLoop
@@ -890,7 +882,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
-     * Stop the active AI task. Shared by Stop button and /stop text command.
+     * Stop the active AI task, triggered by the Stop button.
      */
     private void stopActiveTask() {
         if (activeWorker != null && !activeWorker.isDone()) {

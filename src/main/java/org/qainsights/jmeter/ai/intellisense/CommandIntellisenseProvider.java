@@ -12,7 +12,6 @@ public class CommandIntellisenseProvider {
     public CommandIntellisenseProvider() {
         commands = new ArrayList<>();
         // Slash commands
-        commands.add("/stop");
         commands.add("/new");
         commands.add("/status");
         commands.add("/help");

@@ -45,7 +45,7 @@ public class AgentRunner {
     private final int defaultMaxIterations;
     private final long toolTimeoutMs;
 
-    // Track the thread running the agent loop so /stop can interrupt it
+    // Track the thread running the agent loop so Stop button can interrupt it
     private volatile Thread runningThread;
 
     /**
@@ -147,7 +147,7 @@ public class AgentRunner {
             AgentHookContext context,
             Instant startTime) {
 
-        // Track the running thread so /stop can interrupt it
+        // Track the running thread so cancellation can interrupt it
         runningThread = Thread.currentThread();
         try {
         List<Message> currentMessages = new ArrayList<>(messages);
@@ -169,7 +169,7 @@ public class AgentRunner {
             iteration++;
             context.setCurrentIteration(iteration);
 
-            // Check abort flag (set by /stop) and thread interrupt
+            // Check abort flag (set by cancellation) and thread interrupt
             if (isAborted(spec)) {
                 log.info("Agent loop aborted at iteration {} for session {}", iteration, spec.getSessionKey());
                 break;
@@ -479,7 +479,7 @@ public class AgentRunner {
     }
 
     /**
-     * Interrupt the thread running the agent loop, called by /stop.
+     * Interrupt the thread running the agent loop, called by Stop button.
      */
     public void interrupt() {
         Thread t = runningThread;

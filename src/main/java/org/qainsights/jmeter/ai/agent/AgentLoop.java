@@ -181,7 +181,7 @@ public class AgentLoop {
 
         }, executorService);
 
-        // Track active task for /stop support
+        // Track active task for cancellation support
         activeTasks.put(sessionKey, future);
         future.whenComplete((r, e) -> {
             activeTasks.remove(sessionKey);
