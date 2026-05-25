@@ -314,6 +314,21 @@ public class OpenAICompatibleProvider implements AiService {
                 || msg.contains("should be [\"none\", \"auto\"]");
     }
 
+    /**
+     * Check if an exception was caused by thread interruption (e.g. OkHttp InterruptedIOException).
+     */
+    private boolean isCausedByInterrupt(Throwable e) {
+        Throwable current = e;
+        while (current != null) {
+            if (current instanceof java.io.InterruptedIOException
+                    || current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     private boolean isToolChoiceUnsupported(String msg) {
         if (msg == null) return false;
         String lower = msg.toLowerCase();
@@ -613,8 +628,8 @@ public class OpenAICompatibleProvider implements AiService {
             return responseBuilder.build();
 
         } catch (Exception e) {
-            // Kotlin SDK doesn't declare InterruptedException but can throw it at runtime
-            if (e instanceof InterruptedException) {
+            // Thread interrupt can surface as InterruptedException or wrapped in OkHttp's InterruptedIOException
+            if (isCausedByInterrupt(e)) {
                 Thread.currentThread().interrupt();
                 log.info("LLM request interrupted for {} (agent stopped)", providerName);
                 return LLMResponse.error("Interrupted");

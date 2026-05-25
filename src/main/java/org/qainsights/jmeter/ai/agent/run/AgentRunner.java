@@ -114,12 +114,12 @@ public class AgentRunner {
                 // Run agent loop
                 AgentRunResult result = runAgentLoop(messages, session, spec, context, startTime);
 
-                // Save messages to session (Nanobot: _save_turn + sessions.save)
-                int skipCount = Math.max(0, messages.size() - 1);
-                saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
-
-                // Trigger background memory consolidation (Nanobot: _schedule_background)
-                memoryConsolidator.maybeConsolidate(session);
+                // Skip session persistence if task was cancelled (Nanobot: CancelledError skips session.save)
+                if (!isAborted(spec)) {
+                    int skipCount = Math.max(0, messages.size() - 1);
+                    saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
+                    memoryConsolidator.maybeConsolidate(session);
+                }
 
                 log.info("Agent run {} completed with success={}", runId, result.isSuccess());
                 return result;
