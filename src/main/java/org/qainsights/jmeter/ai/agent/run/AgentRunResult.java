@@ -1,5 +1,6 @@
 package org.qainsights.jmeter.ai.agent.run;
 
+import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.model.ToolEvent;
 import org.qainsights.jmeter.ai.agent.session.Session;
 
@@ -23,6 +24,7 @@ public class AgentRunResult {
     private final Session session;
     private final Map<String, Object> metadata;
     private final List<ToolEvent> toolEvents;
+    private final List<Message> currentMessages;
 
     private AgentRunResult(Builder builder) {
         this.runId = builder.runId;
@@ -36,6 +38,7 @@ public class AgentRunResult {
         this.session = builder.session;
         this.metadata = builder.metadata != null ? builder.metadata : Collections.emptyMap();
         this.toolEvents = builder.toolEvents != null ? builder.toolEvents : Collections.emptyList();
+        this.currentMessages = builder.currentMessages;
     }
 
     public String getRunId() { return runId; }
@@ -50,6 +53,7 @@ public class AgentRunResult {
     public Session getSession() { return session; }
     public Map<String, Object> getMetadata() { return metadata; }
     public List<ToolEvent> getToolEvents() { return toolEvents; }
+    public List<Message> getCurrentMessages() { return currentMessages; }
 
     public static Builder builder() {
         return new Builder();
@@ -67,6 +71,7 @@ public class AgentRunResult {
         private Session session;
         private Map<String, Object> metadata;
         private List<ToolEvent> toolEvents;
+        private List<Message> currentMessages;
 
         public Builder runId(String runId) { this.runId = runId; return this; }
         public Builder content(String content) { this.content = content; return this; }
@@ -79,6 +84,7 @@ public class AgentRunResult {
         public Builder session(Session session) { this.session = session; return this; }
         public Builder metadata(Map<String, Object> metadata) { this.metadata = metadata; return this; }
         public Builder toolEvents(List<ToolEvent> events) { this.toolEvents = events; return this; }
+        public Builder currentMessages(List<Message> currentMessages) { this.currentMessages = currentMessages; return this; }
 
         public AgentRunResult build() {
             return new AgentRunResult(this);

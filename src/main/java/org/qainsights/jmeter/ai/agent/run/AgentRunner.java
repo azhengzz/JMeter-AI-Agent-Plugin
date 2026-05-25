@@ -64,7 +64,7 @@ public class AgentRunner {
         this.memoryConsolidator = memoryConsolidator;
         this.contextBuilder = contextBuilder;
         int contextTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
-        this.contextWindowManager = new ContextWindowManager(contextTokens, 0.10);
+        this.contextWindowManager = new ContextWindowManager(contextTokens);
         this.sessionManager = sessionManager;
         this.aiService = aiService;
         this.defaultMaxIterations = maxIterations;
@@ -93,13 +93,13 @@ public class AgentRunner {
                 // Get or create session
                 Session session = sessionManager.getOrCreate(spec.getSessionKey());
 
-                // Check memory consolidation
+                // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync])
                 memoryConsolidator.maybeConsolidate(session).join();
 
                 // Create hook context
                 AgentHookContext context = new AgentHookContext(runId, session, spec.getUserMessage());
 
-                // Build initial messages
+                // Build initial messages (getHistory now returns only unconsolidated messages)
                 List<Message> messages;
                 if (spec.getInitialMessages() != null && !spec.getInitialMessages().isEmpty()) {
                     messages = new ArrayList<>(spec.getInitialMessages());
@@ -111,11 +111,15 @@ public class AgentRunner {
                     );
                 }
 
-                // Trim to context window if needed (intelligent context management)
-                messages = contextWindowManager.trimToContextWindow(messages, contextWindowManager.maxContextTokens);
-
                 // Run agent loop
                 AgentRunResult result = runAgentLoop(messages, session, spec, context, startTime);
+
+                // Save messages to session (Nanobot: _save_turn + sessions.save)
+                int skipCount = Math.max(0, messages.size() - 1);
+                saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
+
+                // Trigger background memory consolidation (Nanobot: _schedule_background)
+                memoryConsolidator.maybeConsolidate(session);
 
                 log.info("Agent run {} completed with success={}", runId, result.isSuccess());
                 return result;
@@ -312,19 +316,9 @@ public class AgentRunner {
             finalContent = "I reached the maximum number of tool call iterations. Please try breaking the task into smaller steps.";
         }
 
-        // Finalize content through hook (skip if aborted)
-        boolean wasAborted = isAborted(spec);
-        if (!wasAborted && hook != null) {
+        // Finalize content through hook
+        if (hook != null) {
             finalContent = hook.finalizeContent(finalContent, context);
-        }
-
-        // Save messages to session (skip if aborted — matching Nanobot behavior)
-        if (!wasAborted) {
-            int skipCount = Math.max(0, messages.size() - 1);
-            saveMessagesToSession(session, currentMessages, skipCount);
-
-            // Trigger background memory consolidation
-            memoryConsolidator.maybeConsolidate(session);
         }
 
         // Build result
@@ -341,6 +335,7 @@ public class AgentRunner {
             .endTime(Instant.now())
             .session(session)
             .toolEvents(context.getToolEvents())
+            .currentMessages(currentMessages)
             .metadata(resultMetadata)
             .build();
         } finally {

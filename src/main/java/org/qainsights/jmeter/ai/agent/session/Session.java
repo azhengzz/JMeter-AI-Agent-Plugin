@@ -1,11 +1,10 @@
 package org.qainsights.jmeter.ai.agent.session;
 
 import org.qainsights.jmeter.ai.agent.model.Message;
+import org.qainsights.jmeter.ai.agent.model.ToolCall;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Represents a conversation session with the Agent.
@@ -79,19 +78,95 @@ public class Session {
     }
 
     /**
-     * Get message history up to maxMessages
+     * Get message history for LLM input (Nanobot: get_history).
+     * 1. Only return unconsolidated messages (after lastConsolidatedIndex)
+     * 2. Slice to the most recent maxMessages
+     * 3. Drop leading non-user messages (user-turn alignment)
+     * 4. Skip orphaned tool results (_find_legal_start)
      */
     public List<Message> getHistory(int maxMessages) {
-        if (maxMessages <= 0) {
-            return new ArrayList<>(messages);
+        // Step 1: unconsolidated = self.messages[self.last_consolidated:]
+        List<Message> unconsolidated = (lastConsolidatedIndex >= messages.size())
+                ? Collections.emptyList()
+                : new ArrayList<>(messages.subList(lastConsolidatedIndex, messages.size()));
+
+        // Step 2: sliced = unconsolidated[-max_messages:]
+        List<Message> sliced = unconsolidated;
+        if (maxMessages > 0 && maxMessages < unconsolidated.size()) {
+            sliced = new ArrayList<>(unconsolidated.subList(unconsolidated.size() - maxMessages, unconsolidated.size()));
         }
 
-        int fromIndex = Math.max(0, messages.size() - maxMessages);
-        return new ArrayList<>(messages.subList(fromIndex, messages.size()));
+        // Step 3: Drop leading non-user messages (Nanobot: for i, message in enumerate(sliced): if user → break)
+        for (int i = 0; i < sliced.size(); i++) {
+            if (sliced.get(i).getRole() == Message.Role.USER) {
+                sliced = sliced.subList(i, sliced.size());
+                break;
+            }
+        }
+
+        // Step 4: Skip orphaned tool results (Nanobot: _find_legal_start)
+        int legalStart = findLegalStart(sliced);
+        if (legalStart > 0) {
+            sliced = sliced.subList(legalStart, sliced.size());
+        }
+
+        // Step 5: Output cleaning — only keep fields relevant for LLM (Nanobot: role, content, tool_calls, tool_call_id, name)
+        List<Message> out = new ArrayList<>(sliced.size());
+        for (Message msg : sliced) {
+            out.add(Message.builder()
+                    .role(msg.getRole())
+                    .content(msg.getContent() != null ? msg.getContent() : "")
+                    .toolCalls(msg.hasToolCalls() ? msg.getToolCalls() : null)
+                    .toolCallId(msg.getToolCallId())
+                    .metadata(msg.getToolName() != null
+                            ? Collections.singletonMap("toolName", msg.getToolName())
+                            : null)
+                    .build());
+        }
+        return out;
     }
 
     /**
-     * Get messages after the last consolidation index
+     * Find first index where every tool result has a matching assistant tool_call.
+     * Ported from Nanobot's Session._find_legal_start().
+     */
+    private int findLegalStart(List<Message> msgs) {
+        Set<String> declared = new HashSet<>();
+        int start = 0;
+
+        for (int i = 0; i < msgs.size(); i++) {
+            Message msg = msgs.get(i);
+
+            if (msg.getRole() == Message.Role.ASSISTANT && msg.hasToolCalls()) {
+                for (ToolCall tc : msg.getToolCalls()) {
+                    if (tc.getId() != null) {
+                        declared.add(tc.getId());
+                    }
+                }
+            } else if (msg.getRole() == Message.Role.TOOL) {
+                String tid = msg.getToolCallId();
+                if (tid == null || !declared.contains(tid)) {
+                    start = i + 1;
+                    declared.clear();
+                    for (int j = start; j <= i; j++) {
+                        Message prev = msgs.get(j);
+                        if (prev.getRole() == Message.Role.ASSISTANT && prev.hasToolCalls()) {
+                            for (ToolCall tc : prev.getToolCalls()) {
+                                if (tc.getId() != null) {
+                                    declared.add(tc.getId());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return start;
+    }
+
+    /**
+     * Get messages after the last consolidation index.
      */
     public List<Message> getUnconsolidatedMessages() {
         if (lastConsolidatedIndex >= messages.size()) {

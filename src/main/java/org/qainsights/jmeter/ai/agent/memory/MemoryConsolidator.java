@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * AI-powered memory consolidation aligned with Nanobot's MemoryStore.consolidate().
@@ -60,7 +61,6 @@ public class MemoryConsolidator {
     private final ToolRegistry toolRegistry;
     private final int contextWindowTokens;
     private final int maxCompletionTokens;
-    private final double consolidationThreshold;
     private int consecutiveFailures = 0;
 
     public MemoryConsolidator(MemoryStore memoryStore, AiService aiService, SessionManager sessionManager,
@@ -72,33 +72,15 @@ public class MemoryConsolidator {
         this.toolRegistry = toolRegistry;
         this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
         this.maxCompletionTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
-        this.consolidationThreshold = Double.parseDouble(AiConfig.getProperty("agent.memory.consolidation.threshold", "0.5"));
     }
 
     /**
-     * Check if consolidation is needed for the given session.
-     */
-    public boolean needsConsolidation(Session session) {
-        if (!memoryStore.isEnabled()) {
-            return false;
-        }
-
-        int estimatedTokens = estimateSessionTokens(session);
-        boolean needs = estimatedTokens > (contextWindowTokens * consolidationThreshold);
-
-        if (needs) {
-            log.info("Memory consolidation needed: {} estimated tokens, threshold: {}",
-                    estimatedTokens, (int) (contextWindowTokens * consolidationThreshold));
-        }
-
-        return needs;
-    }
-
-    /**
-     * Consolidate a session when needed — multi-round support (Nanobot alignment).
+     * Consolidate a session when needed — multi-round support (Nanobot: maybe_consolidate_by_tokens).
+     * Entry guard: skip if memory store disabled, or estimated tokens within budget.
+     * Loop: archive old messages until estimated tokens <= target (budget / 2).
      */
     public CompletableFuture<Boolean> maybeConsolidate(Session session) {
-        if (!needsConsolidation(session)) {
+        if (!memoryStore.isEnabled()) {
             return CompletableFuture.completedFuture(true);
         }
 
@@ -108,14 +90,22 @@ public class MemoryConsolidator {
         return CompletableFuture.supplyAsync(() -> {
             for (int round = 0; round < MAX_CONSOLIDATION_ROUNDS; round++) {
                 int estimated = estimateSessionTokens(session);
+                if (estimated <= 0) {
+                    break;
+                }
+                if (estimated < budget) {
+                    log.info("Token consolidation idle {}: {}/{} tokens",
+                            session.getKey(), estimated, contextWindowTokens);
+                    break;
+                }
                 if (estimated <= target) {
-                    log.debug("Consolidation target reached: {} <= {} tokens", estimated, target);
+                    log.info("Consolidation target reached: {} <= {} tokens", estimated, target);
                     break;
                 }
 
                 int boundary = pickConsolidationBoundary(session, Math.max(1, estimated - target));
-                if (boundary <= session.getLastConsolidatedIndex()) {
-                    log.debug("No safe consolidation boundary found (round {})", round);
+                if (boundary < 0) {
+                    log.info("No safe consolidation boundary found (round {})", round);
                     break;
                 }
 
@@ -290,30 +280,33 @@ public class MemoryConsolidator {
     }
 
     /**
-     * Pick a user-turn boundary that removes enough old prompt tokens (Nanobot alignment).
+     * Pick a user-turn boundary that removes enough old prompt tokens.
+     * Ported from Nanobot's MemoryConsolidator.pick_consolidation_boundary().
+     * Returns the index of the user-turn boundary, or -1 if none found.
      */
     private int pickConsolidationBoundary(Session session, int tokensToRemove) {
-        List<Message> all = session.getHistory(0);
+        List<Message> all = session.getMessages();
         int start = session.getLastConsolidatedIndex();
         if (start >= all.size() || tokensToRemove <= 0) {
-            return start;
+            return -1;
         }
 
         int removedTokens = 0;
-        int lastBoundary = start;
+        int lastBoundary = -1;
 
         for (int i = start; i < all.size(); i++) {
             Message msg = all.get(i);
-            removedTokens += estimateMessageTokens(msg);
+            // Check user-turn boundary BEFORE accumulating (Nanobot order)
             if (i > start && msg.getRole() == Message.Role.USER) {
                 lastBoundary = i;
                 if (removedTokens >= tokensToRemove) {
                     return lastBoundary;
                 }
             }
+            removedTokens += estimateMessageTokens(msg);
         }
 
-        return lastBoundary > start ? lastBoundary : all.size();
+        return lastBoundary;
     }
 
     // --- Formatting utilities ---
@@ -372,6 +365,11 @@ public class MemoryConsolidator {
     /**
      * Estimate token count for a session by building a simulated prompt.
      */
+    /**
+     * Estimate current prompt size for the normal session history view.
+     * Ported from Nanobot's MemoryConsolidator.estimate_session_prompt_tokens().
+     * Builds a simulated prompt with "[token-probe]" as placeholder, then counts tokens.
+     */
     public int estimateSessionTokens(Session session) {
         List<Message> history = session.getHistory(0);
         List<Message> probeMessages;
@@ -412,20 +410,50 @@ public class MemoryConsolidator {
         return ENCODING.countTokens(joined) + probeMessages.size() * 4;
     }
 
+    /**
+     * Estimate prompt tokens contributed by one message.
+     * Ported from Nanobot's helpers.estimate_message_tokens().
+     * Covers: content, name, tool_call_id, tool_calls (JSON), reasoning_content.
+     * Minimum return: 4 tokens (framing overhead).
+     */
     private int estimateMessageTokens(Message msg) {
         List<String> parts = new ArrayList<>();
-        if (msg.getContent() != null) parts.add(msg.getContent());
-        if (msg.hasToolCalls()) {
-            for (ToolCall tc : msg.getToolCalls()) {
-                if (tc.getName() != null) parts.add(tc.getName());
-                parts.add(tc.getArgumentsAsString());
-            }
+        // content
+        if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+            parts.add(msg.getContent());
         }
-        if (msg.getToolCallId() != null) parts.add(msg.getToolCallId());
-        String toolName = msg.getToolName();
-        if (toolName != null) parts.add(toolName);
+        // name, tool_call_id
+        if (msg.getToolName() != null && !msg.getToolName().isEmpty()) {
+            parts.add(msg.getToolName());
+        }
+        if (msg.getToolCallId() != null && !msg.getToolCallId().isEmpty()) {
+            parts.add(msg.getToolCallId());
+        }
+        // tool_calls (serialized as JSON, includes id + name + arguments)
+        if (msg.hasToolCalls()) {
+            parts.add(formatToolCalls(msg.getToolCalls()));
+        }
+        // reasoning_content
+        if (msg.getReasoningContent() != null && !msg.getReasoningContent().isEmpty()) {
+            parts.add(msg.getReasoningContent());
+        }
 
-        if (parts.isEmpty()) return 0;
-        return ENCODING.countTokens(String.join("\n", parts)) + 4;
+        if (parts.isEmpty()) return 4;
+        return Math.max(4, ENCODING.countTokens(String.join("\n", parts)) + 4);
+    }
+
+    /**
+     * Serialize tool calls to JSON string for token estimation.
+     * Matches Nanobot's: json.dumps(message["tool_calls"], ensure_ascii=False).
+     */
+    private static String formatToolCalls(List<ToolCall> toolCalls) {
+        List<Map<String, Object>> list = toolCalls.stream().map(tc -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", tc.getId() != null ? tc.getId() : "");
+            m.put("name", tc.getName() != null ? tc.getName() : "");
+            m.put("arguments", tc.getArguments());
+            return m;
+        }).collect(Collectors.toList());
+        return list.toString();
     }
 }

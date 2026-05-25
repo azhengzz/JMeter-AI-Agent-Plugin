@@ -10,201 +10,116 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Context window manager for intelligent message history management.
- * Based on Nanobot's context optimization strategies.
+ * Context window manager — safety net for message trimming.
+ * Token estimation is handled by MemoryConsolidator (single source of truth).
+ * This class only trims + aligns + removes orphaned tool results.
  */
 public class ContextWindowManager {
     private static final Logger log = LoggerFactory.getLogger(ContextWindowManager.class);
 
-    // Approximate token counts (can be refined with actual tokenizer)
-    private static final int AVG_TOKENS_PER_CHAR = 4;
-    private static final int SYSTEM_PROMPT_ESTIMATE = 2000; // ~500 tokens
-    private static final int MESSAGE_OVERHEAD = 50; // Overhead per message
+    private static final int SAFETY_BUFFER = 1024;
 
-    // Maximum context window sizes
     public final int maxContextTokens;
-    private final int reserveTokens;
 
-    public ContextWindowManager(int maxContextTokens, double reserveRatio) {
+    public ContextWindowManager(int maxContextTokens) {
         this.maxContextTokens = maxContextTokens;
-        this.reserveTokens = (int) (maxContextTokens * reserveRatio);
     }
 
-    /**
-     * Default constructor with context window from configuration and 10% reserve.
-     */
     public ContextWindowManager() {
-        this(Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536")), 0.10);
+        this(Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536")));
+    }
+
+    private int getMaxCompletionTokens() {
+        return Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
     }
 
     /**
-     * Trim message history to fit within context window while preserving important messages.
-     * Strategy: Keep recent messages + system message + ensure tool call context is preserved.
+     * Safety-net trim: if estimated tokens exceed maxTokens, trim to target.
+     * Token estimation is provided by the caller (MemoryConsolidator).
+     *
+     * Three-step approach (Nanobot aligned):
+     * 1. Trim by token budget (keep the most recent messages that fit)
+     * 2. Align to user-turn boundary
+     * 3. Skip orphaned tool results
      */
-    public List<Message> trimToContextWindow(List<Message> messages, int maxTokens) {
-        if (messages.isEmpty()) {
+    public List<Message> trimToContextWindow(List<Message> messages, int estimatedTokens, int maxTokens) {
+        if (messages.isEmpty() || estimatedTokens <= maxTokens) {
             return messages;
         }
 
-        // Calculate current estimated token count
-        int currentTokens = estimateTokens(messages);
+        log.debug("Context window overflow: {} tokens, max: {}. Trimming...", estimatedTokens, maxTokens);
 
-        if (currentTokens <= maxTokens) {
-            return messages;
-        }
+        // Step 1: Trim by token budget — keep the most recent messages that fit
+        int targetTokens = calcTargetTokens();
+        List<Message> sliced = trimByTokenBudget(messages, targetTokens);
 
-        log.debug("Context window overflow: {} tokens, max: {}. Trimming...", currentTokens, maxTokens);
-
-        // Find the cut point - we need to preserve tool call chains
-        int cutIndex = findSafeCutPoint(messages, maxTokens);
-
-        // Return trimmed list
-        return new ArrayList<>(messages.subList(cutIndex, messages.size()));
+        // Note: user-turn alignment and orphaned tool cleanup are done in Session.getHistory()
+        return new ArrayList<>(sliced);
     }
 
     /**
-     * Calculate remaining tokens for user message.
+     * Calculate available tokens for a new user message.
+     * Caller should provide the current estimated tokens.
      */
-    public int getAvailableTokens(List<Message> messages) {
-        int usedTokens = estimateTokens(messages);
-        return Math.max(0, maxContextTokens - usedTokens - reserveTokens);
-    }
-
-    /**
-     * Estimate token count for a list of messages.
-     */
-    private int estimateTokens(List<Message> messages) {
-        int count = SYSTEM_PROMPT_ESTIMATE; // Reserve for system prompt
-
-        for (Message msg : messages) {
-            // Skip system messages (they're in SYSTEM_PROMPT_ESTIMATE)
-            if (msg.getRole() == Message.Role.SYSTEM) {
-                continue;
-            }
-
-            // Count content
-            if (msg.getContent() != null) {
-                count += msg.getContent().length() / AVG_TOKENS_PER_CHAR;
-            }
-
-            // Count reasoning content
-            if (msg.getReasoningContent() != null) {
-                count += msg.getReasoningContent().length() / AVG_TOKENS_PER_CHAR;
-            }
-
-            // Count tool calls
-            if (msg.hasToolCalls()) {
-                for (ToolCall tc : msg.getToolCalls()) {
-                    // Tool call overhead + arguments
-                    count += 20; // Base overhead
-                    if (tc.getArguments() != null) {
-                        count += tc.getArguments().toString().length() / AVG_TOKENS_PER_CHAR;
-                    }
-                }
-            }
-
-            // Message overhead
-            count += MESSAGE_OVERHEAD;
-        }
-
-        return count;
-    }
-
-    /**
-     * Find a safe cut point that preserves tool call chains.
-     * Tool calls form chains: user -> assistant (with tools) -> tool results -> assistant...
-     * We need to preserve the integrity of these chains.
-     */
-    private int findSafeCutPoint(List<Message> messages, int maxTokens) {
-        int targetTokens = maxTokens - reserveTokens;
-        int currentTokens = 0;
-        int i = messages.size() - 1;
-
-        // Iterate backwards, tracking tool call chains
-        boolean inToolChain = false;
-        int toolResultCount = 0;
-
-        while (i >= 0) {
-            Message msg = messages.get(i);
-            int msgTokens = estimateMessageTokens(msg);
-
-            // Check if including this message would exceed limit
-            if (currentTokens + msgTokens > targetTokens) {
-                // If we're in a tool chain, try to preserve it
-                if (inToolChain) {
-                    // Skip back to find the start of this tool chain
-                    while (i >= 0 && inToolChain) {
-                        if (messages.get(i).getRole() == Message.Role.USER) {
-                            break; // Start of tool chain
-                        }
-                        i--;
-                    }
-                    // Set cut point just after this user message
-                    return i + 1;
-                }
-                return i + 1; // Cut here
-            }
-
-            currentTokens += msgTokens;
-
-            // Track tool call chains
-            if (msg.getRole() == Message.Role.USER) {
-                inToolChain = false;
-                toolResultCount = 0;
-            } else if (msg.getRole() == Message.Role.ASSISTANT && msg.hasToolCalls()) {
-                inToolChain = true;
-            } else if (msg.getRole() == Message.Role.TOOL) {
-                toolResultCount++;
-                if (toolResultCount >= msg.getToolCalls().size()) {
-                    inToolChain = false; // End of tool chain
-                }
-            }
-
-            i--;
-        }
-
-        return 0; // Shouldn't reach here, but safety fallback
-    }
-
-    /**
-     * Estimate tokens for a single message.
-     */
-    private int estimateMessageTokens(Message msg) {
-        int tokens = MESSAGE_OVERHEAD;
-
-        if (msg.getContent() != null) {
-            tokens += msg.getContent().length() / AVG_TOKENS_PER_CHAR;
-        }
-
-        if (msg.getReasoningContent() != null) {
-            tokens += msg.getReasoningContent().length() / AVG_TOKENS_PER_CHAR;
-        }
-
-        if (msg.hasToolCalls()) {
-            for (ToolCall tc : msg.getToolCalls()) {
-                tokens += 20; // Tool call overhead
-                if (tc.getArguments() != null) {
-                    tokens += tc.getArguments().toString().length() / AVG_TOKENS_PER_CHAR;
-                }
-            }
-        }
-
-        return tokens;
-    }
-
-    /**
-     * Get recommended max history size based on context window.
-     */
-    public int getRecommendedHistorySize(int avgMessageTokens) {
-        int availableTokens = maxContextTokens - SYSTEM_PROMPT_ESTIMATE - reserveTokens;
-        return Math.max(0, (availableTokens * 4) / avgMessageTokens);
+    public int getAvailableTokens(int estimatedTokens) {
+        return Math.max(0, maxContextTokens - estimatedTokens - getMaxCompletionTokens() - SAFETY_BUFFER);
     }
 
     /**
      * Check if context window is approaching limit.
+     * Caller should provide the current estimated tokens.
      */
-    public boolean isContextNearlyFull(List<Message> messages, double threshold) {
-        int currentTokens = estimateTokens(messages);
-        return currentTokens > (maxContextTokens * threshold);
+    public boolean isContextNearlyFull(int estimatedTokens, double threshold) {
+        return estimatedTokens > (maxContextTokens * threshold);
+    }
+
+    // --- Internal ---
+
+    private int calcTargetTokens() {
+        int budget = maxContextTokens - getMaxCompletionTokens() - SAFETY_BUFFER;
+        return budget / 2;
+    }
+
+    private List<Message> trimByTokenBudget(List<Message> messages, int targetTokens) {
+        // Rough character-based estimate for quick budget trimming.
+        // MemoryConsolidator handles precise estimation; this is a safety net.
+        int currentChars = 0;
+        int i = messages.size() - 1;
+        // ~1 token per 4 chars + 4 token overhead per message
+        int targetChars = targetTokens * 4;
+
+        while (i >= 0) {
+            Message msg = messages.get(i);
+            int msgChars = msgLength(msg) + 16; // overhead
+            if (currentChars + msgChars > targetChars) {
+                break;
+            }
+            currentChars += msgChars;
+            i--;
+        }
+
+        return messages.subList(i + 1, messages.size());
+    }
+
+    private int msgLength(Message msg) {
+        int len = 0;
+        if (msg.getContent() != null) len += msg.getContent().length();
+        if (msg.getReasoningContent() != null) len += msg.getReasoningContent().length();
+        if (msg.hasToolCalls()) {
+            for (ToolCall tc : msg.getToolCalls()) {
+                if (tc.getArguments() != null) len += tc.getArguments().toString().length();
+            }
+        }
+        if (msg.getToolCallId() != null) len += msg.getToolCallId().length();
+        return len;
+    }
+
+    private List<Message> alignToUserTurn(List<Message> messages) {
+        for (int i = 0; i < messages.size(); i++) {
+            if (messages.get(i).getRole() == Message.Role.USER) {
+                return messages.subList(i, messages.size());
+            }
+        }
+        return messages;
     }
 }
