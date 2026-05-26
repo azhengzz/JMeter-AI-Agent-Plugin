@@ -1,8 +1,8 @@
 package org.qainsights.jmeter.ai.agent.command;
 
-import org.qainsights.jmeter.ai.agent.config.AgentConfig;
 import org.qainsights.jmeter.ai.agent.model.Message;
 import org.qainsights.jmeter.ai.agent.session.Session;
+import org.qainsights.jmeter.ai.utils.AiConfig;
 import org.qainsights.jmeter.ai.utils.VersionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,14 +39,16 @@ public class BuiltinCommands {
     /** Build a status snapshot for the session. Registered as both priority and exact. */
     public static String cmdStatus(CommandContext ctx) {
         String version = VersionUtils.getVersion();
-        String model = ctx.getLoop().getAiService().getName();
+        String provider = AiConfig.getDefaultProvider();
+        String model = AiConfig.getDefaultModel();
+        int contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
+        int maxTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
 
         Map<String, Integer> lastUsage = ctx.getLoop().getLastUsage();
         int lastIn = lastUsage.getOrDefault("prompt_tokens", 0);
         int lastOut = lastUsage.getOrDefault("completion_tokens", 0);
 
-        AgentConfig config = AgentConfig.getInstance();
-        int ctxTotal = config.getContextWindowTokens();
+        int ctxTotal = contextWindowTokens;
         int ctxEst = 0;
         try {
             ctxEst = ctx.getLoop().getMemoryConsolidator().estimateSessionTokens(ctx.getSessionOrCreate());
@@ -68,9 +70,12 @@ public class BuiltinCommands {
                 : (uptimeS / 60) + "m " + (uptimeS % 60) + "s";
 
         return "Gitee Ai - JMeter Agent v" + version + "\n" +
+               "Provider: " + provider + "\n" +
                "Model: " + model + "\n" +
-               "Tokens: " + lastIn + " in / " + lastOut + " out\n" +
-               "Context: " + ctxUsedStr + "/" + ctxTotalStr + " (" + ctxPct + "%)\n" +
+               "Context Window: " + ctxTotalStr + "\n" +
+               "Max Tokens: " + maxTokens + "\n" +
+               "Last Tokens: " + lastIn + " in / " + lastOut + " out\n" +
+               "Current Context: " + ctxUsedStr + "/" + ctxTotalStr + " (" + ctxPct + "%)\n" +
                "Session: " + sessionMsgCount + " messages\n" +
                "Uptime: " + uptime;
     }

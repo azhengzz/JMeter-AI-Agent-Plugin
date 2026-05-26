@@ -398,6 +398,9 @@ public class MemoryConsolidator {
             if (toolName != null) {
                 parts.add(toolName);
             }
+            if (msg.getReasoningContent() != null && !msg.getReasoningContent().isEmpty()) {
+                parts.add(msg.getReasoningContent());
+            }
         }
 
         if (toolRegistry != null) {
