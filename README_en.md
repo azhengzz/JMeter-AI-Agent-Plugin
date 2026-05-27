@@ -9,14 +9,13 @@ Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that 
 ## Key Features
 
 - **Agent Loop Architecture** — Full iterative cycle of LLM call → tool execution → result feedback, supporting multi-turn tool calling for complex tasks
-- **20+ Agent Tools** — Covering JMeter element CRUD, test execution, filesystem, web search, and command execution
-- **Skills System** — Dynamically loaded skill modules from filesystem, with built-in JMeter expertise (60+ component references), API autotest, and more
-- **7 AI Providers** — DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax
-- **Component Schema Validation** — 46 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
+- **22 Agent Tools** — Covering JMeter element CRUD, test execution, filesystem, web search, and command execution
+- **Skills System** — Dynamically loaded skill modules from filesystem, with built-in JMeter expertise (68 component references, 58 function references), API autotest, and more
+- **7 AI Providers** — Anthropic Claude, OpenAI, DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax, Ollama
+- **Component Schema Validation** — 67 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
 - **Memory System** — Two-layer memory architecture (long-term memory + event history) with cross-session consolidation
 - **Security Controls** — File access whitelisting, SSRF protection, dangerous command blocking
 - **Tracing** — Optional LangSmith integration for LLM call tracing and monitoring
-- **Claude Code Integration** — Embedded terminal for using Claude Code CLI directly within JMeter
 
 ## Architecture Overview
 
@@ -85,6 +84,7 @@ Response to Chat UI
 | `get_test_plan_tree` | Get complete test plan tree structure (JSON) |
 | `get_selected_element` | Get detailed info about the currently selected element |
 | `find_element` | Find elements by name, type, or path |
+| `copy_paste_jmeter_element` | Copy and paste test plan elements |
 
 ### AI-Enhanced Tools
 
@@ -132,18 +132,6 @@ Response to Chat UI
 
 ## Commands
 
-### @ Commands
-
-Use in the chat input with the `@` prefix:
-
-| Command | Description |
-|---------|-------------|
-| `@this` | Get detailed info about the currently selected element; combine with natural language questions |
-| `@optimize` | AI analyzes and optimizes the selected element's configuration |
-| `@lint` | AI renames elements for better organization; supports undo/redo |
-| `@wrap` | Intelligently group HTTP samplers under Transaction Controllers |
-| `@usage` | View token usage statistics and cost information |
-
 ### / Commands
 
 Slash commands for session management:
@@ -151,7 +139,6 @@ Slash commands for session management:
 | Command | Description |
 |---------|-------------|
 | `/new` | Start a fresh conversation (clears current session) |
-| `/stop` | Cancel all active tasks for the current session |
 | `/status` | Show bot status (version, model, token usage, session info) |
 | `/help` | Show available commands |
 
@@ -161,7 +148,7 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 
 | Skill | Description |
 |-------|-------------|
-| **jmeter** | Core JMeter skill — 60+ component references, 46 parameter schemas, JMeter function reference, coding standards, anti-patterns |
+| **jmeter** | Core JMeter skill — 68 component references, 67 parameter schemas, 58 JMeter function references, coding standards, anti-patterns |
 | **api-autotest** | API autotest — Specialized skill for Gitee-Scan OpenAPI, covering 25+ endpoints |
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
