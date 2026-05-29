@@ -241,7 +241,9 @@ public class MessageProcessor {
         
         // Create a text area for the code
         JTextArea codeArea = new JTextArea(code.trim()); // Trim to remove extra lines
-        codeArea.setFont(UIManager.getFont("TextField.font")); // Use default font
+        Font codeFont = UIManager.getFont("TextField.font");
+        codeFont = ensureCjkSupport(codeFont);
+        codeArea.setFont(codeFont);
         codeArea.setEditable(false);
         codeArea.setBackground(getCodeBlockBackground());
         codeArea.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -330,5 +332,19 @@ public class MessageProcessor {
             // Light theme: darken slightly
             return new Color(Math.max(r - 15, 0), Math.max(g - 15, 0), Math.max(b - 15, 0));
         }
+    }
+
+    private static Font ensureCjkSupport(Font font) {
+        if (font.canDisplay('中')) {
+            return font;
+        }
+        String[] cjkFonts = {"Microsoft YaHei", "SimHei", "SimSun", "PingFang SC", "Dialog"};
+        for (String name : cjkFonts) {
+            Font candidate = new Font(name, font.getStyle(), font.getSize());
+            if (candidate.canDisplay('中')) {
+                return candidate;
+            }
+        }
+        return font;
     }
 }

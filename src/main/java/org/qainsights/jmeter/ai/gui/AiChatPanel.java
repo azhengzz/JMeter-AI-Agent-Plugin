@@ -171,6 +171,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Use the system default font with larger size
         Font defaultFont = UIManager.getFont("TextField.font");
         Font largerFont = new Font(defaultFont.getFamily(), defaultFont.getStyle(), defaultFont.getSize() + 2);
+        largerFont = ensureCjkSupport(largerFont);
         chatArea.setFont(largerFont);
 
         // Store the base font size for scaling
@@ -1050,5 +1051,19 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static Color getThemeColor(String key, Color fallback) {
         Color color = UIManager.getColor(key);
         return color != null ? color : fallback;
+    }
+
+    private static Font ensureCjkSupport(Font font) {
+        if (font.canDisplay('中')) {
+            return font;
+        }
+        String[] cjkFonts = {"Microsoft YaHei", "SimHei", "SimSun", "PingFang SC", "Dialog"};
+        for (String name : cjkFonts) {
+            Font candidate = new Font(name, font.getStyle(), font.getSize());
+            if (candidate.canDisplay('中')) {
+                return candidate;
+            }
+        }
+        return font;
     }
 }
