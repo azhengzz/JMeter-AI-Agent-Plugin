@@ -238,6 +238,8 @@ public class JMeterElementManager {
                 "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
         ELEMENT_CLASS_MAP.put("ajpsampler", new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.AjpSampler",
                 "org.apache.jmeter.protocol.http.control.gui.AjpSamplerGui"));
+        ELEMENT_CLASS_MAP.put("httpudsampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.sampler.HTTPUDSampler",
+                "com.gitee.qa.jmeter.protocol.httpud.sampler.gui.HTTPUDSamplerGui"));
 
         // Thread Groups
         ELEMENT_CLASS_MAP.put("threadgroup", new ElementClassInfo("org.apache.jmeter.threads.ThreadGroup",
@@ -444,6 +446,10 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("httpauthorizationmanager",
                 new ElementClassInfo("org.apache.jmeter.protocol.http.control.AuthManager",
                         "org.apache.jmeter.protocol.http.gui.AuthPanel"));
+        ELEMENT_CLASS_MAP.put("httpudconfigelement", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDConfigElement",
+                "com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDConfigElementGui"));
+        ELEMENT_CLASS_MAP.put("httpudincludeconfig", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDIncludeConfig",
+                "com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDIncludeConfigGui"));
 
         // Listeners
         ELEMENT_CLASS_MAP.put("viewresultstree", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
@@ -964,6 +970,12 @@ public class JMeterElementManager {
                 return "Value Assertion";
             case "jsonautoassertion":
                 return "JSON Auto Assertion";
+            case "httpudsampler":
+                return "HTTP User Defined Sampler";
+            case "httpudconfigelement":
+                return "HTTP User Defined Element Configuration";
+            case "httpudincludeconfig":
+                return "HTTP User Defined Include Configuration";
             default:
                 // Convert camelCase to Title Case with spaces
                 String name = normalizedType.replaceAll("([a-z])([A-Z])", "$1 $2");

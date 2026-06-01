@@ -70,6 +70,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `osprocesssampler` | Execute system commands or native executables | [OS Process Sampler](./references/samplers/OSProcessSampler.md) | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
 | `s3sampler` | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/samplers/S3Sampler.md) | [Schema](./references/samplers/S3Sampler.schema.yaml) |
 | `gitsampler` | Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP | [Git Sampler](./references/samplers/GitSampler.md) | [Schema](./references/samplers/GitSampler.schema.yaml) |
+| `httpudsampler` | Send HTTP requests using reusable config templates with parameter substitution | [HTTP User Defined Sampler](./references/samplers/HTTPUDSampler.md) | [Schema](./references/samplers/HTTPUDSampler.schema.yaml) |
 
 
 ### Controllers
@@ -102,6 +103,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `exceldataconfig` | Read Excel files for parameterization | [Excel Data Set Config](./references/configuration/ExcelDataConfig.md) | [Schema](./references/configuration/ExcelDataConfig.schema.yaml) |
 | `jdbcdatasource` | Configure JDBC database connection pool | [JDBC Connection Configuration](./references/configuration/JDBCConnectionConfiguration.md) | [Schema](./references/configuration/JDBCConnectionConfiguration.schema.yaml) |
 | `s3configelement` | Configure S3 object storage connection | [S3 Connection Configuration](./references/configuration/S3ConfigElement.md) | [Schema](./references/configuration/S3ConfigElement.schema.yaml) |
+| `httpudconfigelement` | Define reusable HTTP request templates with custom parameters | [HTTP User Defined Element Configuration](./references/configuration/HTTPUDConfigElement.md) | [Schema](./references/configuration/HTTPUDConfigElement.schema.yaml) |
+| `httpudincludeconfig` | Include external JMX files with HTTPUD config definitions | [HTTP User Defined Include Configuration](./references/configuration/HTTPUDIncludeConfig.md) | [Schema](./references/configuration/HTTPUDIncludeConfig.schema.yaml) |
 
 ### Pre-Processors
 | elementType | Description | Docs | Schema |

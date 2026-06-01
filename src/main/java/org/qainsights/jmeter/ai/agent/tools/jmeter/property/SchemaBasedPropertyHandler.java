@@ -94,6 +94,10 @@ public class SchemaBasedPropertyHandler {
                     handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
                 } else if ("ParameterTestFragmentController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
                     handleParameterTestFragmentReturnValueProperty(element, propName, propValue);
+                } else if ("HTTPUDConfigElement.http_header_parameters_name".equals(propName) && propDef.hasItemProperties()) {
+                    handleHttpudHeaderParametersProperty(element, propName, propValue);
+                } else if ("HTTPUDArgumentsGui.HTTPUDArguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleHttpudArgumentsProperty(element, propName, propValue);
                 } else if (propDef.hasItemClass() && propDef.hasItemProperties()) {
                     handleTestBeanTableProperty(element, propName, propValue, propDef);
                 } else {
@@ -1076,6 +1080,85 @@ public class SchemaBasedPropertyHandler {
 
         element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
         log.info("Set {} with {} arguments", propName, args.getArguments().size());
+    }
+
+    /**
+     * Handle HTTPUDConfigElement.http_header_parameters_name property.
+     * Stores Argument objects (name/value) inside an Arguments wrapper as TestElementProperty.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleHttpudHeaderParametersProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        for (Object argItem : convertToList(propValue)) {
+            if (!(argItem instanceof Map)) {
+                continue;
+            }
+
+            Map<String, Object> argProps = (Map<String, Object>) argItem;
+            String name = getStringValue(argProps, "Argument.name");
+            if (name == null) {
+                log.warn("Missing Argument.name in header: {}", argProps);
+                continue;
+            }
+
+            String value = getStringValue(argProps, "Argument.value", "");
+            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value);
+            args.addArgument(argument);
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set {} with {} header(s)", propName, args.getArguments().size());
+    }
+
+    /**
+     * Handle HTTPUDArgumentsGui.HTTPUDArguments property.
+     * Stores HTTPUDArgument objects (name/value/desc/required) inside an Arguments wrapper as TestElementProperty.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleHttpudArgumentsProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        try {
+            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.protocol.httpud.util.HTTPUDArgument");
+
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) {
+                    continue;
+                }
+
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                Boolean required = getBooleanValue(argProps, "HTTPUDArgument.required", false);
+
+                Object arg = argClass
+                        .getConstructor(String.class, String.class, String.class, boolean.class)
+                        .newInstance(name, value, desc, required);
+
+                args.addArgument((org.apache.jmeter.config.Argument) arg);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create HTTPUDArgument, falling back to standard Argument", e);
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) continue;
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) continue;
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
+                args.addArgument(argument);
+            }
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set {} with {} argument(s)", propName, args.getArguments().size());
     }
 
     /**

@@ -1,0 +1,15 @@
+component:
+  type: httpudincludeconfig
+  name: HTTP User Defined Include Configuration
+  description: Includes an external JMX file containing HTTP User Defined Element Configuration definitions
+
+properties:
+  - name: HTTPUDIncludeConfig.includepath
+    type: String
+    required: true
+    default: ""
+    description: |
+      Path to the external JMX file to include. The included file should contain
+      HTTP User Defined Element Configuration definitions that will be loaded
+      into the current test plan.
+      Supports absolute or relative paths.
