@@ -109,7 +109,7 @@ properties:
         type: Boolean
         required: false
         default: false
-        description: Whether to always encode the parameter
+        description: Whether to always URL-encode the parameter
 
       - name: Argument.metadata
         type: String
@@ -121,7 +121,7 @@ properties:
         type: String
         required: false
         default: "text/plain"
-        description:
+        description: Content type for the parameter
 
   - name: HTTPsampler.Files
     type: Array
