@@ -9,11 +9,6 @@ properties:
     required: true
     description: Variable name that references an HTTP User Defined Element Configuration. Must match the identifier declared in the config element.
 
-  - name: HTTPUDSampler.variable_name_desc
-    type: String
-    required: false
-    description: Description of the variable name reference (informational only)
-
   - name: HTTPUDArgumentsGui.HTTPUDArguments
     type: Array
     required: false

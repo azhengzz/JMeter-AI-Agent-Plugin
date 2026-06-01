@@ -17,7 +17,6 @@ The sampler supports **parameter substitution** using the `@{parameter_name}` sy
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
 | `HTTPUDSampler.variable_name` | Yes | — | Variable name referencing an HTTP User Defined Element Configuration. Must match the identifier declared in the config element. | `"user_api"` |
-| `HTTPUDSampler.variable_name_desc` | No | — | Description for the variable name reference (informational) | `"User management API"` |
 | `HTTPUDArgumentsGui.HTTPUDArguments` | No | — | User-defined parameters to override defaults from the config element. See Custom Parameters below. | See examples |
 
 ### Custom Parameters (`HTTPUDArgumentsGui.HTTPUDArguments`)
