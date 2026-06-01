@@ -149,7 +149,6 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 | Skill | Description |
 |-------|-------------|
 | **jmeter** | Core JMeter skill — 68 component references, 67 parameter schemas, 58 JMeter function references, coding standards, anti-patterns |
-| **api-autotest** | API autotest — Specialized skill for Gitee-Scan OpenAPI, covering 25+ endpoints |
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
 

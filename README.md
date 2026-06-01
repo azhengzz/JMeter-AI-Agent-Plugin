@@ -146,7 +146,6 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 技能 | 说明 |
 |------|------|
 | **jmeter** | JMeter 核心技能 — 68 组件参考文档、67 个参数 Schema、58 个 JMeter 函数参考、编码规范、反模式指南 |
-| **api-autotest** | API 自动化测试 — 针对 Gitee-Scan OpenAPI 的专用技能，覆盖 25+ 接口 |
 | **memory** | 记忆管理 — 双层记忆（MEMORY.md 长期记忆 + HISTORY.md 事件历史），支持 grep 检索 |
 | **skill-creator** | 技能创建 — 元技能，用于创建和更新新的 Agent 技能 |
 
