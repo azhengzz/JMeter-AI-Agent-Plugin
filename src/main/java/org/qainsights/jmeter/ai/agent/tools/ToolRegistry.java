@@ -210,7 +210,7 @@ public class ToolRegistry {
         int maxDetailLength = Integer.parseInt(
             org.qainsights.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
 
-        if (detail.length() > maxDetailLength) return detail.substring(0, maxDetailLength) + "...";
+        if (detail.length() > maxDetailLength) return detail.substring(0, maxDetailLength) + "...(truncated)";
         return detail;
     }
 
@@ -229,7 +229,7 @@ public class ToolRegistry {
 
         String argsStr = parameters.toString();
         if (argsStr.length() > maxDetailLength) {
-            return argsStr.substring(0, maxDetailLength) + "... (truncated)";
+            return argsStr.substring(0, maxDetailLength) + "...(truncated)";
         }
         return argsStr;
     }

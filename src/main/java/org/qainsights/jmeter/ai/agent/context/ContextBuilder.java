@@ -269,7 +269,7 @@ public class ContextBuilder {
                 "agent.tool.result.max.chars", "16000"));
 
         if (content.length() > maxChars) {
-            return content.substring(0, maxChars) + "\n... (truncated)";
+            return content.substring(0, maxChars) + "\n...(truncated)";
         }
 
         return content;

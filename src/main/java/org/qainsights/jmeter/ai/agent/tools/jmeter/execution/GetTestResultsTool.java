@@ -122,7 +122,7 @@ public class GetTestResultsTool extends AbstractTool {
         int idx = offset + 1;
         for (AgentResultCollector.SampleSnapshot s : samples) {
             String url = s.url != null && s.url.length() > 60
-                    ? s.url.substring(0, 57) + "..."
+                    ? s.url.substring(0, 57) + "...(truncated)"
                     : (s.url != null ? s.url : "");
             sb.append(String.format("| %d | %s | %s | %s | %d | %d | %s |\n",
                     idx++, s.label, s.responseCode, s.success ? "OK" : "FAIL",

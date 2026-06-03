@@ -34,8 +34,8 @@ public class AgentResultCollector extends AbstractTestElement
 
     private static final Logger log = LoggerFactory.getLogger(AgentResultCollector.class);
     public static final String ELEMENT_NAME = "__agent_result_collector__";
-    private static final int MAX_SAMPLES = 1000;
-    private static final int MAX_BODY_SIZE = 4096;
+    private static final int MAX_SAMPLES = 1000; // 最大保留采样数
+    private static final int MAX_BODY_SIZE = 4096; // 单个响应体最大字符数，超出截断
 
     // --- All state is STATIC so clones share the same data ---
 
@@ -184,7 +184,7 @@ public class AgentResultCollector extends AbstractTestElement
     private static String truncate(String data) {
         if (data == null) return null;
         if (data.length() <= MAX_BODY_SIZE) return data;
-        return data.substring(0, MAX_BODY_SIZE) + "\n... [truncated, total " + data.length() + " chars]";
+        return data.substring(0, MAX_BODY_SIZE) + "\n...(truncated, total " + data.length() + " chars)";
     }
 
     private static void updateMax(AtomicLong maxRef, long value) {

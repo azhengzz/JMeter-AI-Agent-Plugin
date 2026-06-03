@@ -20,7 +20,9 @@ import java.util.Map;
  */
 public class JMeterTreeUtils {
 
+    // 最大属性数量
     private static final int DEFAULT_MAX_PROPERTIES = 500;
+    // 属性值最大长度
     private static final int DEFAULT_MAX_STRING_LENGTH = 2000;
     private static final int MAX_NESTED_DEPTH = 3;
 
@@ -491,7 +493,7 @@ public class JMeterTreeUtils {
         if (str.length() <= max) {
             return str;
         }
-        return str.substring(0, max) + "...";
+        return str.substring(0, max) + "...(truncated)";
     }
 
     /**

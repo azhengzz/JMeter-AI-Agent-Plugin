@@ -53,7 +53,7 @@ public class ToolEvent {
 
     private String truncate(String str, int max) {
         if (str == null) return "null";
-        return str.length() <= max ? str : str.substring(0, max) + "...";
+        return str.length() <= max ? str : str.substring(0, max) + "...(truncated)";
     }
 
     public Map<String, Object> toMap() {

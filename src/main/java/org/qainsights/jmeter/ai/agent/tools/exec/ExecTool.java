@@ -21,10 +21,10 @@ import java.util.regex.Pattern;
  */
 public class ExecTool extends AbstractTool {
 
-    private static final int MAX_TIMEOUT = 600;
-    private static final int MAX_OUTPUT = 10_000;
-    private static final int HEAD_CHARS = 4_000;
-    private static final int TAIL_CHARS = 4_000;
+    private static final int MAX_TIMEOUT = 600; // 最大超时秒数
+    private static final int MAX_OUTPUT = 10_000; // 输出超过此长度时截断，保留 head + tail
+    private static final int HEAD_CHARS = 4_000; // 截断时保留的前部字符数
+    private static final int TAIL_CHARS = 4_000; // 截断时保留的尾部字符数
 
     private static final String[] DEFAULT_DENY_PATTERNS = {
         "\\brm\\s+-[rf]{1,2}\\b",
@@ -258,9 +258,9 @@ public class ExecTool extends AbstractTool {
         String tail = output.substring(output.length() - TAIL_CHARS);
         int omitted = output.length() - HEAD_CHARS - TAIL_CHARS;
         return head
-            + "\n\n... ["
+            + "\n\n...("
             + String.format("%,d", omitted)
-            + " characters truncated] ...\n\n"
+            + " characters truncated)\n\n"
             + tail;
     }
 

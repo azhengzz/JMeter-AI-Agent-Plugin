@@ -31,12 +31,12 @@ public class MessageOptimizer {
 
         // Handle tool result messages - truncate large results
         if (role == Message.Role.TOOL && content.length() > TOOL_RESULT_MAX_CHARS) {
-            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)";
+            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n...(truncated)";
         }
 
         // Handle assistant messages - truncate if needed
         if (role == Message.Role.ASSISTANT && content.length() > TOOL_RESULT_MAX_CHARS) {
-            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)";
+            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n...(truncated)";
         }
 
         return content;

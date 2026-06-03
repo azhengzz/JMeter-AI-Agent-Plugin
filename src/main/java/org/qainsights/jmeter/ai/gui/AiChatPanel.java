@@ -853,7 +853,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String argsStr = formatArguments(event.getArguments());
             String displayArgs = argsStr.stripTrailing();
             if (argsStr.length() > maxToolResultLength) {
-                displayArgs = argsStr.substring(0, maxToolResultLength) + "... (truncated, total " + argsStr.length() + " chars)";
+                displayArgs = argsStr.substring(0, maxToolResultLength) + "...(truncated, total " + argsStr.length() + " chars)";
             }
             doc.insertString(doc.getLength(), "    Args: " + displayArgs + "\n", argStyle);
         }
@@ -866,7 +866,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
             String displayDetail = detail.stripTrailing();
             if (detail.length() > maxToolResultLength) {
-                displayDetail = detail.substring(0, maxToolResultLength) + "... (truncated, total " + detail.length() + " chars)";
+                displayDetail = detail.substring(0, maxToolResultLength) + "...(truncated, total " + detail.length() + " chars)";
             }
             doc.insertString(doc.getLength(), "    Result: " + displayDetail + "\n\n", detailStyle);
         }

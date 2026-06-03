@@ -170,7 +170,7 @@ public class ListDirTool extends AbstractFsTool {
         String result = String.join("\n", items);
 
         if (total > maxEntries) {
-            result += "\n\n(truncated, showing first " + maxEntries + " of " + total + " entries)";
+            result += "\n\n...(truncated, showing first " + maxEntries + " of " + total + " entries)";
         }
 
         return ToolResult.success(result);
