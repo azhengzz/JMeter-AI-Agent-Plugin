@@ -39,12 +39,12 @@ public class FindElementTool extends AbstractTool {
                     "properties": {
                         "searchBy": {
                             "type": "string",
-                            "enum": ["name", "type", "path"],
-                            "description": "Search criteria: 'name' for element name, 'type' for element class name, 'path' for full tree path"
+                            "enum": ["name", "type", "path", "elementId"],
+                            "description": "Search criteria: 'name' for element name, 'type' for element class name, 'path' for full tree path, 'elementId' for element ID"
                         },
                         "query": {
                             "type": "string",
-                            "description": "The search query - element name, type name (e.g., 'HTTPSamplerProxy'), or path (e.g., 'Test Plan > Thread Group > HTTP Request')"
+                            "description": "The search query - element name, type name (e.g., 'HTTPSamplerProxy'), path (e.g., 'Test Plan > Thread Group > HTTP Request'), or elementId (e.g., '12345678')"
                         },
                         "exactMatch": {
                             "type": "boolean",
@@ -60,7 +60,7 @@ public class FindElementTool extends AbstractTool {
                         },
                         "returnAll": {
                             "type": "boolean",
-                            "description": "For type search: return all matching elements (default: false, returns first match only)"
+                            "description": "For name or type search: return all matching elements (default: false, returns first match only)"
                         }
                     },
                     "required": ["searchBy", "query"]
@@ -107,13 +107,16 @@ public class FindElementTool extends AbstractTool {
         try {
             switch (searchBy) {
                 case "name":
-                    return findByName(searchRoot, query, exactMatch, includeProperties, maxDepth);
+                    return findByName(searchRoot, query, exactMatch, includeProperties, maxDepth, returnAll);
 
                 case "type":
                     return findByType(searchRoot, query, includeProperties, maxDepth, returnAll);
 
                 case "path":
                     return findByPath(searchRoot, query, includeProperties, maxDepth);
+
+                case "elementId":
+                    return findByElementId(searchRoot, query, includeProperties, maxDepth);
 
                 default:
                     return ToolResult.error("Invalid searchBy value: " + searchBy +
@@ -129,7 +132,23 @@ public class FindElementTool extends AbstractTool {
      * Find element by name.
      */
     private ToolResult findByName(JMeterTreeNode root, String name, boolean exactMatch,
-                                   boolean includeProperties, int maxDepth) throws JsonProcessingException {
+                                   boolean includeProperties, int maxDepth, boolean returnAll) throws JsonProcessingException {
+        if (returnAll) {
+            List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByName(root, name, exactMatch);
+
+            if (foundNodes.isEmpty()) {
+                return ToolResult.error("No elements found with name: " + name +
+                        (exactMatch ? "" : " (partial match)"));
+            }
+
+            List<Map<String, Object>> results = foundNodes.stream()
+                    .map(node -> JMeterTreeUtils.buildTreeData(node, includeProperties, maxDepth, 0))
+                    .toList();
+
+            String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(results);
+            return ToolResult.success(json);
+        }
+
         JMeterTreeNode foundNode = JMeterTreeUtils.findNodeByName(root, name, exactMatch);
 
         if (foundNode == null) {
@@ -183,6 +202,31 @@ public class FindElementTool extends AbstractTool {
 
         if (foundNode == null) {
             return ToolResult.error("No element found at path: " + path);
+        }
+
+        Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
+                foundNode, includeProperties, maxDepth, 0);
+        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
+
+        return ToolResult.success(json);
+    }
+
+    /**
+     * Find element by elementId.
+     */
+    private ToolResult findByElementId(JMeterTreeNode root, String idStr,
+                                       boolean includeProperties, int maxDepth) throws JsonProcessingException {
+        int elementId;
+        try {
+            elementId = Integer.parseInt(idStr);
+        } catch (NumberFormatException e) {
+            return ToolResult.error("elementId must be an integer: " + idStr);
+        }
+
+        JMeterTreeNode foundNode = JMeterTreeUtils.findNodeByElementId(root, elementId);
+
+        if (foundNode == null) {
+            return ToolResult.error("No element found with elementId: " + elementId);
         }
 
         Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(

@@ -334,6 +334,38 @@ public class JMeterTreeUtils {
     }
 
     /**
+     * Find all nodes in the tree matching the given element name.
+     *
+     * @param rootNode The root node to search from
+     * @param name The name to search for
+     * @param exactMatch If true, requires exact match; if false, uses contains
+     * @return List of all matching nodes
+     */
+    public static List<JMeterTreeNode> findNodesByName(JMeterTreeNode rootNode, String name, boolean exactMatch) {
+        List<JMeterTreeNode> results = new ArrayList<>();
+        findNodesByName(rootNode, name, exactMatch, results);
+        return results;
+    }
+
+    private static void findNodesByName(JMeterTreeNode node, String name, boolean exactMatch, List<JMeterTreeNode> results) {
+        TestElement element = node.getTestElement();
+        if (element != null) {
+            String elementName = element.getName();
+            if (elementName != null) {
+                boolean matches = exactMatch ? elementName.equals(name) : elementName.contains(name);
+                if (matches) {
+                    results.add(node);
+                }
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            findNodesByName((JMeterTreeNode) node.getChildAt(i), name, exactMatch, results);
+        }
+    }
+
+    /**
      * Find nodes in the tree by element type.
      *
      * @param rootNode The root node to search from
