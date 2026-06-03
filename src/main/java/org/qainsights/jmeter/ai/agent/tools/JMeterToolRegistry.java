@@ -35,19 +35,20 @@ public class JMeterToolRegistry {
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());
+        registry.register(new BatchUpdateJMeterElementTool());
         registry.register(new DeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
         registry.register(new CopyPasteJMeterElementTool());
 
-        // Register tools that require AI service
-        if (aiService != null) {
-            registry.register(new OptimizeJMeterElementTool(aiService));
-            registry.register(new LintElementsTool(aiService));
-            registry.register(new UsageTool(aiService));
-        }
+        // // Register tools that require AI service
+        // if (aiService != null) {
+        //     registry.register(new OptimizeJMeterElementTool(aiService));
+        //     registry.register(new LintElementsTool(aiService));
+        //     registry.register(new UsageTool(aiService));
+        // }
 
-        // Register tools without AI service dependency
-        registry.register(new WrapSamplersTool());
+        // // Register tools without AI service dependency
+        // registry.register(new WrapSamplersTool());
 
         // Register test execution tools
         registry.register(new RunTestTool());
@@ -127,10 +128,11 @@ public class JMeterToolRegistry {
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());
+        registry.register(new BatchUpdateJMeterElementTool());
         registry.register(new DeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
         registry.register(new CopyPasteJMeterElementTool());
-        registry.register(new WrapSamplersTool());
+        // registry.register(new WrapSamplersTool());
         registry.register(new RunTestTool());
         registry.register(new GetTestStatusTool());
         registry.register(new GetTestResultsTool());

@@ -10,7 +10,10 @@ import org.qainsights.jmeter.ai.agent.validation.ComponentValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.jmeter.testelement.TestElement;
+
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -22,6 +25,11 @@ public abstract class AbstractJMeterElementTool extends AbstractTool {
     protected static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     protected final ComponentValidator componentValidator;
     protected final SchemaBasedPropertyHandler propertyHandler;
+
+    protected static final String UNIVERSAL_KEY_NAME = "name";
+    protected static final String UNIVERSAL_KEY_COMMENT = "comment";
+    protected static final String INTERNAL_KEY_NAME = "TestElement.name";
+    protected static final String INTERNAL_KEY_COMMENTS = "TestPlan.comments";
 
     /**
      * Initialize the base class with component validator and property handler.
@@ -122,5 +130,69 @@ public abstract class AbstractJMeterElementTool extends AbstractTool {
         sb.append("\n**Solution**: Please provide valid properties with correct values.\n");
         sb.append("Refer to component documentation for property details.");
         return sb.toString();
+    }
+
+    /**
+     * Split properties into universal properties (name, comment) and schema-defined properties.
+     */
+    protected void splitProperties(Map<String, Object> properties,
+                                   Map<String, String> universalProps,
+                                   Map<String, Object> schemaProps) {
+        if (properties == null || properties.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+
+            if (UNIVERSAL_KEY_NAME.equals(key) || INTERNAL_KEY_NAME.equals(key)) {
+                if (!universalProps.containsKey(UNIVERSAL_KEY_NAME)) {
+                    universalProps.put(UNIVERSAL_KEY_NAME, value.toString());
+                }
+            } else if (UNIVERSAL_KEY_COMMENT.equals(key) || INTERNAL_KEY_COMMENTS.equals(key)) {
+                if (!universalProps.containsKey(UNIVERSAL_KEY_COMMENT)) {
+                    universalProps.put(UNIVERSAL_KEY_COMMENT, value.toString());
+                }
+            } else {
+                schemaProps.put(key, value);
+            }
+        }
+    }
+
+    /**
+     * Apply universal properties (name, comment) using TestElement API directly.
+     */
+    protected void applyUniversalProperties(TestElement element,
+                                            Map<String, String> universalProps) {
+        Logger log = LoggerFactory.getLogger(getClass());
+        String newName = universalProps.get(UNIVERSAL_KEY_NAME);
+        if (newName != null && !newName.equals(element.getName())) {
+            element.setName(newName);
+            log.info("Updated element name to: {}", newName);
+        }
+
+        String newComment = universalProps.get(UNIVERSAL_KEY_COMMENT);
+        if (newComment != null) {
+            element.setComment(newComment);
+            log.info("Updated element comment to: {}", newComment);
+        }
+    }
+
+    /**
+     * Force-refresh JTable components in the GUI panel.
+     */
+    protected void refreshTables(Object comp) {
+        if (!(comp instanceof java.awt.Container)) {
+            return;
+        }
+        for (java.awt.Component c : ((java.awt.Container) comp).getComponents()) {
+            if (c instanceof javax.swing.JTable) {
+                javax.swing.JTable table = (javax.swing.JTable) c;
+                table.tableChanged(new javax.swing.event.TableModelEvent(table.getModel()));
+            } else if (c instanceof java.awt.Container) {
+                refreshTables(c);
+            }
+        }
     }
 }

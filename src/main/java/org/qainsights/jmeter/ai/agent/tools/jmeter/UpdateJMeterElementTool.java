@@ -20,11 +20,6 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
 
     private static final Logger log = LoggerFactory.getLogger(UpdateJMeterElementTool.class);
 
-    private static final String UNIVERSAL_KEY_NAME = "name";
-    private static final String UNIVERSAL_KEY_COMMENT = "comment";
-    private static final String INTERNAL_KEY_NAME = "TestElement.name";
-    private static final String INTERNAL_KEY_COMMENTS = "TestPlan.comments";
-
     @Override
     public String getName() {
         return "update_jmeter_element";
@@ -307,73 +302,6 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
         }
 
         return ToolResult.success(result.toString());
-    }
-
-    /**
-     * Split properties into universal properties (name, comment) and schema-defined properties.
-     * Does NOT modify the input map.
-     */
-    private void splitProperties(Map<String, Object> properties,
-                                 Map<String, String> universalProps,
-                                 Map<String, Object> schemaProps) {
-        if (properties == null || properties.isEmpty()) {
-            return;
-        }
-
-        for (Map.Entry<String, Object> entry : properties.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-
-            if (UNIVERSAL_KEY_NAME.equals(key) || INTERNAL_KEY_NAME.equals(key)) {
-                if (!universalProps.containsKey(UNIVERSAL_KEY_NAME)) {
-                    universalProps.put(UNIVERSAL_KEY_NAME, value.toString());
-                }
-            } else if (UNIVERSAL_KEY_COMMENT.equals(key) || INTERNAL_KEY_COMMENTS.equals(key)) {
-                if (!universalProps.containsKey(UNIVERSAL_KEY_COMMENT)) {
-                    universalProps.put(UNIVERSAL_KEY_COMMENT, value.toString());
-                }
-            } else {
-                schemaProps.put(key, value);
-            }
-        }
-    }
-
-    /**
-     * Apply universal properties (name, comment) using TestElement API directly.
-     * Follows the pattern from ElementRenamer for name updates.
-     */
-    private void applyUniversalProperties(TestElement element,
-                                          Map<String, String> universalProps) {
-        String newName = universalProps.get(UNIVERSAL_KEY_NAME);
-        if (newName != null && !newName.equals(element.getName())) {
-            element.setName(newName);
-            log.info("Updated element name to: {}", newName);
-        }
-
-        String newComment = universalProps.get(UNIVERSAL_KEY_COMMENT);
-        if (newComment != null) {
-            element.setComment(newComment);
-            log.info("Updated element comment to: {}", newComment);
-        }
-    }
-
-    /**
-     * Force-refresh JTable components in the GUI panel.
-     * Workaround for JMeter panels (e.g., HeaderPanel) whose configure() method
-     * updates the internal model but doesn't fire tableChanged events.
-     */
-    private void refreshTables(Object comp) {
-        if (!(comp instanceof java.awt.Container)) {
-            return;
-        }
-        for (java.awt.Component c : ((java.awt.Container) comp).getComponents()) {
-            if (c instanceof javax.swing.JTable) {
-                javax.swing.JTable table = (javax.swing.JTable) c;
-                table.tableChanged(new javax.swing.event.TableModelEvent(table.getModel()));
-            } else if (c instanceof java.awt.Container) {
-                refreshTables(c);
-            }
-        }
     }
 
 }
