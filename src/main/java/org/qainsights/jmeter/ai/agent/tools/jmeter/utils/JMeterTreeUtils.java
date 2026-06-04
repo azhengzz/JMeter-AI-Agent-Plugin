@@ -71,6 +71,7 @@ public class JMeterTreeUtils {
             // elementId 每次组件参数值变更后，element.hashCode() 会发生改变
             // data.put("elementId", element.hashCode());
             data.put("name", element.getName());
+            data.put("enabled", element.isEnabled());
 
             // Properties
             if (includeProperties) {
