@@ -204,9 +204,6 @@ public class ComponentSchemaLoader {
                 }
             }
 
-            // Parse item type for collection properties
-            propDef.setItemType(getStringValue(propData, "itemType"));
-
             // Parse item class for TestBean table collections
             propDef.setItemClass(getStringValue(propData, "itemClass"));
 

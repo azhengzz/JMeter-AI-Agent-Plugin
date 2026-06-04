@@ -6,7 +6,6 @@ component:
 properties:
   - name: UserParameters.names
     type: Array
-    itemType: String
     required: true
     description: "List of parameter names. Each name becomes a variable that can be referenced as ${name}."
 

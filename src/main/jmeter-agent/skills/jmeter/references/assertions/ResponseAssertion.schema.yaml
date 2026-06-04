@@ -31,7 +31,6 @@ properties:
 
   - name: Asserion.test_strings
     type: Array
-    itemType: String
     required: false
     description: "Multiple patterns to match (collection of strings)"
 
