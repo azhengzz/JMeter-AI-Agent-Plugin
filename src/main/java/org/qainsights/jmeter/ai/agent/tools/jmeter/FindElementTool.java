@@ -7,7 +7,9 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.qainsights.jmeter.ai.agent.model.ToolResult;
 import org.qainsights.jmeter.ai.agent.tools.AbstractTool;
 import org.qainsights.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
+import org.qainsights.jmeter.ai.utils.JMeterElementManager;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,9 +28,9 @@ public class FindElementTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Find a specific JMeter element and return its subtree structure in JSON format. " +
-                "Supports searching by name, element type, or path. " +
-                "Returns the matching element(s) with their properties and child elements.";
+        return "Find JMeter elements and return their subtree structure in JSON format. " +
+                "Supports searching by name, element type, path, or element ID. " +
+                "Returns paginated results with total count for name/type searches.";
     }
 
     @Override
@@ -39,12 +41,12 @@ public class FindElementTool extends AbstractTool {
                     "properties": {
                         "searchBy": {
                             "type": "string",
-                            "enum": ["name", "type", "path", "elementId"],
-                            "description": "Search criteria: 'name' for element name, 'type' for element class name, 'path' for full tree path, 'elementId' for element ID"
+                            "enum": ["name", "elementType", "path", "elementId"],
+                            "description": "Search criteria: 'name' for element name, 'elementType' for element type (e.g., 'httpsampler'), 'path' for full tree path, 'elementId' for element ID"
                         },
                         "query": {
                             "type": "string",
-                            "description": "The search query - element name, type name (e.g., 'HTTPSamplerProxy'), path (e.g., 'Test Plan > Thread Group > HTTP Request'), or elementId (e.g., '12345678')"
+                            "description": "The search query - element name, elementType (e.g., 'httpsampler', 'threadgroup'), path (e.g., 'Test Plan > Thread Group > HTTP Request'), or elementId (e.g., '12345678')"
                         },
                         "exactMatch": {
                             "type": "boolean",
@@ -58,9 +60,13 @@ public class FindElementTool extends AbstractTool {
                             "type": "integer",
                             "description": "Maximum depth to traverse from found element (0 for unlimited, default: 0)"
                         },
-                        "returnAll": {
-                            "type": "boolean",
-                            "description": "For name or type search: return all matching elements (default: false, returns first match only)"
+                        "offset": {
+                            "type": "integer",
+                            "description": "Number of results to skip for pagination (default: 0, must be >= 0)"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return (default: 20, max: 100, must be > 0)"
                         }
                     },
                     "required": ["searchBy", "query"]
@@ -98,19 +104,30 @@ public class FindElementTool extends AbstractTool {
         boolean exactMatch = getBooleanParameter(parameters, "exactMatch", true);
         boolean includeProperties = getBooleanParameter(parameters, "includeProperties", true);
         int maxDepth = getIntParameter(parameters, "maxDepth", 0);
-        boolean returnAll = getBooleanParameter(parameters, "returnAll", false);
+        int offset = getIntParameter(parameters, "offset", 0);
+        int limit = getIntParameter(parameters, "limit", 20);
 
         if (searchBy.isEmpty() || query.isEmpty()) {
             return ToolResult.error("Parameters 'searchBy' and 'query' are required");
         }
 
+        if (offset < 0) {
+            return ToolResult.error("Parameter 'offset' must be >= 0, got: " + offset);
+        }
+        if (limit <= 0) {
+            return ToolResult.error("Parameter 'limit' must be > 0, got: " + limit);
+        }
+        if (limit > 100) {
+            return ToolResult.error("Parameter 'limit' must not exceed 100, got: " + limit);
+        }
+
         try {
             switch (searchBy) {
                 case "name":
-                    return findByName(searchRoot, query, exactMatch, includeProperties, maxDepth, returnAll);
+                    return findByName(searchRoot, query, exactMatch, includeProperties, maxDepth, offset, limit);
 
-                case "type":
-                    return findByType(searchRoot, query, includeProperties, maxDepth, returnAll);
+                case "elementType":
+                    return findByElementType(searchRoot, query, includeProperties, maxDepth, offset, limit);
 
                 case "path":
                     return findByPath(searchRoot, query, includeProperties, maxDepth);
@@ -120,7 +137,7 @@ public class FindElementTool extends AbstractTool {
 
                 default:
                     return ToolResult.error("Invalid searchBy value: " + searchBy +
-                            ". Must be one of: name, type, path");
+                            ". Must be one of: name, elementType, path, elementId");
             }
         } catch (Exception e) {
             log.error("Error finding element", e);
@@ -129,68 +146,63 @@ public class FindElementTool extends AbstractTool {
     }
 
     /**
-     * Find element by name.
+     * Find element(s) by name with pagination.
      */
     private ToolResult findByName(JMeterTreeNode root, String name, boolean exactMatch,
-                                   boolean includeProperties, int maxDepth, boolean returnAll) throws JsonProcessingException {
-        if (returnAll) {
-            List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByName(root, name, exactMatch);
+                                   boolean includeProperties, int maxDepth,
+                                   int offset, int limit) throws JsonProcessingException {
+        List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByName(root, name, exactMatch);
 
-            if (foundNodes.isEmpty()) {
-                return ToolResult.error("No elements found with name: " + name +
-                        (exactMatch ? "" : " (partial match)"));
-            }
-
-            List<Map<String, Object>> results = foundNodes.stream()
-                    .map(node -> JMeterTreeUtils.buildTreeData(node, includeProperties, maxDepth, 0))
-                    .toList();
-
-            String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(results);
-            return ToolResult.success(json);
-        }
-
-        JMeterTreeNode foundNode = JMeterTreeUtils.findNodeByName(root, name, exactMatch);
-
-        if (foundNode == null) {
-            return ToolResult.error("No element found with name: " + name +
+        if (foundNodes.isEmpty()) {
+            return ToolResult.error("No elements found with name: " + name +
                     (exactMatch ? "" : " (partial match)"));
         }
 
-        Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
-                foundNode, includeProperties, maxDepth, 0);
-        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
+        int total = foundNodes.size();
+        int fromIndex = Math.min(offset, total);
+        int toIndex = Math.min(fromIndex + limit, total);
 
-        return ToolResult.success(json);
+        List<Map<String, Object>> elements = foundNodes.subList(fromIndex, toIndex).stream()
+                .map(node -> JMeterTreeUtils.buildTreeData(node, includeProperties, maxDepth, 0))
+                .toList();
+
+        return buildPaginatedResult(total, offset, limit, elements);
     }
 
     /**
-     * Find element(s) by type.
+     * Find element(s) by elementType with pagination.
+     * Accepts normalized elementType (e.g., 'httpsampler') and resolves to Java class for matching.
      */
-    private ToolResult findByType(JMeterTreeNode root, String elementType,
-                                   boolean includeProperties, int maxDepth, boolean returnAll)
-            throws JsonProcessingException {
-        List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByType(root, elementType);
+    private ToolResult findByElementType(JMeterTreeNode root, String elementType,
+                                          boolean includeProperties, int maxDepth,
+                                          int offset, int limit) throws JsonProcessingException {
+        String normalized = JMeterElementManager.normalizeElementType(elementType);
+        JMeterElementManager.ElementClassInfo classInfo = JMeterElementManager.getElementClassMap().get(normalized);
+
+        if (classInfo == null) {
+            return ToolResult.error("Unknown elementType: '" + elementType +
+                    "'. Use elementType values from SKILL.md component reference (e.g., 'httpsampler', 'threadgroup').");
+        }
+
+        String modelClassName = classInfo.getModelClassName();
+        String simpleClassName = modelClassName.substring(modelClassName.lastIndexOf('.') + 1);
+        String guiClassName = classInfo.getGuiClassName();
+
+        List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByTypeAndGui(root, simpleClassName, guiClassName);
 
         if (foundNodes.isEmpty()) {
-            return ToolResult.error("No elements found with type: " + elementType);
+            return ToolResult.error("No elements found with elementType: " + elementType);
         }
 
-        if (returnAll) {
-            // Return all matches as an array
-            List<Map<String, Object>> results = foundNodes.stream()
-                    .map(node -> JMeterTreeUtils.buildTreeData(node, includeProperties, maxDepth, 0))
-                    .toList();
+        int total = foundNodes.size();
+        int fromIndex = Math.min(offset, total);
+        int toIndex = Math.min(fromIndex + limit, total);
 
-            String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(results);
-            return ToolResult.success(json);
-        } else {
-            // Return first match only
-            Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
-                    foundNodes.get(0), includeProperties, maxDepth, 0);
-            String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
+        List<Map<String, Object>> elements = foundNodes.subList(fromIndex, toIndex).stream()
+                .map(node -> JMeterTreeUtils.buildTreeData(node, includeProperties, maxDepth, 0))
+                .toList();
 
-            return ToolResult.success(json);
-        }
+        return buildPaginatedResult(total, offset, limit, elements);
     }
 
     /**
@@ -206,9 +218,8 @@ public class FindElementTool extends AbstractTool {
 
         Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
                 foundNode, includeProperties, maxDepth, 0);
-        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
 
-        return ToolResult.success(json);
+        return buildPaginatedResult(1, 0, 1, List.of(treeData));
     }
 
     /**
@@ -231,8 +242,22 @@ public class FindElementTool extends AbstractTool {
 
         Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
                 foundNode, includeProperties, maxDepth, 0);
-        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
 
+        return buildPaginatedResult(1, 0, 1, List.of(treeData));
+    }
+
+    /**
+     * Build a paginated result wrapper with total count, offset, limit, and elements array.
+     */
+    private ToolResult buildPaginatedResult(int total, int offset, int limit,
+                                             List<Map<String, Object>> elements) throws JsonProcessingException {
+        Map<String, Object> wrapper = new LinkedHashMap<>();
+        wrapper.put("total", total);
+        wrapper.put("offset", offset);
+        wrapper.put("limit", limit);
+        wrapper.put("elements", elements);
+
+        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(wrapper);
         return ToolResult.success(json);
     }
 }

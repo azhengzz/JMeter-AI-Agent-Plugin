@@ -398,6 +398,40 @@ public class JMeterTreeUtils {
     }
 
     /**
+     * Find nodes matching both model class simple name and GUI class full name.
+     *
+     * @param rootNode The root node to search from
+     * @param modelClassSimpleName The model class simple name (e.g., "HTTPSamplerProxy")
+     * @param guiClassName The GUI class full name (e.g., "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui")
+     * @return List of matching nodes
+     */
+    public static List<JMeterTreeNode> findNodesByTypeAndGui(JMeterTreeNode rootNode,
+                                                              String modelClassSimpleName,
+                                                              String guiClassName) {
+        List<JMeterTreeNode> results = new ArrayList<>();
+        findNodesByTypeAndGui(rootNode, modelClassSimpleName, guiClassName, results);
+        return results;
+    }
+
+    private static void findNodesByTypeAndGui(JMeterTreeNode node, String modelClassSimpleName,
+                                               String guiClassName, List<JMeterTreeNode> results) {
+        TestElement element = node.getTestElement();
+        if (element != null) {
+            String className = element.getClass().getSimpleName();
+            String elementGuiClass = element.getPropertyAsString(TestElement.GUI_CLASS);
+            if (className.equals(modelClassSimpleName) && guiClassName.equals(elementGuiClass)) {
+                results.add(node);
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            JMeterTreeNode child = (JMeterTreeNode) node.getChildAt(i);
+            findNodesByTypeAndGui(child, modelClassSimpleName, guiClassName, results);
+        }
+    }
+
+    /**
      * Find a node in the tree by path.
      *
      * @param rootNode The root node to search from
