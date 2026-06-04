@@ -157,7 +157,7 @@ public class ToolRegistry {
             String error = String.format("Tool '%s' not found. Available tools: %s",
                     name, String.join(", ", getToolNames()));
             log.warn(error);
-            long duration = System.currentTimeMillis() - startTime;
+            long duration = Math.max(1, System.currentTimeMillis() - startTime);
             return new ToolExecutionResult(
                 ToolResult.error(error),
                 ToolEvent.notFound(name, parameters)
@@ -166,7 +166,7 @@ public class ToolRegistry {
 
         try {
             ToolResult result = tool.execute(parameters);
-            long duration = System.currentTimeMillis() - startTime;
+            long duration = Math.max(1, System.currentTimeMillis() - startTime);
 
             // Create event based on result
             ToolEvent event;
@@ -187,7 +187,7 @@ public class ToolRegistry {
 
             return new ToolExecutionResult(result, event);
         } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
+            long duration = Math.max(1, System.currentTimeMillis() - startTime);
             String error = "Exception executing " + name + ": " + e.getMessage();
             log.error(error, e);
             return new ToolExecutionResult(

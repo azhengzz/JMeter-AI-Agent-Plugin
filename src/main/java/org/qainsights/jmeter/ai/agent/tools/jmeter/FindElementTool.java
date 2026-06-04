@@ -66,7 +66,7 @@ public class FindElementTool extends AbstractTool {
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of results to return (default: 20, max: 100, must be > 0)"
+                            "description": "Maximum number of results to return (default: 20, max: 50, must be > 0)"
                         }
                     },
                     "required": ["searchBy", "query"]
@@ -117,8 +117,8 @@ public class FindElementTool extends AbstractTool {
         if (limit <= 0) {
             return ToolResult.error("Parameter 'limit' must be > 0, got: " + limit);
         }
-        if (limit > 100) {
-            return ToolResult.error("Parameter 'limit' must not exceed 100, got: " + limit);
+        if (limit > 50) {
+            return ToolResult.error("Parameter 'limit' must not exceed 50, got: " + limit);
         }
 
         try {
@@ -154,8 +154,7 @@ public class FindElementTool extends AbstractTool {
         List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByName(root, name, exactMatch);
 
         if (foundNodes.isEmpty()) {
-            return ToolResult.error("No elements found with name: " + name +
-                    (exactMatch ? "" : " (partial match)"));
+            return buildPaginatedResult(0, offset, limit, List.of());
         }
 
         int total = foundNodes.size();
@@ -191,7 +190,7 @@ public class FindElementTool extends AbstractTool {
         List<JMeterTreeNode> foundNodes = JMeterTreeUtils.findNodesByTypeAndGui(root, simpleClassName, guiClassName);
 
         if (foundNodes.isEmpty()) {
-            return ToolResult.error("No elements found with elementType: " + elementType);
+            return buildPaginatedResult(0, offset, limit, List.of());
         }
 
         int total = foundNodes.size();
