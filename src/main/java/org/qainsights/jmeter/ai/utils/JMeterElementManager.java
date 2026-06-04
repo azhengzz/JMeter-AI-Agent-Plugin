@@ -549,11 +549,15 @@ public class JMeterElementManager {
                 "com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui"));
         ELEMENT_CLASS_MAP.put("parameterincludecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterIncludeController",
                 "com.gitee.qa.jmeter.control.gui.ParameterIncludeControllerGui"));
-        ELEMENT_CLASS_MAP.put("parametertestfragmentcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterTestFragmentController",
-                "com.gitee.qa.jmeter.control.gui.ParameterTestFragmentControllerGui"));
         ELEMENT_CLASS_MAP.put("criticalsectioncontroller",
                 new ElementClassInfo("org.apache.jmeter.control.CriticalSectionController",
                         "org.apache.jmeter.control.gui.CriticalSectionControllerPanel"));
+
+        // Test Fragment
+        ELEMENT_CLASS_MAP.put("testfragmentcontroller", new ElementClassInfo("org.apache.jmeter.control.TestFragmentController",
+                "org.apache.jmeter.control.gui.TestFragmentControllerGui"));
+        ELEMENT_CLASS_MAP.put("parametertestfragmentcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterTestFragmentController",
+                "com.gitee.qa.jmeter.control.gui.ParameterTestFragmentControllerGui"));
 
         // Additional Listeners
         ELEMENT_CLASS_MAP.put("sampleresultsaveconfiguration",
@@ -884,6 +888,8 @@ public class JMeterElementManager {
                 return "Transaction Controller";
             case "casecontroller":
                 return "Case Controller";
+            case "modulecontroller":
+                return "Module Controller";
             case "dowhilecontroller":
                 return "DoWhile Controller";
             case "variableloopcontroller":
@@ -894,6 +900,8 @@ public class JMeterElementManager {
                 return "Include Controller (with Parameters)";
             case "parametertestfragmentcontroller":
                 return "Test Fragment (with Parameters)";
+            case "testfragmentcontroller":
+                return "Test Fragment";
             case "runtimecontroller":
                 return "Runtime Controller";
             case "headermanager":
@@ -1571,6 +1579,10 @@ public class JMeterElementManager {
                 return "ForEach Controller lets you loop through a set of variables.";
             case "transactioncontroller":
                 return "Transaction Controller generates an additional sample which measures the overall time taken to execute.";
+            case "modulecontroller":
+                return "Module Controller references and executes a controller defined elsewhere in the test plan.";
+            case "testfragmentcontroller":
+                return "Test Fragment is a non-executable container for reusable test modules referenced by Module or Include Controllers.";
             case "timerwrapper":
                 return "Timer controls the time JMeter waits between each request.";
             case "constanttimer":

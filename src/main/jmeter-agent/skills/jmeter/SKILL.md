@@ -84,12 +84,14 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `simplecontroller` | Organize elements sequentially | [Simple Controller](./references/controllers/SimpleController.md) | [Schema](./references/controllers/SimpleController.schema.yaml) |
 | `onceonlycontroller` | Execute children once per thread (first iteration only) | [Once Only Controller](./references/controllers/OnceOnlyController.md) | [Schema](./references/controllers/OnceOnlyController.schema.yaml) |
 | `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
+| `modulecontroller` | Reference and execute a controller defined elsewhere in the test plan | [Module Controller](./references/controllers/ModuleController.md) | [Schema](./references/controllers/ModuleController.schema.yaml) |
 | `includecontroller` | Include external JMX test fragment | [Include Controller](./references/controllers/IncludeController.md) | [Schema](./references/controllers/IncludeController.schema.yaml) |
 | `casecontroller` | Label and manage test cases with case_name property | [Case Controller](./references/controllers/CaseController.md) | [Schema](./references/controllers/CaseController.schema.yaml) |
 | `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
 | `variableloopcontroller` | Loop with configurable counter variable | [Variable Loop Controller](./references/controllers/VariableLoopController.md) | [Schema](./references/controllers/VariableLoopController.schema.yaml) |
 | `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
 | `parameterincludecontroller` | Include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
+| `testfragmentcontroller` | Non-executable container for reusable test modules referenced by Module/Include Controllers | [Test Fragment](./references/controllers/TestFragmentController.md) | [Schema](./references/controllers/TestFragmentController.schema.yaml) |
 | `parametertestfragmentcontroller` | Define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/controllers/ParameterTestFragmentController.md) | [Schema](./references/controllers/ParameterTestFragmentController.schema.yaml) |
 
 ### Configuration Elements
