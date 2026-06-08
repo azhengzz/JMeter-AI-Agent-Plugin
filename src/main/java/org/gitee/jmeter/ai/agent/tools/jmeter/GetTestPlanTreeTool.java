@@ -42,7 +42,7 @@ public class GetTestPlanTreeTool extends AbstractTool {
                         },
                         "maxDepth": {
                             "type": "integer",
-                            "description": "Maximum depth to traverse (0 for unlimited, default: 0)"
+                            "description": "Maximum depth to traverse (-1 for unlimited, 0 for current node only, 1 for first-level children, default: -1)"
                         }
                     },
                     "required": []
@@ -58,7 +58,7 @@ public class GetTestPlanTreeTool extends AbstractTool {
         }
 
         boolean includeProperties = getBooleanParameter(parameters, "includeProperties", true);
-        int maxDepth = getIntParameter(parameters, "maxDepth", 0);
+        int maxDepth = getIntParameter(parameters, "maxDepth", -1);
 
         try {
             JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();

@@ -69,7 +69,7 @@ public class QueryElementPropertiesTool extends AbstractTool {
                         },
                         "maxDepth": {
                             "type": "integer",
-                            "description": "Maximum depth to traverse from found element (0 for unlimited, default: 1, which returns only the element itself)"
+                            "description": "Maximum depth to traverse from found element (-1 for unlimited, 0 for current node only, 1 for first-level children, default: 0)"
                         },
                         "offset": {
                             "type": "integer",
@@ -111,7 +111,7 @@ public class QueryElementPropertiesTool extends AbstractTool {
         String propertyValue = getStringParameter(parameters, "propertyValue", "");
         String matchMode = getStringParameter(parameters, "matchMode", "contains");
         boolean includeProperties = getBooleanParameter(parameters, "includeProperties", true);
-        int maxDepth = getIntParameter(parameters, "maxDepth", 1);
+        int maxDepth = getIntParameter(parameters, "maxDepth", 0);
         int offset = getIntParameter(parameters, "offset", 0);
         int limit = getIntParameter(parameters, "limit", 20);
 

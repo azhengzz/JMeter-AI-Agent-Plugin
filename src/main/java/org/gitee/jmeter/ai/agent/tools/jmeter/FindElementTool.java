@@ -58,7 +58,7 @@ public class FindElementTool extends AbstractTool {
                         },
                         "maxDepth": {
                             "type": "integer",
-                            "description": "Maximum depth to traverse from found element (0 for unlimited, default: 0)"
+                            "description": "Maximum depth to traverse from found element (-1 for unlimited, 0 for current node only, 1 for first-level children, default: 0)"
                         },
                         "offset": {
                             "type": "integer",

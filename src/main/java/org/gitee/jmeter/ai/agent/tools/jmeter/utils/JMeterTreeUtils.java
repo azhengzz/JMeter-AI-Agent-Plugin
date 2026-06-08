@@ -35,7 +35,7 @@ public class JMeterTreeUtils {
      *
      * @param node The root node to build from
      * @param includeProperties Whether to include element properties
-     * @param maxDepth Maximum depth to traverse (0 for unlimited)
+     * @param maxDepth Maximum depth to traverse (-1 for unlimited, 0 for current node only, 1 for first-level children)
      * @param currentDepth Current depth level
      * @return Map containing node data
      */
@@ -50,7 +50,7 @@ public class JMeterTreeUtils {
      *
      * @param node The root node to build from
      * @param includeProperties Whether to include element properties
-     * @param maxDepth Maximum depth to traverse (0 for unlimited)
+     * @param maxDepth Maximum depth to traverse (-1 for unlimited, 0 for current node only, 1 for first-level children)
      * @param currentDepth Current depth level
      * @param maxProperties Maximum number of properties to include per element
      * @param maxLength Maximum string length for property values
@@ -89,7 +89,7 @@ public class JMeterTreeUtils {
         int childCount = node.getChildCount();
         data.put("childCount", childCount);
 
-        if (childCount > 0 && (maxDepth == 0 || currentDepth < maxDepth)) {
+        if (childCount > 0 && (maxDepth < 0 || currentDepth < maxDepth)) {
             List<Map<String, Object>> childrenList = new ArrayList<>(childCount);
             for (int i = 0; i < childCount; i++) {
                 JMeterTreeNode child = (JMeterTreeNode) node.getChildAt(i);
@@ -99,7 +99,7 @@ public class JMeterTreeUtils {
             data.put("children", childrenList);
         } else if (childCount > 0) {
             // Depth limited
-            data.put("childrenLimited", true);
+            data.put("hasMoreChildren", true);
         }
 
         return data;
