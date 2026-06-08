@@ -40,6 +40,7 @@ public class JMeterToolRegistry {
         registry.register(new MoveJMeterElementTool());
         registry.register(new CopyPasteJMeterElementTool());
         registry.register(new ToggleJMeterElementTool());
+        registry.register(new QueryElementPropertiesTool());
 
         // // Register tools that require AI service
         // if (aiService != null) {
@@ -134,6 +135,7 @@ public class JMeterToolRegistry {
         registry.register(new MoveJMeterElementTool());
         registry.register(new CopyPasteJMeterElementTool());
         registry.register(new ToggleJMeterElementTool());
+        registry.register(new QueryElementPropertiesTool());
         // registry.register(new WrapSamplersTool());
         registry.register(new RunTestTool());
         registry.register(new GetTestStatusTool());
