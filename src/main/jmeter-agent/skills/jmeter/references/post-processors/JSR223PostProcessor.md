@@ -9,7 +9,7 @@ The JSR223 PostProcessor allows JSR223 script code to be applied after taking a 
 | `scriptLanguage` | Yes | `"groovy"` | The JSR223 language to be used. See Language options below. | `"groovy"` |
 | `parameters` | No | `""` | Parameters to pass to the script. Available as `Parameters` string and `args` String array (split on whitespace). | `"value1 value2"` |
 | `filename` | No | `""` | A file containing the script to run. If a relative file path is used, it will be relative to directory referenced by `user.dir` System property. | `"/scripts/process.groovy"` |
-| `cacheKey` | No | `"false"` | Unique string for script compilation caching. If language supports `Compilable` interface (Groovy does), the compiled script will be cached. Set to `"true"` to enable. | `"true"` |
+| `cacheKey` | No | `"true"` | Unique string for script compilation caching. If language supports `Compilable` interface (Groovy does), the compiled script will be cached. Set to `"true"` to enable. | `"true"` |
 | `script` | No | `""` | The script to run. Required unless a script file is provided. | `"vars.put(\"key\", \"value\")"` |
 
 ### Language Options
@@ -25,8 +25,8 @@ The JSR223 PostProcessor allows JSR223 script code to be applied after taking a 
 ### Cache Key Options
 | Value | Description |
 |-------|-------------|
-| `true` | Enable script compilation caching (recommended for Groovy) |
-| `false` | Disable caching (default) |
+| `true` | Enable script compilation caching (recommended for Groovy) (default)|
+| `false` | Disable caching |
 
 ## Usage Examples
 ### Example 1: Extract Data from JSON Response

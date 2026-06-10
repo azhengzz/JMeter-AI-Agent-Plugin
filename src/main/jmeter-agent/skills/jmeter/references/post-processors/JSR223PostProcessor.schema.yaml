@@ -26,7 +26,7 @@ properties:
   - name: cacheKey
     type: String
     required: false
-    default: "false"
+    default: "true"
     enum: ["true", "false"]
     description: "Compile and cache the script for better performance. 'true'=enabled, 'false'=disabled."
 
