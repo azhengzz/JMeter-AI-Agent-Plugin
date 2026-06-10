@@ -11,6 +11,7 @@ import org.gitee.jmeter.ai.agent.model.*;
 import org.gitee.jmeter.ai.agent.run.AgentRunResult;
 import org.gitee.jmeter.ai.agent.run.AgentRunSpec;
 import org.gitee.jmeter.ai.agent.run.AgentRunner;
+import org.gitee.jmeter.ai.agent.run.InjectionManager;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
@@ -20,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,6 +50,7 @@ public class AgentLoop {
     private final ConcurrentHashMap<String, CompletableFuture<AgentResponse>> activeTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicBoolean> abortFlags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CountDownLatch> completionLatches = new ConcurrentHashMap<>();
+    private final InjectionManager injectionManager = new InjectionManager();
 
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
@@ -132,53 +135,89 @@ public class AgentLoop {
             }
         }
 
-        // Phase 2: Normal processing (via executor)
+        // Phase 2: Mid-turn injection routing
+        if (injectionManager.hasActiveRun(sessionKey)) {
+            // Non-priority commands must not be queued for injection.
+            // dispatch them directly (same pattern as priority commands).
+            if (commandRouter.isDispatchable(raw)) {
+                Session session = sessionManager.getOrCreate(sessionKey);
+                CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
+                String cmdResult = commandRouter.dispatch(ctx);
+                if (cmdResult != null) {
+                    return CompletableFuture.completedFuture(AgentResponse.success(cmdResult));
+                }
+            }
+
+            // Route to pending queue for mid-turn injection
+            if (injectionManager.offer(sessionKey, message)) {
+                log.info("Message enqueued for mid-turn injection in session {}", sessionKey);
+                return CompletableFuture.completedFuture(
+                    AgentResponse.success("Message injected into current conversation."));
+            }
+        }
+
+        // Phase 3: Normal processing (via executor)
         final AtomicBoolean abortFlag = new AtomicBoolean(false);
         final CountDownLatch completionLatch = new CountDownLatch(1);
         abortFlags.put(sessionKey, abortFlag);
         completionLatches.put(sessionKey, completionLatch);
 
         CompletableFuture<AgentResponse> future = CompletableFuture.supplyAsync(() -> {
-            // Check regular commands first (inside executor)
-            Session session = sessionManager.getOrCreate(sessionKey);
-            CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
-            String cmdResult = commandRouter.dispatch(ctx);
-            if (cmdResult != null) {
-                return AgentResponse.success(cmdResult);
-            }
-
-            // Build run spec with generation defaults
-            AgentRunSpec spec = AgentRunSpec.builder()
-                .userMessage(message)
-                .sessionKey(sessionKey)
-                .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
-                .maxIterations(defaultMaxIterations)
-                .concurrentTools(false)
-                .model(AiConfig.getDefaultModel())
-                .temperature(generationSettings.getTemperature())
-                .maxTokens(generationSettings.getMaxTokens())
-                .reasoningEffort(generationSettings.getReasoningEffort())
-                .abortFlag(abortFlag)
-                .build();
-
-            // Run agent
-            AgentRunResult result = agentRunner.run(spec).join();
-
-            // Capture usage stats for /status command
+            injectionManager.register(sessionKey);
             try {
-                Map<String, Object> meta = result.getMetadata();
-                if (meta != null && meta.containsKey("usage")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Integer> usage = (Map<String, Integer>) meta.get("usage");
-                    setLastUsage(usage);
+                // Check regular commands first (inside executor)
+                Session session = sessionManager.getOrCreate(sessionKey);
+                CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
+                String cmdResult = commandRouter.dispatch(ctx);
+                if (cmdResult != null) {
+                    return AgentResponse.success(cmdResult);
                 }
-            } catch (Exception e) {
-                log.debug("Could not capture usage stats", e);
+
+                // Build run spec with generation defaults
+                AgentRunSpec spec = AgentRunSpec.builder()
+                    .userMessage(message)
+                    .sessionKey(sessionKey)
+                    .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
+                    .maxIterations(defaultMaxIterations)
+                    .concurrentTools(false)
+                    .model(AiConfig.getDefaultModel())
+                    .temperature(generationSettings.getTemperature())
+                    .maxTokens(generationSettings.getMaxTokens())
+                    .reasoningEffort(generationSettings.getReasoningEffort())
+                    .abortFlag(abortFlag)
+                    .injectionCallback(limit -> injectionManager.drain(sessionKey, limit))
+                    .build();
+
+                // Run agent
+                AgentRunResult result = agentRunner.run(spec).join();
+
+                // Capture usage stats for /status command
+                try {
+                    Map<String, Object> meta = result.getMetadata();
+                    if (meta != null && meta.containsKey("usage")) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Integer> usage = (Map<String, Integer>) meta.get("usage");
+                        setLastUsage(usage);
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not capture usage stats", e);
+                }
+
+                // Convert to legacy response format
+                return result.toAgentResponse();
+            } finally {
+                // Cleanup: re-publish remaining messages as new processMessage calls
+                // so they are fully processed by the agent (not just saved to history).
+                // Mirrors Nanobot's finally block at loop.py:817-835.
+                List<String> remaining = injectionManager.cleanup(sessionKey);
+                if (!remaining.isEmpty()) {
+                    log.info("Re-publishing {} leftover message(s) for session {}",
+                        remaining.size(), sessionKey);
+                    for (String msg : remaining) {
+                        processMessage(msg, sessionKey, callback);
+                    }
+                }
             }
-
-            // Convert to legacy response format
-            return result.toAgentResponse();
-
         }, executorService);
 
         // Track active task for cancellation support
@@ -301,6 +340,23 @@ public class AgentLoop {
         executorService.shutdown();
         sessionManager.shutdown();
         log.info("AgentLoop shutdown complete");
+    }
+
+    /**
+     * Inject a follow-up message into an active agent run.
+     * Called from the UI when user sends a message during agent processing.
+     *
+     * @return true if the message was queued successfully
+     */
+    public boolean injectMessage(String sessionKey, String message) {
+        return injectionManager.offer(sessionKey, message);
+    }
+
+    /**
+     * Check if a session has an active agent run (for UI routing).
+     */
+    public boolean hasActiveRun(String sessionKey) {
+        return injectionManager.hasActiveRun(sessionKey);
     }
 
     /**

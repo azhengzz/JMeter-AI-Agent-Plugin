@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +36,10 @@ import java.util.stream.Collectors;
 public class AgentRunner {
     private static final Logger log = LoggerFactory.getLogger(AgentRunner.class);
     private static final String DEFAULT_RUN_ID_PREFIX = "run-";
+    // 每次注入检查点最多从队列中取出的用户消息数
+    private static final int MAX_INJECTIONS_PER_TURN = 3;
+    // 单次 Agent run 最多经历的注入周期数；超出部分留在队列，由 finally 块重新提交为独立 processMessage
+    private static final int MAX_INJECTION_CYCLES = 5;
 
     private final ToolRegistry toolRegistry;
     private final MemoryConsolidator memoryConsolidator;
@@ -138,6 +143,74 @@ public class AgentRunner {
     }
 
     /**
+     * Attempt to drain injected messages and append them to the message list.
+     * Ported from Nanobot's _try_drain_injections.
+     *
+     * @return InjectionResult with shouldContinue, updated injectionCycle, hadInjections
+     */
+    private InjectionResult tryDrainInjections(
+            List<Message> currentMessages,
+            AgentRunSpec spec,
+            int injectionCycle) {
+
+        if (injectionCycle >= MAX_INJECTION_CYCLES) {
+            return InjectionResult.noContinue(injectionCycle);
+        }
+
+        Function<Integer, List<String>> callback = spec.getInjectionCallback();
+        if (callback == null) {
+            return InjectionResult.noContinue(injectionCycle);
+        }
+
+        List<String> rawMessages = callback.apply(MAX_INJECTIONS_PER_TURN);
+        if (rawMessages == null || rawMessages.isEmpty()) {
+            return InjectionResult.noContinue(injectionCycle);
+        }
+
+        injectionCycle++;
+        appendInjectedMessages(currentMessages, rawMessages);
+
+        log.info("Injected {} messages at cycle {}/{}",
+            rawMessages.size(), injectionCycle, MAX_INJECTION_CYCLES);
+
+        return new InjectionResult(true, injectionCycle, true);
+    }
+
+    /**
+     * Append injected user messages while preserving role alternation.
+     * Ported from Nanobot's _append_injected_messages.
+     * Consecutive user messages are merged with "\n\n" separator.
+     */
+    private void appendInjectedMessages(List<Message> currentMessages, List<String> injections) {
+        for (String text : injections) {
+            if (!currentMessages.isEmpty()
+                    && currentMessages.get(currentMessages.size() - 1).getRole() == Message.Role.USER) {
+                Message last = currentMessages.get(currentMessages.size() - 1);
+                String merged = last.getContent() + "\n\n" + text;
+                currentMessages.set(currentMessages.size() - 1, Message.user(merged));
+            } else {
+                currentMessages.add(Message.user(text));
+            }
+        }
+    }
+
+    private static class InjectionResult {
+        final boolean shouldContinue;
+        final int injectionCycle;
+        final boolean hadInjections;
+
+        InjectionResult(boolean shouldContinue, int injectionCycle, boolean hadInjections) {
+            this.shouldContinue = shouldContinue;
+            this.injectionCycle = injectionCycle;
+            this.hadInjections = hadInjections;
+        }
+
+        static InjectionResult noContinue(int cycle) {
+            return new InjectionResult(false, cycle, false);
+        }
+    }
+
+    /**
      * Run the main agent iteration loop.
      */
     private AgentRunResult runAgentLoop(
@@ -155,6 +228,8 @@ public class AgentRunner {
         String finalContent = null;
         int maxIterations = spec.getMaxIterations() > 0 ? spec.getMaxIterations() : defaultMaxIterations;
         int iteration = 0;
+        int injectionCycles = 0;
+        boolean hadInjections = false;
         AgentHook hook = spec.getHook();
 
         // Build per-run LLM options from spec overrides
@@ -212,6 +287,15 @@ public class AgentRunner {
                 log.error("LLM returned error: {}", response.getErrorMessage());
                 finalContent = "I encountered an error: " + response.getErrorMessage();
                 if (hook != null) hook.onError(new RuntimeException(response.getErrorMessage()), context);
+
+                // Injection check 4: after LLM error
+                InjectionResult inj4 = tryDrainInjections(currentMessages, spec, injectionCycles);
+                injectionCycles = inj4.injectionCycle;
+                hadInjections |= inj4.hadInjections;
+                if (inj4.shouldContinue) {
+                        if (hook != null) hook.afterIteration(context);
+                        continue;
+                    }
                 break;
             }
 
@@ -261,6 +345,12 @@ public class AgentRunner {
                         context.setStopReason("tool_error");
                         if (hook != null) hook.afterIteration(context);
                         finalContent = "Error: Tool execution failed: " + error;
+
+                        // Injection check 3: after tool fatal error
+                        InjectionResult inj3 = tryDrainInjections(currentMessages, spec, injectionCycles);
+                        injectionCycles = inj3.injectionCycle;
+                        hadInjections |= inj3.hadInjections;
+                        if (inj3.shouldContinue) continue;
                         break;
                     }
                 }
@@ -295,15 +385,49 @@ public class AgentRunner {
                     context.addToolUsed(toolName);
                 }
 
+                // Injection check 1: after tool execution, before next LLM call
+                InjectionResult inj1 = tryDrainInjections(currentMessages, spec, injectionCycles);
+                injectionCycles = inj1.injectionCycle;
+                hadInjections |= inj1.hadInjections;
+                if (inj1.shouldContinue) {
+                    if (hook != null) hook.afterIteration(context);
+                    continue;
+                }
+
             } else {
                 // No tool calls, this is the final response
-                currentMessages = contextBuilder.addAssistantMessage(
-                    currentMessages,
-                    response.getContent(),
-                    null,
-                    response.getReasoningContent()
-                );
                 finalContent = response.getContent();
+
+                // Injection check 5: empty response
+                if (finalContent == null || finalContent.isEmpty()) {
+                    InjectionResult inj5 = tryDrainInjections(currentMessages, spec, injectionCycles);
+                    injectionCycles = inj5.injectionCycle;
+                    hadInjections |= inj5.hadInjections;
+                    if (inj5.shouldContinue) {
+                        if (hook != null) hook.afterIteration(context);
+                        continue;
+                    }
+                    // No injections and empty → append placeholder and break
+                }
+
+                // Append assistant message before checking for injections,
+                // so role alternation is preserved: assistant → user(injected).
+                currentMessages = contextBuilder.addAssistantMessage(
+                    currentMessages, finalContent, null, response.getReasoningContent());
+
+                // Injection check 2: after final response
+                InjectionResult inj2 = tryDrainInjections(currentMessages, spec, injectionCycles);
+                injectionCycles = inj2.injectionCycle;
+                hadInjections |= inj2.hadInjections;
+                if (inj2.shouldContinue) {
+                    if (hook != null) {
+                        hook.onIntermediateResponse(finalContent, context);
+                    }
+                    finalContent = null;
+                    if (hook != null) hook.afterIteration(context);
+                    continue;
+                }
+
                 break;
             }
 
@@ -313,6 +437,17 @@ public class AgentRunner {
         // Check max iterations
         if (finalContent == null && iteration >= maxIterations) {
             log.warn("Max iterations reached: {}", maxIterations);
+
+            // Injection drain 6: after max iterations (drain only, don't continue loop)
+            if (spec.getInjectionCallback() != null) {
+                List<String> remaining = spec.getInjectionCallback().apply(MAX_INJECTIONS_PER_TURN);
+                if (remaining != null && !remaining.isEmpty()) {
+                    hadInjections = true;
+                    appendInjectedMessages(currentMessages, remaining);
+                    log.info("Drained {} remaining injected messages after max iterations", remaining.size());
+                }
+            }
+
             finalContent = "I reached the maximum number of tool call iterations. Please try breaking the task into smaller steps.";
         }
 
@@ -337,6 +472,7 @@ public class AgentRunner {
             .toolEvents(context.getToolEvents())
             .currentMessages(currentMessages)
             .metadata(resultMetadata)
+            .hadInjections(hadInjections)
             .build();
         } finally {
             runningThread = null;

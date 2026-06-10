@@ -48,7 +48,9 @@ public class ProgressUpdate {
         /** Thinking/reasoning content */
         THINKING,
         /** Error message */
-        ERROR
+        ERROR,
+        /** Intermediate AI response before injection continues (content = response text) */
+        INTERMEDIATE_RESPONSE
     }
 
     public static ProgressUpdate progress(String message) {
@@ -69,6 +71,10 @@ public class ProgressUpdate {
 
     public static ProgressUpdate error(String message) {
         return new ProgressUpdate(message, Type.ERROR);
+    }
+
+    public static ProgressUpdate intermediateResponse(String content) {
+        return new ProgressUpdate(content, Type.INTERMEDIATE_RESPONSE);
     }
 
     private static String formatToolEvent(ToolEvent event) {

@@ -112,4 +112,15 @@ public interface AgentHook {
     default void onError(Throwable error, AgentHookContext context) {
         // Default: do nothing
     }
+
+    /**
+     * Called when an intermediate response is generated during mid-turn injection.
+     * The agent loop will continue after this — the response is not the final one.
+     *
+     * @param content The intermediate response text
+     * @param context The hook context
+     */
+    default void onIntermediateResponse(String content, AgentHookContext context) {
+        // Default: do nothing
+    }
 }

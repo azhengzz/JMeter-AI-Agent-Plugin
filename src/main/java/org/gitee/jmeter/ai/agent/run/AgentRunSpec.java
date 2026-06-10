@@ -5,6 +5,7 @@ import org.gitee.jmeter.ai.agent.model.Message;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * Specification for running an agent.
@@ -25,6 +26,7 @@ public class AgentRunSpec {
     private final String reasoningEffort;
     private final List<Message> initialMessages;
     private final AtomicBoolean abortFlag;
+    private final Function<Integer, List<String>> injectionCallback;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -40,6 +42,7 @@ public class AgentRunSpec {
         this.reasoningEffort = builder.reasoningEffort;
         this.initialMessages = builder.initialMessages;
         this.abortFlag = builder.abortFlag;
+        this.injectionCallback = builder.injectionCallback;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -55,6 +58,7 @@ public class AgentRunSpec {
     public String getReasoningEffort() { return reasoningEffort; }
     public List<Message> getInitialMessages() { return initialMessages; }
     public AtomicBoolean getAbortFlag() { return abortFlag; }
+    public Function<Integer, List<String>> getInjectionCallback() { return injectionCallback; }
 
     public static Builder builder() {
         return new Builder();
@@ -74,6 +78,7 @@ public class AgentRunSpec {
         private String reasoningEffort;
         private List<Message> initialMessages;
         private AtomicBoolean abortFlag;
+        private Function<Integer, List<String>> injectionCallback;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -140,6 +145,11 @@ public class AgentRunSpec {
 
         public Builder abortFlag(AtomicBoolean flag) {
             this.abortFlag = flag;
+            return this;
+        }
+
+        public Builder injectionCallback(Function<Integer, List<String>> callback) {
+            this.injectionCallback = callback;
             return this;
         }
 

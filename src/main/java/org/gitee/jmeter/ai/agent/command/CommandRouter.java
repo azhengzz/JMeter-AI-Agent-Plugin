@@ -50,6 +50,17 @@ public class CommandRouter {
         return text != null && priorityHandlers.containsKey(text.trim().toLowerCase());
     }
 
+    /** Quick check: is this text a dispatchable command (exact or prefix match)? */
+    public boolean isDispatchable(String text) {
+        if (text == null) return false;
+        String cmd = text.trim().toLowerCase();
+        if (exactHandlers.containsKey(cmd)) return true;
+        for (AbstractMap.SimpleEntry<String, CommandHandler> entry : prefixHandlers) {
+            if (cmd.startsWith(entry.getKey())) return true;
+        }
+        return false;
+    }
+
     /** Dispatch a priority command. Called without the session lock. */
     public String dispatchPriority(CommandContext ctx) {
         CommandHandler handler = priorityHandlers.get(ctx.getRaw().toLowerCase());

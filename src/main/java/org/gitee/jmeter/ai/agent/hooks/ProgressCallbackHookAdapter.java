@@ -75,6 +75,13 @@ public class ProgressCallbackHookAdapter implements AgentHook {
     }
 
     @Override
+    public void onIntermediateResponse(String content, AgentHookContext context) {
+        if (callback == null || content == null || content.isEmpty()) return;
+        String display = this.showThinking ? content : TextUtils.stripThink(content);
+        publish(ProgressUpdate.intermediateResponse(display));
+    }
+
+    @Override
     public void onError(Throwable error, AgentHookContext context) {
         if (callback != null) {
             publish(ProgressUpdate.error("Error: " + error.getMessage()));

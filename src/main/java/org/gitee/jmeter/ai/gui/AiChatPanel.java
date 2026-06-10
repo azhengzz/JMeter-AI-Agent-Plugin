@@ -9,6 +9,7 @@ import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import org.gitee.jmeter.ai.intellisense.InputBoxIntellisense;
 import org.gitee.jmeter.ai.agent.AgentLoop;
@@ -72,6 +73,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private AgentSwingWorker activeWorker;
     // Track whether tool calls were displayed progressively during the loop
     private boolean toolCallsDisplayedProgressively;
+    // Separate Stop button (visible during agent processing)
+    private JButton stopButton;
 
     /**
      * Constructs a new AiChatPanel.
@@ -311,7 +314,34 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         sendButton.setFocusPainted(false);
         sendButton.setOpaque(true);
         sendButton.addActionListener(e -> sendMessage());
-        inputPanel.add(sendButton, BorderLayout.EAST);
+
+        // Initialize stop button (hidden by default, shown during agent processing)
+        stopButton = new JButton("■");  // ■ character
+        stopButton.setFont(new Font(stopButton.getFont().getName(), Font.BOLD, 10));
+        stopButton.setFocusPainted(false);
+        stopButton.setOpaque(true);
+        stopButton.setForeground(new Color(180, 40, 40));
+        stopButton.setBackground(new Color(255, 210, 210));
+        stopButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 80, 80), 1, true),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        stopButton.setToolTipText("Stop the current AI task");
+        stopButton.setVisible(false);
+        stopButton.addActionListener(e -> stopActiveTask());
+
+        // Button panel: Send (top) + Stop (bottom) vertical layout
+        // Buttons expand to fill full height and stretch with split pane drag
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
+        Dimension maxButton = new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE);
+        sendButton.setMaximumSize(maxButton);
+        stopButton.setMaximumSize(maxButton);
+        sendButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        stopButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        buttonPanel.add(sendButton);
+        buttonPanel.add(Box.createVerticalStrut(4));
+        buttonPanel.add(stopButton);
+        inputPanel.add(buttonPanel, BorderLayout.EAST);
 
         bottomPanel.add(inputPanel, BorderLayout.CENTER);
 
@@ -625,6 +655,20 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
+        // If there's an active agent run, inject the message instead
+        if (agentLoop != null && agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
+            injectMessage();
+            return;
+        }
+
+        startNormalSend(message);
+    }
+
+    /**
+     * Start a normal (non-injection) agent run via AgentSwingWorker.
+     * Extracted from sendMessage() so injectMessage() can fall back here on race conditions.
+     */
+    private void startNormalSend(String message) {
         log.info("Sending user message: {}", message);
 
         // Add the user message to the chat
@@ -693,6 +737,71 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
+     * Inject a follow-up message into the active agent run.
+     * Routes through processMessage so dispatchable commands (e.g. /new, /help)
+     * are handled immediately rather than queued as user text.
+     *
+     * Re-checks hasActiveRun() to narrow the race window. If the active run
+     * just finished, falls back to the normal send path (AgentSwingWorker).
+     */
+    private void injectMessage() {
+        String message = messageField.getText().trim();
+        if (message.isEmpty()) {
+            return;
+        }
+
+        log.info("Injecting follow-up message during active run: {}", message);
+
+        // Clear the message field
+        messageField.setText("");
+
+        if (agentLoop == null) {
+            return;
+        }
+
+        // Re-check: if the active run finished between sendMessage() and here,
+        // fall back to normal send path (AgentSwingWorker) for proper UI handling.
+        if (!agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
+            log.info("Active run finished during injection, falling back to normal send");
+            startNormalSend(message);
+            return;
+        }
+
+        // Active run confirmed — processMessage will hit Phase 2 (non-blocking)
+        CompletableFuture<AgentResponse> future = agentLoop.processMessage(message, CHAT_SESSION_KEY);
+
+        // future should always be done here (Phase 2 returns completedFuture),
+        // but guard against an extremely narrow race condition.
+        if (future.isDone()) {
+            try {
+                AgentResponse response = future.get();
+                if (response.isSuccess() && response.getContent() != null) {
+                    if (response.getContent().startsWith("Message injected")) {
+                        // Injection queued — show in green italic
+                        SimpleAttributeSet injectStyle = new SimpleAttributeSet();
+                        StyleConstants.setForeground(injectStyle, new Color(0, 128, 0));
+                        StyleConstants.setItalic(injectStyle, true);
+                        chatArea.getStyledDocument().insertString(
+                            chatArea.getStyledDocument().getLength(),
+                            "\n[Injected] You: " + message + "\n", injectStyle);
+                    } else {
+                        // Command dispatch result (e.g. /new, /help) — show normally
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            response.getContent(), getThemeColor("TextPane.foreground", Color.BLACK), false);
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Error handling injection response", e);
+            }
+        } else {
+            // Extremely narrow race: run finished right after our hasActiveRun check.
+            // The future is a full agent run — connect it to the normal UI handlers.
+            log.info("Race condition: future not done, connecting to handleAgentResponse");
+            future.thenAccept(response -> SwingUtilities.invokeLater(() -> handleAgentResponse(response)));
+        }
+    }
+
+    /**
      * Handle AgentLoop response callback.
      */
     private void handleAgentResponse(AgentResponse response) {
@@ -752,6 +861,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         }
                     }
                     case ERROR -> renderError(update.getMessage());
+                    case INTERMEDIATE_RESPONSE -> renderIntermediateResponse(update.getMessage());
                     default -> renderProgress(update.getMessage());
                 }
             } catch (BadLocationException e) {
@@ -785,6 +895,16 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         SimpleAttributeSet style = new SimpleAttributeSet();
         StyleConstants.setForeground(style, Color.RED);
         doc.insertString(doc.getLength(), text.stripTrailing() + "\n", style);
+    }
+
+    private void renderIntermediateResponse(String text) throws BadLocationException {
+        if (text == null || text.isEmpty()) return;
+        StyledDocument doc = chatArea.getStyledDocument();
+        SimpleAttributeSet headerStyle = new SimpleAttributeSet();
+        StyleConstants.setBold(headerStyle, true);
+        StyleConstants.setForeground(headerStyle, new Color(0, 102, 204));
+        doc.insertString(doc.getLength(), "\n🤖 ", headerStyle);
+        messageProcessor.appendMessage(doc, text, getThemeColor("TextPane.foreground", Color.BLACK), true);
     }
 
     /**
@@ -905,21 +1025,24 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void setButtonToStopMode() {
-        sendButton.setText("■ Stop");
-        sendButton.setForeground(new Color(180, 40, 40));
-        sendButton.setBackground(new Color(255, 210, 210));
-        sendButton.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(200, 80, 80), 1, true),
-                BorderFactory.createEmptyBorder(4, 12, 4, 12)));
-        sendButton.setEnabled(true);
+        // Show the separate stop button
+        stopButton.setVisible(true);
+
+        // Send button keeps "Send" text but routes to injectMessage()
+        sendButton.setToolTipText("Send a follow-up message while AI is processing");
         for (ActionListener al : sendButton.getActionListeners()) {
             sendButton.removeActionListener(al);
         }
-        sendButton.addActionListener(e -> stopActiveTask());
+        sendButton.addActionListener(e -> injectMessage());
     }
 
     private void setButtonToSendMode() {
+        // Hide the stop button
+        stopButton.setVisible(false);
+
+        // Reset send button to normal behavior
         sendButton.setText("Send");
+        sendButton.setToolTipText(null);
         sendButton.setForeground(null);
         sendButton.setBackground(null);
         sendButton.setBorder(UIManager.getBorder("Button.border"));
