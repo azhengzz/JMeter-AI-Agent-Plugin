@@ -23,8 +23,10 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 - **Inspection Tools:**
   - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values, optional `maxDepth` and `includeProperties`
   - `get_selected_element` — Get detailed info about the currently selected element
+  - `get_script_info` — Get current JMeter script file info and runtime environment (script path, save status, JMeter/JDK version, JMETER_HOME)
   - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`)
   - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`)
+  - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` for quick validation)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
