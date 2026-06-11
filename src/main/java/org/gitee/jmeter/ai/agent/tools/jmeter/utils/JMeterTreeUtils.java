@@ -1,11 +1,13 @@
 package org.gitee.jmeter.ai.agent.tools.jmeter.utils;
 
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
+import org.apache.jorphan.collections.HashTree;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 
 import javax.swing.tree.TreePath;
@@ -103,6 +105,49 @@ public class JMeterTreeUtils {
         }
 
         return data;
+    }
+
+    // ---- HashTree → JMeterTreeNode conversion (for parsing external JMX files) ----
+
+    /**
+     * Convert a HashTree (parsed from a JMX file via SaveService.loadTree)
+     * into a JMeterTreeNode tree using JMeter's own JMeterTreeModel.addSubTree(),
+     * so that existing buildTreeData/findNode methods can be reused directly.
+     *
+     * <p>Uses the same approach as JMeter's non-GUI mode (JMeter.java):
+     * <pre>
+     *   JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+     *   JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+     *   treeModel.addSubTree(tree, root);
+     * </pre>
+     *
+     * <p>Tree structure after addSubTree: root(virtual) → TestPlan → ...
+     * Returns root.getChildAt(0) (the actual TestPlan node),
+     * matching the output format of GetTestPlanTreeTool.
+     *
+     * @param rootTree The HashTree returned by SaveService.loadTree()
+     * @return Root JMeterTreeNode (TestPlan), or null if the tree is empty
+     */
+    @SuppressWarnings("deprecation")
+    public static JMeterTreeNode convertHashTreeToTreeNodes(HashTree rootTree) {
+        if (rootTree == null || rootTree.list().isEmpty()) {
+            return null;
+        }
+
+        try {
+            // Same pattern as JMeter.java non-GUI mode
+            JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+            JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+            treeModel.addSubTree(rootTree, root);
+
+            // root is a virtual node, first child is the actual TestPlan
+            if (root.getChildCount() > 0) {
+                return (JMeterTreeNode) root.getChildAt(0);
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

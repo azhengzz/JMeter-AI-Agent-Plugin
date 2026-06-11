@@ -32,6 +32,7 @@ public class JMeterToolRegistry {
         // Register core JMeter tools
         registry.register(new GetSelectedElementTool());
         registry.register(new GetTestPlanTreeTool());
+        registry.register(new ParseJmxFileTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());
@@ -127,6 +128,7 @@ public class JMeterToolRegistry {
     public static void registerBasicTools(ToolRegistry registry) {
         registry.register(new GetSelectedElementTool());
         registry.register(new GetTestPlanTreeTool());
+        registry.register(new ParseJmxFileTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());
