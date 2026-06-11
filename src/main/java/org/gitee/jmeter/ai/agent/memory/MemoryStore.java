@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -62,7 +63,7 @@ public class MemoryStore {
     public String readLongTermMemory() {
         try {
             if (Files.exists(memoryFile)) {
-                String content = Files.readString(memoryFile);
+                String content = Files.readString(memoryFile, StandardCharsets.UTF_8);
                 log.debug("Read long-term memory: {} characters", content.length());
                 return content;
             }
@@ -77,7 +78,7 @@ public class MemoryStore {
      */
     public void writeLongTermMemory(String content) {
         try {
-            Files.writeString(memoryFile, content != null ? content : "");
+            Files.writeString(memoryFile, content != null ? content : "", StandardCharsets.UTF_8);
             log.info("Updated long-term memory: {} characters", content != null ? content.length() : 0);
         } catch (IOException e) {
             log.error("Error writing memory file", e);
@@ -91,7 +92,7 @@ public class MemoryStore {
     public void appendHistory(String entry) {
         try {
             String formattedEntry = entry + "\n\n";
-            Files.writeString(historyFile, formattedEntry,
+            Files.writeString(historyFile, formattedEntry, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.debug("Appended to history: {} characters", formattedEntry.length());
         } catch (IOException e) {
