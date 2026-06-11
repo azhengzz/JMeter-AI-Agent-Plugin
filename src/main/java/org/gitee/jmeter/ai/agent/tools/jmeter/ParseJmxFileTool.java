@@ -32,9 +32,7 @@ public class ParseJmxFileTool extends AbstractTool {
                 "in JSON format (same format as get_test_plan_tree). " +
                 "Does not require the file to be loaded in JMeter GUI. " +
                 "Use this to analyze JMX files before loading them, or to inspect files " +
-                "that are not the current test plan. " +
-                "Note: elementId values from this tool are based on TestElement objects, " +
-                "they cannot be used with find_element or update_jmeter_element.";
+                "that are not the current test plan.";
     }
 
     @Override
@@ -101,6 +99,9 @@ public class ParseJmxFileTool extends AbstractTool {
             Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
                     rootNode, includeProperties, maxDepth, 0);
 
+            // elementId is meaningless for parsed files (volatile across calls), remove it
+            removeElementIds(treeData);
+
             String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
             return ToolResult.success(json);
         } catch (JsonProcessingException e) {
@@ -109,6 +110,19 @@ public class ParseJmxFileTool extends AbstractTool {
         } catch (Exception e) {
             log.error("Error parsing JMX file: {}", filePath, e);
             return ToolResult.error("Failed to parse JMX file: " + e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void removeElementIds(Map<String, Object> node) {
+        node.remove("elementId");
+        Object children = node.get("children");
+        if (children instanceof Iterable<?>) {
+            for (Object child : (Iterable<Object>) children) {
+                if (child instanceof Map) {
+                    removeElementIds((Map<String, Object>) child);
+                }
+            }
         }
     }
 }
