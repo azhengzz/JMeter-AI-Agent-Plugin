@@ -619,4 +619,132 @@ public class JMeterTreeUtils {
 
         return null;
     }
+
+    // ---- Property query methods (shared by QueryElementPropertiesTool and ParseJmxFileTool) ----
+
+    /**
+     * Recursively collect all nodes from the tree.
+     */
+    public static void collectAllNodes(JMeterTreeNode node, List<JMeterTreeNode> result) {
+        if (node.getTestElement() != null) {
+            result.add(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectAllNodes((JMeterTreeNode) node.getChildAt(i), result);
+        }
+    }
+
+    /**
+     * Match properties of a TestElement against the given criteria.
+     * Returns list of matched property paths.
+     */
+    public static List<String> matchProperties(TestElement element, String nameQuery, String valueQuery, boolean exact) {
+        List<String> matches = new ArrayList<>();
+
+        String elementName = element.getName();
+        if (elementName != null && matchesCriteria("name", elementName, nameQuery, valueQuery, exact)) {
+            matches.add("name");
+        }
+        String elementComments = element.getComment();
+        if (elementComments != null && !elementComments.isEmpty()
+                && matchesCriteria("comment", elementComments, nameQuery, valueQuery, exact)) {
+            matches.add("comment");
+        }
+
+        PropertyIterator iter = element.propertyIterator();
+        while (iter.hasNext()) {
+            JMeterProperty prop = iter.next();
+            String propName = prop.getName();
+            if (propName.startsWith("TestElement.")) continue;
+
+            if (prop instanceof TestElementProperty) {
+                TestElement nestedElement = ((TestElementProperty) prop).getElement();
+                if (nestedElement != null) {
+                    matchNestedProperties(nestedElement, propName, nameQuery, valueQuery, exact, 0, matches);
+                }
+            } else if (prop instanceof CollectionProperty) {
+                matchCollectionItems((CollectionProperty) prop, propName, nameQuery, valueQuery, exact, 0, matches);
+            } else {
+                String propValue = prop.getStringValue();
+                if (matchesCriteria(propName, propValue, nameQuery, valueQuery, exact)) {
+                    matches.add(propName);
+                }
+            }
+        }
+        return matches;
+    }
+
+    private static void matchNestedProperties(TestElement element, String parentPath,
+                                               String nameQuery, String valueQuery, boolean exact,
+                                               int depth, List<String> matches) {
+        if (depth >= MAX_NESTED_DEPTH) return;
+
+        PropertyIterator iter = element.propertyIterator();
+        while (iter.hasNext()) {
+            JMeterProperty prop = iter.next();
+            String propName = prop.getName();
+            if (propName.startsWith("TestElement.")) continue;
+
+            String fullPath = parentPath + "." + propName;
+
+            if (prop instanceof TestElementProperty) {
+                TestElement nestedElement = ((TestElementProperty) prop).getElement();
+                if (nestedElement != null) {
+                    matchNestedProperties(nestedElement, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
+                }
+            } else if (prop instanceof CollectionProperty) {
+                matchCollectionItems((CollectionProperty) prop, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
+            } else {
+                String propValue = prop.getStringValue();
+                if (matchesCriteria(fullPath, propValue, nameQuery, valueQuery, exact)) {
+                    matches.add(fullPath);
+                }
+            }
+        }
+    }
+
+    private static void matchCollectionItems(CollectionProperty collProp, String parentPath,
+                                              String nameQuery, String valueQuery, boolean exact,
+                                              int depth, List<String> matches) {
+        if (depth >= MAX_NESTED_DEPTH) return;
+
+        PropertyIterator iter = collProp.iterator();
+        int index = 0;
+        while (iter.hasNext()) {
+            JMeterProperty item = iter.next();
+            String itemPath = parentPath + "[" + index + "]";
+
+            if (item instanceof TestElementProperty) {
+                TestElement itemElement = ((TestElementProperty) item).getElement();
+                if (itemElement != null) {
+                    String elementName = itemElement.getName();
+                    if (elementName != null && !elementName.isEmpty()) {
+                        String namePath = itemPath + ".TestElement.name";
+                        if (matchesCriteria(namePath, elementName, nameQuery, valueQuery, exact)) {
+                            matches.add(namePath);
+                        }
+                    }
+                    matchNestedProperties(itemElement, itemPath, nameQuery, valueQuery, exact, depth + 1, matches);
+                }
+            } else {
+                String itemValue = item.getStringValue();
+                if (matchesCriteria(itemPath, itemValue, nameQuery, valueQuery, exact)) {
+                    matches.add(itemPath);
+                }
+            }
+            index++;
+        }
+    }
+
+    static boolean matchesCriteria(String propName, String propValue,
+                                   String nameQuery, String valueQuery, boolean exact) {
+        boolean nameMatch = nameQuery.isEmpty() || propName.equals(nameQuery);
+        boolean valueMatch = valueQuery.isEmpty() ||
+                (propValue != null && matchText(propValue, valueQuery, exact));
+        return nameMatch && valueMatch;
+    }
+
+    static boolean matchText(String text, String query, boolean exact) {
+        return exact ? text.equals(query) : text.contains(query);
+    }
 }

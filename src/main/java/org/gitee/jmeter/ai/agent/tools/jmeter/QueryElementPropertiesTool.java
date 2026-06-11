@@ -5,10 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.property.CollectionProperty;
-import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
@@ -26,7 +22,6 @@ import java.util.Map;
 public class QueryElementPropertiesTool extends AbstractTool {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final int MAX_NESTED_DEPTH = 3;
 
     @Override
     public String getName() {
@@ -147,7 +142,7 @@ public class QueryElementPropertiesTool extends AbstractTool {
             candidates = JMeterTreeUtils.findNodesByTypeAndGui(searchRoot, simpleClassName, guiClassName);
         } else {
             candidates = new ArrayList<>();
-            collectAllNodes(searchRoot, candidates);
+            JMeterTreeUtils.collectAllNodes(searchRoot, candidates);
         }
 
         // Match properties and build results
@@ -156,7 +151,7 @@ public class QueryElementPropertiesTool extends AbstractTool {
             TestElement element = node.getTestElement();
             if (element == null) continue;
 
-            List<String> matchedProps = matchProperties(element, propertyName, propertyValue, exact);
+            List<String> matchedProps = JMeterTreeUtils.matchProperties(element, propertyName, propertyValue, exact);
             if (!matchedProps.isEmpty()) {
                 matched.add(new MatchedElement(node, matchedProps));
             }
@@ -175,146 +170,6 @@ public class QueryElementPropertiesTool extends AbstractTool {
         }
 
         return buildPaginatedResult(total, offset, limit, elements);
-    }
-
-    /**
-     * Recursively collect all nodes from the tree.
-     */
-    private void collectAllNodes(JMeterTreeNode node, List<JMeterTreeNode> result) {
-        if (node.getTestElement() != null) {
-            result.add(node);
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectAllNodes((JMeterTreeNode) node.getChildAt(i), result);
-        }
-    }
-
-    /**
-     * Match properties of a TestElement against the given criteria.
-     * Returns list of matched property paths.
-     */
-    private List<String> matchProperties(TestElement element, String nameQuery, String valueQuery, boolean exact) {
-        List<String> matches = new ArrayList<>();
-
-        // Match element name and comments as special properties
-        String elementName = element.getName();
-        if (elementName != null && matchesCriteria("name", elementName, nameQuery, valueQuery, exact)) {
-            matches.add("name");
-        }
-        String elementComments = element.getComment();
-        if (elementComments != null && !elementComments.isEmpty()
-                && matchesCriteria("comment", elementComments, nameQuery, valueQuery, exact)) {
-            matches.add("comment");
-        }
-
-        // Match regular properties
-        PropertyIterator iter = element.propertyIterator();
-        while (iter.hasNext()) {
-            JMeterProperty prop = iter.next();
-            String propName = prop.getName();
-            if (propName.startsWith("TestElement.")) continue;
-
-            if (prop instanceof TestElementProperty) {
-                TestElement nestedElement = ((TestElementProperty) prop).getElement();
-                if (nestedElement != null) {
-                    matchNestedProperties(nestedElement, propName, nameQuery, valueQuery, exact, 0, matches);
-                }
-            } else if (prop instanceof CollectionProperty) {
-                matchCollectionItems((CollectionProperty) prop, propName, nameQuery, valueQuery, exact, 0, matches);
-            } else {
-                String propValue = prop.getStringValue();
-                if (matchesCriteria(propName, propValue, nameQuery, valueQuery, exact)) {
-                    matches.add(propName);
-                }
-            }
-        }
-        return matches;
-    }
-
-    /**
-     * Recursively match properties inside a nested TestElement.
-     */
-    private void matchNestedProperties(TestElement element, String parentPath,
-                                        String nameQuery, String valueQuery, boolean exact,
-                                        int depth, List<String> matches) {
-        if (depth >= MAX_NESTED_DEPTH) return;
-
-        PropertyIterator iter = element.propertyIterator();
-        while (iter.hasNext()) {
-            JMeterProperty prop = iter.next();
-            String propName = prop.getName();
-            if (propName.startsWith("TestElement.")) continue;
-
-            String fullPath = parentPath + "." + propName;
-
-            if (prop instanceof TestElementProperty) {
-                TestElement nestedElement = ((TestElementProperty) prop).getElement();
-                if (nestedElement != null) {
-                    matchNestedProperties(nestedElement, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
-                }
-            } else if (prop instanceof CollectionProperty) {
-                matchCollectionItems((CollectionProperty) prop, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
-            } else {
-                String propValue = prop.getStringValue();
-                if (matchesCriteria(fullPath, propValue, nameQuery, valueQuery, exact)) {
-                    matches.add(fullPath);
-                }
-            }
-        }
-    }
-
-    /**
-     * Match items inside a CollectionProperty.
-     */
-    private void matchCollectionItems(CollectionProperty collProp, String parentPath,
-                                       String nameQuery, String valueQuery, boolean exact,
-                                       int depth, List<String> matches) {
-        if (depth >= MAX_NESTED_DEPTH) return;
-
-        PropertyIterator iter = collProp.iterator();
-        int index = 0;
-        while (iter.hasNext()) {
-            JMeterProperty item = iter.next();
-            String itemPath = parentPath + "[" + index + "]";
-
-            if (item instanceof TestElementProperty) {
-                TestElement itemElement = ((TestElementProperty) item).getElement();
-                if (itemElement != null) {
-                    // Include the element name as a matchable property
-                    String elementName = itemElement.getName();
-                    if (elementName != null && !elementName.isEmpty()) {
-                        String namePath = itemPath + ".TestElement.name";
-                        if (matchesCriteria(namePath, elementName, nameQuery, valueQuery, exact)) {
-                            matches.add(namePath);
-                        }
-                    }
-                    matchNestedProperties(itemElement, itemPath, nameQuery, valueQuery, exact, depth + 1, matches);
-                }
-            } else {
-                String itemValue = item.getStringValue();
-                if (matchesCriteria(itemPath, itemValue, nameQuery, valueQuery, exact)) {
-                    matches.add(itemPath);
-                }
-            }
-            index++;
-        }
-    }
-
-    /**
-     * Check if a property name and value match the given criteria.
-     * If both nameQuery and valueQuery are specified, both must match.
-     * If only one is specified, only that one needs to match.
-     */
-    private boolean matchesCriteria(String propName, String propValue,
-                                     String nameQuery, String valueQuery, boolean exact) {
-        boolean nameMatch = nameQuery.isEmpty() || propName.equals(nameQuery);
-        boolean valueMatch = valueQuery.isEmpty() ||
-                (propValue != null && matchText(propValue, valueQuery, exact));
-        return nameMatch && valueMatch;
-    }
-
-    private boolean matchText(String text, String query, boolean exact) {
-        return exact ? text.equals(query) : text.contains(query);
     }
 
     private ToolResult buildPaginatedResult(int total, int offset, int limit,
