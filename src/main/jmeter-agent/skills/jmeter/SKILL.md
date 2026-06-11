@@ -15,12 +15,20 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 - **CRUD Tools:**
   - `create_jmeter_element` — Create new elements with `elementType`, `elementName`, optional `parentId` and `properties`
   - `update_jmeter_element` — Update properties of an existing element by `elementId`
+  - `batch_update_jmeter_elements` — Batch update properties of multiple elements of the same type (max 50) with a single GUI refresh
   - `delete_jmeter_element` — Delete an element by `elementId` (TestPlan root cannot be deleted)
   - `move_jmeter_element` — Move an element to a different parent with positioning (`first`, `last`, `before:<id>`, `after:<id>`)
+  - `copy_paste_jmeter_element` — Deep clone an element (with children) and paste under a target parent
+  - `toggle_jmeter_element` — Enable, disable, or toggle element state (`enable`, `disable`, `toggle`)
 - **Inspection Tools:**
-  - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values
+  - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values, optional `maxDepth` and `includeProperties`
   - `get_selected_element` — Get detailed info about the currently selected element
-  - `find_element` — Search elements by name, type, or path
+  - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`)
+  - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`)
+- **Test Execution Tools:**
+  - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` for quick validation)
+  - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
+  - `get_test_results` — Get test results with summary statistics and optional sample details
 - Properties use JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
 - **Parent-child compatibility is automatically validated** — the tool checks if elements can be added together
 
@@ -39,8 +47,11 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
    - Use CRUD tools to add, update, move, and delete elements (see tool list above)
    - Follow naming conventions with meaningful component names
 
-4. **Verify and Optimize**
-   - Use inspection tools to verify structure and locate elements
+4. **Execute and Analyze**
+   - Use `run_test` to start test execution (optionally `ignore_timers` for quick validation)
+   - Use `get_test_status` to monitor progress
+   - Use `get_test_results` to view summary statistics and sample details
+   - Iterate: adjust thread groups, fix assertions, re-run
 
 
 ## Component Reference
