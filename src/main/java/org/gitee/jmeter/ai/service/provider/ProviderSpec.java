@@ -1,9 +1,7 @@
 package org.gitee.jmeter.ai.service.provider;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Immutable metadata class for LLM provider specifications.
@@ -17,6 +15,7 @@ public final class ProviderSpec {
     private final String[] keywords;
     private final String backend;
     private final Map<String, Map<String, Object>> modelOverrides;
+    private final Set<String> thinkingModels;
     private final boolean rawHttpClientOnly;  // Use raw HTTP instead of SDK (for incompatible APIs)
 
     // How to inject the thinking on/off toggle into extra_body.
@@ -34,6 +33,9 @@ public final class ProviderSpec {
         this.keywords = builder.keywords;
         this.backend = builder.backend;
         this.modelOverrides = Collections.unmodifiableMap(new HashMap<>(builder.modelOverrides));
+        this.thinkingModels = builder.thinkingModels != null
+                ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingModels))
+                : Collections.emptySet();
         this.rawHttpClientOnly = builder.rawHttpClientOnly;
         this.thinkingStyle = builder.thinkingStyle;
     }
@@ -68,6 +70,11 @@ public final class ProviderSpec {
 
     public Map<String, Object> getOverridesForModel(String model) {
         return modelOverrides.getOrDefault(model, Collections.emptyMap());
+    }
+
+    public boolean supportsThinking(String model) {
+        if (thinkingModels.isEmpty()) return true;
+        return model != null && thinkingModels.contains(model.toLowerCase());
     }
 
     public boolean isRawHttpClientOnly() {
@@ -112,6 +119,7 @@ public final class ProviderSpec {
         private String[] keywords = new String[0];
         private String backend = "openai_compat";
         private final Map<String, Map<String, Object>> modelOverrides = new HashMap<>();
+        private Set<String> thinkingModels;
         private boolean rawHttpClientOnly = false;
         private String thinkingStyle = "";
 
@@ -177,6 +185,13 @@ public final class ProviderSpec {
          */
         public Builder addModelOverride(String model, String param, Object value) {
             modelOverrides.computeIfAbsent(model, k -> new HashMap<>()).put(param, value);
+            return this;
+        }
+
+        public Builder thinkingModels(String... models) {
+            this.thinkingModels = Arrays.stream(models)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toSet());
             return this;
         }
 

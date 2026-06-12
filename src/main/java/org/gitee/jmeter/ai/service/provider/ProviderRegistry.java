@@ -41,14 +41,17 @@ public class ProviderRegistry {
                 .keywords("zhipu", "glm", "zai")
                 .build());
 
-        // Moonshot (Kimi)
+        // Moonshot (Kimi): K2.5/K2.6 enforce temperature >= 1.0 and support thinking_type.
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("moonshot")
                 .displayName("Moonshot")
                 .defaultApiBase("https://api.moonshot.ai/v1")
                 .envKey("moonshot.api.key")
                 .keywords("moonshot", "kimi")
+                .thinkingStyle("thinking_type")
+                .thinkingModels("kimi-k2.5", "kimi-k2.6", "k2.6-code-preview")
                 .addModelOverride("kimi-k2.5", "temperature", 1.0)
+                .addModelOverride("kimi-k2.6", "temperature", 1.0)
                 .build());
 
         // MiniMax

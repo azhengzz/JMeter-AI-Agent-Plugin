@@ -139,9 +139,12 @@ public class OpenAICompatibleProvider implements AiService {
                 .temperature((Double) params.getOrDefault("temperature", 0.7))
                 .model(modelName);
 
-        // Apply reasoning effort
+        // 两种方式表达"深度思考"：SDK 的 reasoningEffort 和原生的 thinking extra_body 参数。
+        // 对支持原生 thinking 的模型（如 kimi-k2.5/k2.6），跳过 reasoningEffort，
+        // 由后续 THINKING_STYLE_MAP 写入 thinking 参数，避免 Moonshot API 因两参数冲突而报错。
         ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
-        if (effort != null) {
+        boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
+        if (effort != null && !modelSupportsThinking) {
             paramsBuilder.reasoningEffort(effort);
         }
 
@@ -168,6 +171,7 @@ public class OpenAICompatibleProvider implements AiService {
 
         // Create completion
         ChatCompletionCreateParams requestParams = paramsBuilder.build();
+        log.info("[{}] Request params: {}", providerName, summarizeParams(requestParams));
         ChatCompletion chatCompletion = client.chat().completions().create(requestParams);
 
         // Extract response content
@@ -351,6 +355,16 @@ public class OpenAICompatibleProvider implements AiService {
         String effectiveReasoningEffort = (options != null && options.getReasoningEffort() != null) ? options.getReasoningEffort() : this.generationSettings.getReasoningEffort();
 
         String modelName = stripProviderPrefix(effectiveModel);
+        boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
+
+        // Apply model-specific overrides (e.g. kimi-k2.5/k2.6 require temperature=1.0)
+        Map<String, Object> overrides = modelOverrides.get(modelName);
+        if (overrides != null) {
+            Object tempOverride = overrides.get("temperature");
+            if (tempOverride instanceof Number) {
+                effectiveTemperature = ((Number) tempOverride).doubleValue();
+            }
+        }
 
         try {
             // 使用 SDK 的 Builder 构建 request
@@ -359,17 +373,19 @@ public class OpenAICompatibleProvider implements AiService {
                     .maxCompletionTokens(effectiveMaxTokens)
                     .temperature(effectiveTemperature);
 
-            // Apply reasoning effort
+            // Apply reasoning effort — skip for thinking models that use native thinking param
+            // (Moonshot rejects requests with both reasoning_effort and native thinking param)
             ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
-            if (effort != null) {
+            if (effort != null && !modelSupportsThinking) {
                 paramsBuilder.reasoningEffort(effort);
             }
 
             // Determine if thinking mode is active (mirrors Nanobot's thinking_active logic).
-            // Only true when the provider has a thinking_style AND reasoning_effort is not none/minimal.
+            // Only true when the provider has a thinking_style AND model supports it AND reasoning_effort is not none/minimal.
             String semanticEffort = toSemanticEffort(effectiveReasoningEffort);
             boolean thinkingActive = spec != null
                     && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
+                    && modelSupportsThinking
                     && effectiveReasoningEffort != null
                     && semanticEffort != null
                     && !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
@@ -378,7 +394,7 @@ public class OpenAICompatibleProvider implements AiService {
             // Only sent when reasoning_effort is explicitly configured so that
             // the provider default is preserved otherwise.
             if (spec != null && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
-                    && effectiveReasoningEffort != null) {
+                    && effectiveReasoningEffort != null && modelSupportsThinking) {
                 boolean thinkingEnabled = !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
                 java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
                         THINKING_STYLE_MAP.get(spec.getThinkingStyle());
@@ -512,7 +528,9 @@ public class OpenAICompatibleProvider implements AiService {
                 );
             }
             ChatCompletionCreateParams params = paramsBuilder.build();
-            log.info("Sending request to {} with {} tools", providerName, tools != null ? tools.size() : 0);
+            log.info("[{}] Request params: {}, thinkingActive={}, thinkingStyle={}",
+                    providerName, summarizeParams(params), thinkingActive,
+                    spec != null ? spec.getThinkingStyle() : "none");
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
             log.info("Received response from {}, chatCompletion object type: {}",
@@ -706,6 +724,46 @@ public class OpenAICompatibleProvider implements AiService {
 
     public void resetSystemPromptInitialization() {
         this.systemPromptInitialized = false;
+    }
+
+    /**
+     * Build a log-friendly summary of request params (excludes messages).
+     */
+    /**
+     * 通过反射遍历请求参数对象的所有 getter 方法，自动输出所有字段值（排除 messages）。
+     */
+    private String summarizeParams(ChatCompletionCreateParams p) {
+        LinkedHashMap<String, String> m = new LinkedHashMap<>();
+        m.put("model", String.valueOf(p.model()));
+        m.put("temperature", opt(p.temperature()));
+        m.put("maxCompletionTokens", opt(p.maxCompletionTokens()));
+        m.put("topP", opt(p.topP()));
+        m.put("frequencyPenalty", opt(p.frequencyPenalty()));
+        m.put("presencePenalty", opt(p.presencePenalty()));
+        m.put("reasoningEffort", opt(p.reasoningEffort()));
+        m.put("n", opt(p.n()));
+        m.put("seed", opt(p.seed()));
+        m.put("stop", opt(p.stop()));
+        m.put("toolChoice", opt(p.toolChoice()));
+        m.put("parallelToolCalls", opt(p.parallelToolCalls()));
+        m.put("responseFormat", opt(p.responseFormat()));
+        m.put("serviceTier", opt(p.serviceTier()));
+        m.put("user", opt(p.user()));
+        m.put("store", opt(p.store()));
+        m.put("logprobs", opt(p.logprobs()));
+        m.put("topLogprobs", opt(p.topLogprobs()));
+        p.tools().ifPresentOrElse(v -> m.put("tools", v.size() + " items"), () -> m.put("tools", ""));
+        StringBuilder sb = new StringBuilder("{");
+        m.forEach((k, v) -> {
+            if (sb.length() > 1) sb.append(", ");
+            sb.append(k).append("=").append(v);
+        });
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private String opt(java.util.Optional<?> o) {
+        return o.map(Object::toString).orElse("");
     }
 
     // Private helper methods
