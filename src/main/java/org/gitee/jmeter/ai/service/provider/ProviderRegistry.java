@@ -32,13 +32,20 @@ public class ProviderRegistry {
                 .thinkingStyle("thinking_type")
                 .build());
 
-        // Zhipu AI (GLM)
+        // Zhipu AI (GLM): GLM-4.5+ 支持 thinking.type=enabled/disabled。
+        // GLM-4.5/4.6 为混合推理（动态决定），GLM-4.7/5/5.1 默认开启思考。
+        // 偏离 Nanobot：通过 reasoning_effort 显式控制（none→disabled，medium/high→enabled）。
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("zhipu")
                 .displayName("Zhipu AI")
                 .defaultApiBase("https://open.bigmodel.cn/api/paas/v4")
                 .envKey("zhipu.api.key")
                 .keywords("zhipu", "glm", "zai")
+                .thinkingStyle("thinking_type")
+                // .thinkingModels(
+                //         "glm-4.5", "glm-4.5-air", "glm-4.5-flash",
+                //         "glm-4.6", "glm-4.7",
+                //         "glm-5", "glm-5.1")
                 .build());
 
         // Moonshot (Kimi): K2.5/K2.6 enforce temperature >= 1.0 and support thinking_type.
