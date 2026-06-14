@@ -727,10 +727,8 @@ public class OpenAICompatibleProvider implements AiService {
     }
 
     /**
-     * Build a log-friendly summary of request params (excludes messages).
-     */
-    /**
-     * 通过反射遍历请求参数对象的所有 getter 方法，自动输出所有字段值（排除 messages）。
+     * Build a log-friendly summary of request params (excludes message content,
+     * includes counts and serialized extraBody for debugging).
      */
     private String summarizeParams(ChatCompletionCreateParams p) {
         LinkedHashMap<String, String> m = new LinkedHashMap<>();
@@ -752,7 +750,20 @@ public class OpenAICompatibleProvider implements AiService {
         m.put("store", opt(p.store()));
         m.put("logprobs", opt(p.logprobs()));
         m.put("topLogprobs", opt(p.topLogprobs()));
+        m.put("messages", p.messages().size() + " items");
         p.tools().ifPresentOrElse(v -> m.put("tools", v.size() + " items"), () -> m.put("tools", ""));
+        Map<String, com.openai.core.JsonValue> extraBody = p._additionalBodyProperties();
+        if (extraBody != null && !extraBody.isEmpty()) {
+            StringBuilder json = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<String, com.openai.core.JsonValue> e : extraBody.entrySet()) {
+                if (!first) json.append(",");
+                first = false;
+                json.append("\"").append(e.getKey()).append("\":").append(e.getValue());
+            }
+            json.append("}");
+            m.put("extraBody", json.toString());
+        }
         StringBuilder sb = new StringBuilder("{");
         m.forEach((k, v) -> {
             if (sb.length() > 1) sb.append(", ");
