@@ -5,6 +5,7 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Tool to get test execution results including summary statistics
@@ -40,7 +41,7 @@ public class GetTestResultsTool extends AbstractTool {
                             "type": "integer",
                             "description": "Number of recent samples to return (for 'samples' or 'both' format)",
                             "default": 20,
-                            "maximum": 100
+                            "maximum": 50
                         },
                         "offset": {
                             "type": "integer",
@@ -51,6 +52,12 @@ public class GetTestResultsTool extends AbstractTool {
                             "type": "boolean",
                             "description": "Include request body, request headers, response body, response headers for each sample",
                             "default": false
+                        },
+                        "status_filter": {
+                            "type": "string",
+                            "enum": ["all", "success", "failure"],
+                            "description": "Filter samples by outcome: 'all' (default, no filter), 'success' (only successful samples), 'failure' (only failed samples). Only affects the samples table; summary statistics always reflect the full run. Pagination (limit/offset) applies after filtering.",
+                            "default": "all"
                         }
                     }
                 }
@@ -60,9 +67,16 @@ public class GetTestResultsTool extends AbstractTool {
     @Override
     protected ToolResult executeInternal(Map<String, Object> parameters) {
         String format = getStringParameter(parameters, "format", "summary");
-        int limit = Math.min(getIntParameter(parameters, "limit", 20), 100);
+        int limit = Math.min(getIntParameter(parameters, "limit", 20), 50);
         int offset = getIntParameter(parameters, "offset", 0);
         boolean includeDetails = getBooleanParameter(parameters, "include_details", false);
+        String statusFilter = getStringParameter(parameters, "status_filter", "all");
+
+        Predicate<AgentResultCollector.SampleSnapshot> filter = switch (statusFilter) {
+            case "success" -> s -> s.success && s.errorCount == 0;
+            case "failure" -> s -> !s.success || s.errorCount > 0;
+            default -> s -> true;
+        };
 
         AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
 
@@ -77,7 +91,7 @@ public class GetTestResultsTool extends AbstractTool {
         }
 
         if (format.equals("samples") || format.equals("both")) {
-            appendSamples(sb, limit, offset, includeDetails);
+            appendSamples(sb, limit, offset, includeDetails, statusFilter, filter);
         }
 
         return ToolResult.success(sb.toString());
@@ -112,10 +126,12 @@ public class GetTestResultsTool extends AbstractTool {
         }
     }
 
-    private void appendSamples(StringBuilder sb, int limit, int offset, boolean includeDetails) {
-        List<AgentResultCollector.SampleSnapshot> samples = AgentResultCollector.getRecentSamples(limit, offset);
+    private void appendSamples(StringBuilder sb, int limit, int offset, boolean includeDetails,
+                               String statusFilter, Predicate<AgentResultCollector.SampleSnapshot> filter) {
+        List<AgentResultCollector.SampleSnapshot> samples = AgentResultCollector.getRecentSamples(limit, offset, filter);
 
-        sb.append("\n### Recent Samples (offset=").append(offset).append(", limit=").append(limit).append(")\n\n");
+        sb.append("\n### Recent Samples (filter=").append(statusFilter)
+                .append(", offset=").append(offset).append(", limit=").append(limit).append(")\n\n");
         sb.append("| # | Label | Code | Success | Time(ms) | Latency(ms) | URL |\n");
         sb.append("|---|-------|------|---------|----------|-------------|-----|\n");
 

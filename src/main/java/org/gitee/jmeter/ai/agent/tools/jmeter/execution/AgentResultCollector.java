@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 /**
  * Result collector injected into the GUI tree before test execution.
@@ -238,11 +239,16 @@ public class AgentResultCollector extends AbstractTestElement
     }
 
     public static List<SampleSnapshot> getRecentSamples(int limit, int offset) {
+        return getRecentSamples(limit, offset, s -> true);
+    }
+
+    public static List<SampleSnapshot> getRecentSamples(int limit, int offset, Predicate<SampleSnapshot> filter) {
         List<SampleSnapshot> all = new ArrayList<>(recentSamples);
-        int start = Math.min(offset, all.size());
-        int end = Math.min(start + limit, all.size());
-        if (start >= end) return Collections.emptyList();
-        return all.subList(start, end);
+        return all.stream()
+                .filter(filter)
+                .skip(offset)
+                .limit(limit)
+                .toList();
     }
 
     // --- Inner classes ---
