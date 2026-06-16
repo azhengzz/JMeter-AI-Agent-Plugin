@@ -49,6 +49,7 @@ public class ProviderRegistry {
                 .build());
 
         // Moonshot (Kimi): K2.5/K2.6 enforce temperature >= 1.0 and support thinking_type.
+        // thinking.type 与 reasoning_effort 互斥，必须二选一，否则 API 报错。
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("moonshot")
                 .displayName("Moonshot")
@@ -57,6 +58,7 @@ public class ProviderRegistry {
                 .keywords("moonshot", "kimi")
                 .thinkingStyle("thinking_type")
                 .thinkingModels("kimi-k2.5", "kimi-k2.6", "k2.6-code-preview")
+                .thinkingConflictsWithReasoningEffort(true)
                 .addModelOverride("kimi-k2.5", "temperature", 1.0)
                 .addModelOverride("kimi-k2.6", "temperature", 1.0)
                 .build());

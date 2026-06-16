@@ -25,6 +25,12 @@ public final class ProviderSpec {
     // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
     private final String thinkingStyle;
 
+    // Whether sending both thinking extra_body and reasoning_effort causes API errors on this provider.
+    // Default false: DeepSeek/GLM accept both concurrently (reasoning_effort controls depth,
+    // thinking.type toggles on/off). Moonshot K2.x: true — must skip reasoning_effort when
+    // thinking is enabled, otherwise the API rejects the request.
+    private final boolean thinkingConflictsWithReasoningEffort;
+
     private ProviderSpec(Builder builder) {
         this.name = builder.name;
         this.displayName = builder.displayName;
@@ -38,6 +44,7 @@ public final class ProviderSpec {
                 : Collections.emptySet();
         this.rawHttpClientOnly = builder.rawHttpClientOnly;
         this.thinkingStyle = builder.thinkingStyle;
+        this.thinkingConflictsWithReasoningEffort = builder.thinkingConflictsWithReasoningEffort;
     }
 
     public String getName() {
@@ -85,6 +92,10 @@ public final class ProviderSpec {
         return thinkingStyle;
     }
 
+    public boolean isThinkingConflictsWithReasoningEffort() {
+        return thinkingConflictsWithReasoningEffort;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -122,6 +133,7 @@ public final class ProviderSpec {
         private Set<String> thinkingModels;
         private boolean rawHttpClientOnly = false;
         private String thinkingStyle = "";
+        private boolean thinkingConflictsWithReasoningEffort = false;
 
         public Builder name(String name) {
             this.name = name;
@@ -172,6 +184,18 @@ public final class ProviderSpec {
          */
         public Builder thinkingStyle(String thinkingStyle) {
             this.thinkingStyle = thinkingStyle != null ? thinkingStyle : "";
+            return this;
+        }
+
+        /**
+         * Mark whether this provider's thinking extra_body conflicts with reasoning_effort.
+         * When true, reasoning_effort is skipped for thinking-enabled models on this provider.
+         * Default: false (DeepSeek/GLM accept both parameters concurrently).
+         * @param conflicts true if reasoning_effort must be skipped when thinking is enabled
+         * @return this builder
+         */
+        public Builder thinkingConflictsWithReasoningEffort(boolean conflicts) {
+            this.thinkingConflictsWithReasoningEffort = conflicts;
             return this;
         }
 

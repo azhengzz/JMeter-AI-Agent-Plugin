@@ -140,11 +140,13 @@ public class OpenAICompatibleProvider implements AiService {
                 .model(modelName);
 
         // 两种方式表达"深度思考"：SDK 的 reasoningEffort 和原生的 thinking extra_body 参数。
-        // 对支持原生 thinking 的模型（如 kimi-k2.5/k2.6），跳过 reasoningEffort，
-        // 由后续 THINKING_STYLE_MAP 写入 thinking 参数，避免 Moonshot API 因两参数冲突而报错。
+        // DeepSeek/GLM 兼容两者（reasoning_effort 控制强度，thinking.type 控制开关）；
+        // 仅当 provider 显式声明冲突（如 Moonshot K2.x）时，才跳过 reasoningEffort 由 thinking 接管。
         ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
         boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
-        if (effort != null && !modelSupportsThinking) {
+        boolean skipReasoningEffort = modelSupportsThinking
+                && spec != null && spec.isThinkingConflictsWithReasoningEffort();
+        if (effort != null && !skipReasoningEffort) {
             paramsBuilder.reasoningEffort(effort);
         }
 
@@ -373,29 +375,30 @@ public class OpenAICompatibleProvider implements AiService {
                     .maxCompletionTokens(effectiveMaxTokens)
                     .temperature(effectiveTemperature);
 
-            // Apply reasoning effort — skip for thinking models that use native thinking param
-            // (Moonshot rejects requests with both reasoning_effort and native thinking param)
+            // Apply reasoning effort — skip only when the provider declares that thinking
+            // extra_body conflicts with reasoning_effort (e.g. Moonshot K2.x). DeepSeek/GLM
+            // accept both parameters concurrently.
             ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
-            if (effort != null && !modelSupportsThinking) {
+            boolean skipReasoningEffort = modelSupportsThinking
+                    && spec != null && spec.isThinkingConflictsWithReasoningEffort();
+            if (effort != null && !skipReasoningEffort) {
                 paramsBuilder.reasoningEffort(effort);
             }
 
             // Determine if thinking mode is active (mirrors Nanobot's thinking_active logic).
-            // Only true when the provider has a thinking_style AND model supports it AND reasoning_effort is not none/minimal.
-            String semanticEffort = toSemanticEffort(effectiveReasoningEffort);
+            // Only true when the provider has a thinking_style AND model supports it AND reasoning_effort is not none.
             boolean thinkingActive = spec != null
                     && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
                     && modelSupportsThinking
                     && effectiveReasoningEffort != null
-                    && semanticEffort != null
-                    && !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
+                    && !"none".equalsIgnoreCase(effectiveReasoningEffort);
 
             // Provider-specific thinking parameters (mirrors Nanobot's _THINKING_STYLE_MAP).
             // Only sent when reasoning_effort is explicitly configured so that
             // the provider default is preserved otherwise.
             if (spec != null && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
                     && effectiveReasoningEffort != null && modelSupportsThinking) {
-                boolean thinkingEnabled = !"none".equals(semanticEffort) && !"minimal".equals(semanticEffort);
+                boolean thinkingEnabled = !"none".equalsIgnoreCase(effectiveReasoningEffort);
                 java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
                         THINKING_STYLE_MAP.get(spec.getThinkingStyle());
                 if (styleBuilder != null) {
@@ -858,18 +861,12 @@ public class OpenAICompatibleProvider implements AiService {
             return null;
         }
         return switch (effort.toLowerCase()) {
+            case "minimal", "minimum" -> ReasoningEffort.MINIMAL;
             case "low" -> ReasoningEffort.LOW;
             case "medium" -> ReasoningEffort.MEDIUM;
             case "high" -> ReasoningEffort.HIGH;
+            case "xhigh" -> ReasoningEffort.XHIGH;
             default -> ReasoningEffort.MEDIUM;
         };
-    }
-
-    /** Normalize reasoning_effort into a semantic form (mirrors Nanobot). */
-    private static String toSemanticEffort(String effort) {
-        if (effort == null) return null;
-        String normalized = effort.toLowerCase();
-        if ("minimum".equals(normalized)) normalized = "minimal";
-        return normalized;
     }
 }
