@@ -240,6 +240,10 @@ public class JMeterElementManager {
                 "org.apache.jmeter.protocol.http.control.gui.AjpSamplerGui"));
         ELEMENT_CLASS_MAP.put("httpudsampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.sampler.HTTPUDSampler",
                 "com.gitee.qa.jmeter.protocol.httpud.sampler.gui.HTTPUDSamplerGui"));
+        ELEMENT_CLASS_MAP.put("sshcommandsampler", new ElementClassInfo("org.apache.jmeter.protocol.ssh.sampler.SSHCommandSampler",
+                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
+        ELEMENT_CLASS_MAP.put("sshsftpsampler", new ElementClassInfo("org.apache.jmeter.protocol.ssh.sampler.SSHSFTPSampler",
+                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
 
         // Thread Groups
         ELEMENT_CLASS_MAP.put("threadgroup", new ElementClassInfo("org.apache.jmeter.threads.ThreadGroup",
@@ -980,6 +984,10 @@ public class JMeterElementManager {
                 return "JSON Auto Assertion";
             case "httpudsampler":
                 return "HTTP User Defined Sampler";
+            case "sshcommandsampler":
+                return "SSH Command Sampler";
+            case "sshsftpsampler":
+                return "SSH SFTP Sampler";
             case "httpudconfigelement":
                 return "HTTP User Defined Element Configuration";
             case "httpudincludeconfig":
@@ -1633,6 +1641,10 @@ public class JMeterElementManager {
                 return "S3 Sampler";
             case "gitsampler":
                 return "Git Sampler";
+            case "sshcommandsampler":
+                return "SSH Command Sampler executes a single command on a remote host over SSH.";
+            case "sshsftpsampler":
+                return "SSH SFTP Sampler performs SFTP operations (get, put, rm, rmdir, ls) on a remote host over SSH.";
             case "jsonsamplerproxy":
                 return "JSON Request sends JSON requests to a server.";
             default:

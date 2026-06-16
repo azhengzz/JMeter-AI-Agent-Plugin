@@ -84,6 +84,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `s3sampler` | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/samplers/S3Sampler.md) | [Schema](./references/samplers/S3Sampler.schema.yaml) |
 | `gitsampler` | Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP | [Git Sampler](./references/samplers/GitSampler.md) | [Schema](./references/samplers/GitSampler.schema.yaml) |
 | `httpudsampler` | Send HTTP requests using reusable config templates with parameter substitution | [HTTP User Defined Sampler](./references/samplers/HTTPUDSampler.md) | [Schema](./references/samplers/HTTPUDSampler.schema.yaml) |
+| `sshcommandsampler` | Execute a single command on a remote host via SSH (password or key auth) | [SSH Command Sampler](./references/samplers/SSHCommandSampler.md) | [Schema](./references/samplers/SSHCommandSampler.schema.yaml) |
+| `sshsftpsampler` | Perform SFTP operations (get, put, rm, rmdir, ls) on a remote host over SSH | [SSH SFTP Sampler](./references/samplers/SSHSFTPSampler.md) | [Schema](./references/samplers/SSHSFTPSampler.schema.yaml) |
 
 
 ### Controllers
