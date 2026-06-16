@@ -55,8 +55,6 @@ Response to Chat UI
 2. Copy all contents from the `src/main/jmeter-agent/` directory into the `jmeter/bin/jmeter-agent/` directory (includes skills, templates, etc.)
 3. Append the contents of `jmeter-ai-sample.properties` to `jmeter/bin/user.properties` and adjust the configuration as needed
 
-
-
 ## Quick Start
 
 1. **Configure API Key** — Set your AI provider key in `user.properties`:
@@ -154,7 +152,7 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 
 ## Configuration Reference
 
-Copy the contents of `jmeter-ai-sample.properties` into `user.properties` and modify as needed.
+Copy the contents of `jmeter-ai-sample.properties` into `user.properties` and modify as needed. The default values in the tables below are taken from `jmeter-ai-sample.properties`; when not explicitly configured in `user.properties`, some items fall back to source-code built-in defaults (noted where applicable).
 
 ### Global LLM Defaults
 
@@ -166,10 +164,11 @@ These settings apply to all AI providers unless overridden by provider-specific 
 | `jmeter.ai.max.tokens` | Max tokens per response | `65536` |
 | `jmeter.ai.max.history.size` | Conversation history size to retain | `10` |
 | `jmeter.ai.reasoning.effort` | Reasoning effort: none / low / medium / high | `none` |
-| `jmeter.ai.default.model` | Default model | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | Default provider | `minimax` |
-| `jmeter.ai.context.window.tokens` | Context window size | `102400` |
+| `jmeter.ai.default.model` | Default model (shared by all providers unless switched at runtime) | `MiniMax-M2.7` |
+| `jmeter.ai.default.provider` | Default provider (anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax) | `minimax` |
+| `jmeter.ai.context.window.tokens` | Context window size (used by ContextWindowManager, MemoryConsolidator, AgentRunner) | `102400` |
 | `jmeter.ai.max.tool.iterations` | Max tool iterations per agent loop | `50` |
+| `jmeter.ai.system.prompt` | Unified system prompt (overrides built-in default, applies to all providers) | Empty (uses built-in prompt) |
 
 ### Provider Configuration
 
@@ -177,7 +176,7 @@ These settings apply to all AI providers unless overridden by provider-specific 
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `anthropic.api.key` | API key | Required |
+| `anthropic.api.key` | API key (required) | — |
 | `anthropic.api.base.url` | API base URL | `https://api.anthropic.com` |
 | `anthropic.log.level` | Log level (info / debug) | Empty (disabled) |
 
@@ -185,8 +184,8 @@ These settings apply to all AI providers unless overridden by provider-specific 
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `openai.api.key` | API key | Required |
-| `openai.api.base.url` | API base URL | `https://api.openai.com` |
+| `openai.api.key` | API key (required) | — |
+| `openai.api.base.url` | API base URL (can point to a proxy or Azure OpenAI) | `https://api.openai.com` |
 | `openai.log.level` | Log level | Empty (disabled) |
 
 #### Ollama (Local)
@@ -197,34 +196,40 @@ These settings apply to all AI providers unless overridden by provider-specific 
 | `ollama.host` | Server host | `http://localhost` |
 | `ollama.port` | Server port | `11434` |
 | `ollama.thinking.mode` | Thinking mode (ENABLED / DISABLED) | `DISABLED` |
-| `ollama.thinking.level` | Thinking depth (LOW / MEDIUM / HIGH) | Follows global setting |
-| `ollama.request.timeout.seconds` | Request timeout (seconds) | `120` |
+| `ollama.thinking.level` | Thinking depth (LOW / MEDIUM / HIGH); only used when thinking.mode=ENABLED | Follows `jmeter.ai.reasoning.effort` |
+| `ollama.request.timeout.seconds` | Request timeout (seconds); consider increasing when thinking mode is on | `120` |
 
 #### Chinese LLM Providers
 
 | Property | Description | Default |
 |----------|-------------|---------|
 | `deepseek.api.key` | DeepSeek API key | — |
+| `deepseek.api.base.url` | DeepSeek API base URL | `https://api.deepseek.com` |
 | `zhipu.api.key` | Zhipu GLM API key | — |
+| `zhipu.api.base.url` | Zhipu GLM API base URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API key | — |
+| `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.ai/v1` |
 | `minimax.api.key` | MiniMax API key | — |
+| `minimax.api.base.url` | MiniMax API base URL | `https://api.minimaxi.com/v1` |
 
-Each provider supports `*.api.base.url` for custom endpoints, and `*.temperature`, `*.max.history.size` to override global defaults.
+Each provider also supports `*.temperature`, `*.max.history.size`, etc. to override global defaults (e.g., `deepseek.temperature=0.3`).
 
 ### Agent Loop Configuration
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.enabled` | Enable Agent Loop | `true` |
-| `agent.tool.result.max.chars` | Tool result truncation length | `16000` |
-| `agent.workspace.path` | Workspace path | `jmeter-agent` |
+| `agent.enabled` | Enable Agent Loop (tool calling, memory, session persistence) | `true` |
+| `agent.tool.result.max.chars` | Tool result truncation length (chars) | `16000` |
+| `jmeter.ai.injection.queue.size` | Max queued injection messages per session | `20` |
+| `jmeter.ai.injection.max.per.turn` | Max injection messages processed per agent turn | `3` |
+| `agent.workspace.path` | Workspace path (stores MEMORY.md, HISTORY.md, sessions, skills, templates) | `jmeter-agent` (source-code built-in default: `{user.home}/.jmeter-ai/agent`) |
 
 ### Memory Configuration
 
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.memory.enabled` | Enable memory system | `true` |
-| `agent.memory.consolidation.threshold` | Consolidation trigger threshold (0.0-1.0) | `0.5` |
+| `agent.memory.consolidation.threshold` | Context window ratio threshold (0.0-1.0); exceeding it triggers consolidation | `0.5` |
 
 ### Session Configuration
 
@@ -234,6 +239,14 @@ Each provider supports `*.api.base.url` for custom endpoints, and `*.temperature
 | `agent.session.max.sessions` | Max active sessions | `100` |
 
 ### Tool Configuration
+
+#### Common Tool Behavior
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `agent.tools.concurrent.enabled` | Run independent tool calls concurrently | `false` |
+| `agent.tools.fail.on.error` | Stop the entire agent loop on a tool error | `false` |
+| `agent.tools.timeout.ms` | Default tool execution timeout (ms) | `30000` |
 
 #### JMeter Tools
 
@@ -245,37 +258,51 @@ Each provider supports `*.api.base.url` for custom endpoints, and `*.temperature
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.filesystem.enabled` | Enable filesystem tools | `true` |
-| `agent.tools.filesystem.allowed.dirs` | Allowed directories (comma-separated) | User home directory |
-| `agent.tools.filesystem.denied.dirs` | Denied paths (comma-separated) | — |
+| `agent.tools.filesystem.enabled` | Enable filesystem tools | `true` (source-code built-in default: `false`) |
+| `agent.tools.filesystem.allowed.dirs` | Allowed directories (comma-separated) | Empty (falls back to user home and current working dir) |
+| `agent.tools.filesystem.denied.dirs` | Denied paths (comma-separated; supports dirs or specific files) | — |
 
-#### Web Search Tools
+#### Web Tools
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.websearch.enabled` | Enable web tools | `true` |
+| `agent.tools.websearch.enabled` | Enable web tools | `true` (source-code built-in default: `false`) |
 | `agent.tools.websearch.provider` | Search engine (brave / tavily / duckduckgo / jina / serpapi) | `brave` |
 | `agent.tools.websearch.max.results` | Max search results | `10` |
 | `agent.tools.websearch.timeout` | Search timeout (seconds) | `30` |
+| `agent.tools.websearch.tavily.api.key` | Tavily API key (required when provider=tavily) | — |
+| `agent.tools.websearch.serpapi.key` | SerpAPI key (required when provider=serpapi) | — |
+| `agent.tools.websearch.jina.api.key` | Jina API key (required when provider=jina) | — |
 | `agent.tools.webfetch.max.length` | Max fetch content length (chars) | `50000` |
-| `agent.tools.web.ssrf.protection` | SSRF protection | `true` |
+| `agent.tools.webfetch.timeout` | Web fetch timeout (seconds) | `30` |
+| `agent.tools.web.max.redirects` | Max redirects to follow | `5` |
+| `agent.tools.web.ssrf.protection` | SSRF protection (blocks private/local network access) | `true` |
 
 #### Execution Tool
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.exec.enabled` | Enable exec tool | `true` |
-| `agent.tools.exec.timeout` | Default timeout (seconds) | `60` |
-| `agent.tools.exec.working.dir` | Restrict working directory | — |
-| `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex) | Built-in defaults |
+| `agent.tools.exec.enabled` | Enable exec tool | `true` (source-code built-in default: `false`) |
+| `agent.tools.exec.timeout` | Default timeout (seconds, max 600) | `60` |
+| `agent.tools.exec.working.dir` | Restrict working directory (only this dir and its subdirs allowed when set) | — |
+| `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex, comma-separated) | Built-in defaults (rm -rf, del /f, format, mkfs, shutdown, etc.) |
+| `agent.tools.exec.path.append` | Additional directories to append to PATH | — |
+
+### Claude Code Terminal Configuration
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `jmeter.ai.terminal.claudecode.enabled` | Enable the embedded Claude Code terminal | `true` |
+| `jmeter.ai.terminal.claudecode.path` | Full path to the `claude` executable (Windows: `C:\Users\YOUR_USER\.local\bin\claude`; Linux/macOS: `/usr/local/bin/claude`) | Empty (auto-detect) |
+| `jmeter.ai.terminal.claudecode.prompt` | Custom prompt for the terminal startup | Built-in default prompt |
 
 ### Chat UI Configuration
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `ai.chat.show.tool.calls` | Show tool call information | `true` |
-| `ai.chat.show.thinking` | Show model thinking content | `false` |
-| `ai.chat.tool.result.max.length` | Max tool result display length | `500` |
+| `ai.chat.show.tool.calls` | Show tool call info (tool name, status, execution time, result) | `true` |
+| `ai.chat.show.thinking` | Show model thinking/reasoning content (strips `<think>` blocks when off) | `true` (source-code built-in default: `false`) |
+| `ai.chat.tool.result.max.length` | Max tool result display length in chat panel and logs | `500` |
 
 ### Tracing Configuration
 
@@ -283,8 +310,9 @@ Each provider supports `*.api.base.url` for custom endpoints, and `*.temperature
 |----------|-------------|---------|
 | `langsmith.enabled` | Enable LangSmith tracing | `false` |
 | `langsmith.api.key` | LangSmith API key | — |
-| `langsmith.project.name` | Project name | `jmeter-ai` |
+| `langsmith.project.name` | Project name (all traces grouped under this project) | `jmeter-ai` |
 | `langsmith.endpoint` | API endpoint | `https://api.smith.langchain.com` |
+| `langsmith.sample.rate` | Sampling rate (0.0-1.0; 1.0 = trace all requests) | `1.0` |
 
 ## API Setup Guide
 

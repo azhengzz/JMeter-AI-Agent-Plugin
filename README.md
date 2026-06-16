@@ -50,6 +50,7 @@ AgentLoop（主循环）
 - **JDK** 17 或更高版本
 
 ### 手动安装
+
 1. 将 `jmeter-agent-xxx.jar` jar包放到 `jmeter/lib/ext` 目录下
 2. 将 `src/main/jmeter-agent/` 目录下的所有内容复制到 `jmeter/bin/jmeter-agent/` 目录下（包含技能文件、模板等）
 3. 将 `jmeter-ai-sample.properties` 的内容追加到 `jmeter/bin/user.properties` 中，并按需修改配置
@@ -151,7 +152,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 ## 配置参考
 
-将 `jmeter-ai-sample.properties` 的内容复制到 `user.properties`，按需修改。
+将 `jmeter-ai-sample.properties` 的内容复制到 `user.properties`，按需修改。下表中的默认值取自 `jmeter-ai-sample.properties`；若未在 `user.properties` 中显式配置，部分项将回落至源码内置默认值（已注明）。
 
 ### 全局 LLM 默认配置
 
@@ -163,10 +164,11 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `jmeter.ai.max.tokens` | 单次响应最大 Token 数 | `65536` |
 | `jmeter.ai.max.history.size` | 对话历史保留条数 | `10` |
 | `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high | `none` |
-| `jmeter.ai.default.model` | 默认模型 | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | 默认提供者 | `minimax` |
-| `jmeter.ai.context.window.tokens` | 上下文窗口大小 | `102400` |
+| `jmeter.ai.default.model` | 默认模型（所有提供者共用，除非运行时切换） | `MiniMax-M2.7` |
+| `jmeter.ai.default.provider` | 默认提供者（anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax） | `minimax` |
+| `jmeter.ai.context.window.tokens` | 上下文窗口大小（供 ContextWindowManager、MemoryConsolidator、AgentRunner 使用） | `102400` |
 | `jmeter.ai.max.tool.iterations` | 单次 Agent 循环最大工具迭代数 | `50` |
+| `jmeter.ai.system.prompt` | 统一系统提示（覆盖内置默认提示，适用于所有提供者） | 空（使用内置提示） |
 
 ### 提供者配置
 
@@ -174,7 +176,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `anthropic.api.key` | API 密钥 | 必填 |
+| `anthropic.api.key` | API 密钥（必填） | — |
 | `anthropic.api.base.url` | API 基础 URL | `https://api.anthropic.com` |
 | `anthropic.log.level` | 日志级别（info / debug） | 空（禁用） |
 
@@ -182,8 +184,8 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `openai.api.key` | API 密钥 | 必填 |
-| `openai.api.base.url` | API 基础 URL | `https://api.openai.com` |
+| `openai.api.key` | API 密钥（必填） | — |
+| `openai.api.base.url` | API 基础 URL（可指向代理或 Azure OpenAI） | `https://api.openai.com` |
 | `openai.log.level` | 日志级别 | 空（禁用） |
 
 #### Ollama（本地）
@@ -194,34 +196,40 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `ollama.host` | 服务地址 | `http://localhost` |
 | `ollama.port` | 服务端口 | `11434` |
 | `ollama.thinking.mode` | 思考模式（ENABLED / DISABLED） | `DISABLED` |
-| `ollama.thinking.level` | 思考深度（LOW / MEDIUM / HIGH） | 跟随全局设置 |
-| `ollama.request.timeout.seconds` | 请求超时（秒） | `120` |
+| `ollama.thinking.level` | 思考深度（LOW / MEDIUM / HIGH），仅在 thinking.mode=ENABLED 时生效 | 跟随 `jmeter.ai.reasoning.effort` |
+| `ollama.request.timeout.seconds` | 请求超时（秒），思考模式下建议增大 | `120` |
 
 #### 国产大模型
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `deepseek.api.key` | DeepSeek API 密钥 | — |
+| `deepseek.api.base.url` | DeepSeek API 基础 URL | `https://api.deepseek.com` |
 | `zhipu.api.key` | 智谱 GLM API 密钥 | — |
+| `zhipu.api.base.url` | 智谱 GLM API 基础 URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API 密钥 | — |
+| `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.ai/v1` |
 | `minimax.api.key` | MiniMax API 密钥 | — |
+| `minimax.api.base.url` | MiniMax API 基础 URL | `https://api.minimaxi.com/v1` |
 
-每个提供者均支持 `*.api.base.url` 配置自定义端点，以及 `*.temperature`、`*.max.history.size` 等覆盖全局默认值。
+每个提供者均支持 `*.temperature`、`*.max.history.size` 等覆盖全局默认值（例如 `deepseek.temperature=0.3`）。
 
 ### Agent Loop 配置
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.enabled` | 启用 Agent Loop | `true` |
-| `agent.tool.result.max.chars` | 工具结果截断长度 | `16000` |
-| `agent.workspace.path` | 工作空间路径 | `jmeter-agent` |
+| `agent.enabled` | 启用 Agent Loop（工具调用、记忆、会话持久化） | `true` |
+| `agent.tool.result.max.chars` | 工具结果截断长度（字符） | `16000` |
+| `jmeter.ai.injection.queue.size` | 单个会话最大排队注入消息数 | `20` |
+| `jmeter.ai.injection.max.per.turn` | 每个 Agent 回合处理的注入消息上限 | `3` |
+| `agent.workspace.path` | 工作空间路径（保存 MEMORY.md、HISTORY.md、会话、技能、模板） | `jmeter-agent`（源码内置默认为 `{user.home}/.jmeter-ai/agent`） |
 
 ### 记忆配置
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.memory.enabled` | 启用记忆系统 | `true` |
-| `agent.memory.consolidation.threshold` | 记忆整合触发阈值（0.0-1.0） | `0.5` |
+| `agent.memory.consolidation.threshold` | 上下文窗口占比阈值（0.0-1.0），超出触发记忆整合 | `0.5` |
 
 ### 会话配置
 
@@ -231,6 +239,14 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `agent.session.max.sessions` | 最大活跃会话数 | `100` |
 
 ### 工具配置
+
+#### 通用工具行为
+
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.tools.concurrent.enabled` | 并发执行独立工具调用 | `false` |
+| `agent.tools.fail.on.error` | 工具执行出错时终止整个 Agent 循环 | `false` |
+| `agent.tools.timeout.ms` | 工具执行默认超时（毫秒） | `30000` |
 
 #### JMeter 工具
 
@@ -242,37 +258,51 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.filesystem.enabled` | 启用文件系统工具 | `true` |
-| `agent.tools.filesystem.allowed.dirs` | 允许访问的目录（逗号分隔） | 用户主目录 |
-| `agent.tools.filesystem.denied.dirs` | 禁止访问的路径（逗号分隔） | — |
+| `agent.tools.filesystem.enabled` | 启用文件系统工具 | `true`（源码内置默认 `false`） |
+| `agent.tools.filesystem.allowed.dirs` | 允许访问的目录（逗号分隔） | 空（回落到用户主目录与当前工作目录） |
+| `agent.tools.filesystem.denied.dirs` | 禁止访问的路径（逗号分隔，支持目录或具体文件） | — |
 
-#### Web 搜索工具
+#### Web 工具
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.websearch.enabled` | 启用 Web 工具 | `true` |
+| `agent.tools.websearch.enabled` | 启用 Web 工具 | `true`（源码内置默认 `false`） |
 | `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / duckduckgo / jina / serpapi） | `brave` |
 | `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
 | `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
+| `agent.tools.websearch.tavily.api.key` | Tavily API 密钥（provider=tavily 时必填） | — |
+| `agent.tools.websearch.serpapi.key` | SerpAPI 密钥（provider=serpapi 时必填） | — |
+| `agent.tools.websearch.jina.api.key` | Jina API 密钥（provider=jina 时必填） | — |
 | `agent.tools.webfetch.max.length` | 网页抓取最大长度（字符） | `50000` |
-| `agent.tools.web.ssrf.protection` | SSRF 防护 | `true` |
+| `agent.tools.webfetch.timeout` | 网页抓取超时（秒） | `30` |
+| `agent.tools.web.max.redirects` | 最大重定向次数 | `5` |
+| `agent.tools.web.ssrf.protection` | SSRF 防护（拦截访问内网/本地地址） | `true` |
 
 #### 命令执行工具
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.exec.enabled` | 启用命令执行工具 | `true` |
-| `agent.tools.exec.timeout` | 默认超时（秒） | `60` |
-| `agent.tools.exec.working.dir` | 限定工作目录 | — |
-| `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则） | 内置默认规则 |
+| `agent.tools.exec.enabled` | 启用命令执行工具 | `true`（源码内置默认 `false`） |
+| `agent.tools.exec.timeout` | 默认超时（秒，最大 600） | `60` |
+| `agent.tools.exec.working.dir` | 限定工作目录（设置后仅允许该目录及其子目录） | — |
+| `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则，逗号分隔） | 内置默认规则（rm -rf、del /f、format、mkfs、shutdown 等） |
+| `agent.tools.exec.path.append` | 追加到 PATH 的额外目录 | — |
+
+### Claude Code 终端配置
+
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `jmeter.ai.terminal.claudecode.enabled` | 启用嵌入式 Claude Code 终端 | `true` |
+| `jmeter.ai.terminal.claudecode.path` | `claude` 可执行文件完整路径（Windows 示例：`C:\Users\YOUR_USER\.local\bin\claude`；Linux/macOS：`/usr/local/bin/claude`） | 空（自动探测） |
+| `jmeter.ai.terminal.claudecode.prompt` | 终端启动时的自定义提示词 | 内置默认提示 |
 
 ### 聊天 UI 配置
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `ai.chat.show.tool.calls` | 显示工具调用信息 | `true` |
-| `ai.chat.show.thinking` | 显示模型思考内容 | `false` |
-| `ai.chat.tool.result.max.length` | 工具结果显示最大长度 | `500` |
+| `ai.chat.show.tool.calls` | 显示工具调用信息（工具名、状态、执行时间、结果） | `true` |
+| `ai.chat.show.thinking` | 显示模型思考/推理内容（关闭时移除 `<think>` 块） | `true`（源码内置默认 `false`） |
+| `ai.chat.tool.result.max.length` | 工具结果在聊天面板与日志中的最大显示长度 | `500` |
 
 ### 链路追踪配置
 
@@ -280,8 +310,9 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 |------|------|--------|
 | `langsmith.enabled` | 启用 LangSmith 追踪 | `false` |
 | `langsmith.api.key` | LangSmith API 密钥 | — |
-| `langsmith.project.name` | 项目名称 | `jmeter-ai` |
+| `langsmith.project.name` | 项目名称（所有追踪归入该项目） | `jmeter-ai` |
 | `langsmith.endpoint` | API 端点 | `https://api.smith.langchain.com` |
+| `langsmith.sample.rate` | 采样率（0.0-1.0，1.0 = 全量追踪） | `1.0` |
 
 ## API 配置指南
 
