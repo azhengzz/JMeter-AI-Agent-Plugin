@@ -10,8 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -38,11 +41,19 @@ public class LangSmithClient {
     private final double sampleRate;
     private final RunService runService;
     private final Random random = new Random();
+    private static final DateTimeFormatter DOTTED_ORDER_TS = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSSSSS'Z'");
+    private final Map<String, String> dottedOrderCache;
 
     private LangSmithClient() {
         this.projectName = AiConfig.getProperty("langsmith.project.name", DEFAULT_PROJECT);
         this.enabled = Boolean.parseBoolean(AiConfig.getProperty("langsmith.enabled", "true"));
         this.sampleRate = Double.parseDouble(AiConfig.getProperty("langsmith.sample.rate", String.valueOf(DEFAULT_SAMPLE_RATE)));
+        this.dottedOrderCache = new LinkedHashMap<>(64, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > 1000;
+            }
+        };
 
         RunService service = null;
         String apiKey = AiConfig.getProperty("langsmith.api.key", "");
@@ -123,9 +134,18 @@ public class LangSmithClient {
                         .build();
             }
 
+            // Compute dotted_order (top-level run): <UTC_ts><run_id_no_dashes> (single part, no separator)
+            String dottedOrder = OffsetDateTime.now(ZoneOffset.UTC).format(DOTTED_ORDER_TS)
+                    + runId.replace("-", "");
+            synchronized (dottedOrderCache) {
+                dottedOrderCache.put(runId, dottedOrder);
+            }
+
             // Create Run object
             Run.Builder runBuilder = new Run.Builder()
                     .id(runId)
+                    .traceId(runId)
+                    .dottedOrder(dottedOrder)
                     .name(name)
                     .startTime(OffsetDateTime.now().toString())
                     .runType(Run.RunType.LLM);
@@ -157,7 +177,7 @@ public class LangSmithClient {
             com.langchain.smith.models.runs.RunCreateParams createParams = paramsBuilder.build();
 
             // Create the run via SDK
-            var response = runService.create(createParams);
+            runService.create(createParams);
             log.info("LangSmith run created successfully: runId={}", runId);
 
             return new LLMRun(runId, name, this, true);
@@ -199,9 +219,21 @@ public class LangSmithClient {
         }
 
         try {
+            // Reuse dotted_order from create; fallback to a derived value if missing
+            String dottedOrder;
+            synchronized (dottedOrderCache) {
+                dottedOrder = dottedOrderCache.get(runId);
+            }
+            if (dottedOrder == null) {
+                dottedOrder = OffsetDateTime.now(ZoneOffset.UTC).format(DOTTED_ORDER_TS)
+                        + runId.replace("-", "");
+            }
+
             // Build Run with updated values
             Run.Builder runBuilder = new Run.Builder()
                     .id(runId)
+                    .traceId(runId)
+                    .dottedOrder(dottedOrder)
                     .endTime(OffsetDateTime.now().toString())
                     .status(status);
 
