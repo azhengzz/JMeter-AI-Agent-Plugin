@@ -170,6 +170,27 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `jmeter.ai.max.tool.iterations` | 单次 Agent 循环最大工具迭代数 | `50` |
 | `jmeter.ai.system.prompt` | 统一系统提示（覆盖内置默认提示，适用于所有提供者） | 空（使用内置提示） |
 
+### 各模型推荐配置
+
+下表按主流模型给出推荐值。
+
+| provider | model | temperature | max.tokens | reasoning.effort | context.window.tokens |
+|--------|---------|-------------|------------|-----------------|----------------------|
+| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| zhipu | glm-5.1 | `1.0` | `65536` | `[none, medium]` | `128000` |
+| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
+| moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
+
+**使用说明：**
+
+- **max.tokens** — 取各模型 API 的单次输出上限；高于上限的值会被服务端裁剪。推理模型（`deepseek-reasoner` 等）的实际可见输出需扣除思维链 token。
+- **reasoning.effort** — `none` 关闭思考（更快、更省 token），适合常规对话与简单工具调用；推理模型应使用 `medium` 或 `high` 以发挥深度分析能力。
+- **context.window.tokens** — 建议设为模型上下文上限的 80% 左右，给工具结果回填、记忆整合和系统提示预留缓冲；过大会触发频繁的记忆整合，过小会过早丢弃历史。
+
 ### 提供者配置
 
 #### Anthropic (Claude)

@@ -170,6 +170,27 @@ These settings apply to all AI providers unless overridden by provider-specific 
 | `jmeter.ai.max.tool.iterations` | Max tool iterations per agent loop | `50` |
 | `jmeter.ai.system.prompt` | Unified system prompt (overrides built-in default, applies to all providers) | Empty (uses built-in prompt) |
 
+### Per-Model Recommended Configuration
+
+The table below lists recommended values for mainstream models.
+
+| provider | model | temperature | max.tokens | reasoning.effort | context.window.tokens |
+|----------|-------|-------------|------------|-----------------|----------------------|
+| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| zhipu | glm-5.1 | `1.0` | `65536` | `[none, medium]` | `128000` |
+| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| moonshot | kimi-k2.6 | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
+| moonshot | kimi-k2.7-code | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
+
+**Notes:**
+
+- **max.tokens** — The single-response output cap from each model's API; values above the cap are clipped server-side. For reasoning models (e.g., `deepseek-reasoner`), the visible output is reduced by the chain-of-thought tokens.
+- **reasoning.effort** — `none` disables thinking (faster and cheaper), suited for routine chat and simple tool calls; reasoning models should use `medium` or `high` to leverage deeper analysis.
+- **context.window.tokens** — Recommend ~80% of the model's context window ceiling, leaving headroom for tool results, memory consolidation, and the system prompt. Too large triggers frequent consolidation; too small discards history prematurely.
+
 ### Provider Configuration
 
 #### Anthropic (Claude)

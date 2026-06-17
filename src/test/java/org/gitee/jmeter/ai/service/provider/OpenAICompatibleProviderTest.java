@@ -128,9 +128,12 @@ class OpenAICompatibleProviderTest {
 
     private static Stream<Arguments> provideReasoningEffortMappings() {
         return Stream.of(
+                Arguments.of("minimal", ReasoningEffort.MINIMAL),
+                Arguments.of("minimum", ReasoningEffort.MINIMAL),
                 Arguments.of("low", ReasoningEffort.LOW),
                 Arguments.of("medium", ReasoningEffort.MEDIUM),
                 Arguments.of("high", ReasoningEffort.HIGH),
+                Arguments.of("xhigh", ReasoningEffort.XHIGH),
                 Arguments.of("none", null),
                 Arguments.of("null", null),
                 Arguments.of(null, null),
@@ -139,27 +142,30 @@ class OpenAICompatibleProviderTest {
         );
     }
 
-    // ==================== toSemanticEffort (static) ====================
+    // ==================== ProviderSpec thinkingAlwaysOn ====================
 
-    @ParameterizedTest
-    @MethodSource("provideSemanticEffortMappings")
-    void testToSemanticEffort(String input, String expected) throws Throwable {
-        assertEquals(expected,
-                invokeStatic("toSemanticEffort", new Class<?>[]{String.class}, input));
+    @Test
+    void testThinkingAlwaysOn_RegisteredModel_CaseInsensitive() {
+        ProviderSpec moonshot = ProviderRegistry.findByName("moonshot");
+        assertNotNull(moonshot);
+        assertTrue(moonshot.isThinkingAlwaysOn("kimi-k2.7-code"));
+        assertTrue(moonshot.isThinkingAlwaysOn("KIMI-K2.7-CODE"));
     }
 
-    private static Stream<Arguments> provideSemanticEffortMappings() {
-        return Stream.of(
-                Arguments.of("minimum", "minimal"),
-                Arguments.of("MINIMUM", "minimal"),    // toLowerCase normalizes first
-                Arguments.of("Minimum", "minimal"),
-                Arguments.of("minimal", "minimal"),
-                Arguments.of("medium", "medium"),
-                Arguments.of("HIGH", "high"),          // other values lowercased
-                Arguments.of("none", "none"),
-                Arguments.of("", ""),
-                Arguments.of(null, null)
-        );
+    @Test
+    void testThinkingAlwaysOn_DisableableModel() {
+        ProviderSpec moonshot = ProviderRegistry.findByName("moonshot");
+        assertNotNull(moonshot);
+        assertFalse(moonshot.isThinkingAlwaysOn("kimi-k2.6"));
+        assertFalse(moonshot.isThinkingAlwaysOn("kimi-k2.5"));
+    }
+
+    @Test
+    void testThinkingAlwaysOn_OtherProviders_AlwaysFalse() {
+        ProviderSpec deepseek = ProviderRegistry.findByName("deepseek");
+        assertNotNull(deepseek);
+        assertFalse(deepseek.isThinkingAlwaysOn("deepseek-reasoner"));
+        assertFalse(deepseek.isThinkingAlwaysOn(null));
     }
 
     // ==================== parseResponseIgnoringUnknownFields ====================

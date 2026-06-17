@@ -25,11 +25,10 @@ public final class ProviderSpec {
     // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
     private final String thinkingStyle;
 
-    // Whether sending both thinking extra_body and reasoning_effort causes API errors on this provider.
-    // Default false: DeepSeek/GLM accept both concurrently (reasoning_effort controls depth,
-    // thinking.type toggles on/off). Moonshot K2.x: true — must skip reasoning_effort when
-    // thinking is enabled, otherwise the API rejects the request.
-    private final boolean thinkingConflictsWithReasoningEffort;
+    // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code).
+    // Sending a disabled thinking.type for these models causes API rejection;
+    // force enabled regardless of reasoning_effort.
+    private final Set<String> thinkingAlwaysOnModels;
 
     private ProviderSpec(Builder builder) {
         this.name = builder.name;
@@ -44,7 +43,9 @@ public final class ProviderSpec {
                 : Collections.emptySet();
         this.rawHttpClientOnly = builder.rawHttpClientOnly;
         this.thinkingStyle = builder.thinkingStyle;
-        this.thinkingConflictsWithReasoningEffort = builder.thinkingConflictsWithReasoningEffort;
+        this.thinkingAlwaysOnModels = builder.thinkingAlwaysOnModels != null
+                ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingAlwaysOnModels))
+                : Collections.emptySet();
     }
 
     public String getName() {
@@ -92,8 +93,9 @@ public final class ProviderSpec {
         return thinkingStyle;
     }
 
-    public boolean isThinkingConflictsWithReasoningEffort() {
-        return thinkingConflictsWithReasoningEffort;
+    public boolean isThinkingAlwaysOn(String model) {
+        if (thinkingAlwaysOnModels.isEmpty()) return false;
+        return model != null && thinkingAlwaysOnModels.contains(model.toLowerCase());
     }
 
     @Override
@@ -133,7 +135,7 @@ public final class ProviderSpec {
         private Set<String> thinkingModels;
         private boolean rawHttpClientOnly = false;
         private String thinkingStyle = "";
-        private boolean thinkingConflictsWithReasoningEffort = false;
+        private Set<String> thinkingAlwaysOnModels;
 
         public Builder name(String name) {
             this.name = name;
@@ -188,14 +190,15 @@ public final class ProviderSpec {
         }
 
         /**
-         * Mark whether this provider's thinking extra_body conflicts with reasoning_effort.
-         * When true, reasoning_effort is skipped for thinking-enabled models on this provider.
-         * Default: false (DeepSeek/GLM accept both parameters concurrently).
-         * @param conflicts true if reasoning_effort must be skipped when thinking is enabled
+         * Mark models whose thinking mode cannot be disabled. For these models the
+         * thinking extra_body is forced to enabled regardless of reasoning_effort.
+         * @param models model names (case-insensitive)
          * @return this builder
          */
-        public Builder thinkingConflictsWithReasoningEffort(boolean conflicts) {
-            this.thinkingConflictsWithReasoningEffort = conflicts;
+        public Builder thinkingAlwaysOnModels(String... models) {
+            this.thinkingAlwaysOnModels = Arrays.stream(models)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toSet());
             return this;
         }
 

@@ -139,14 +139,10 @@ public class OpenAICompatibleProvider implements AiService {
                 .temperature((Double) params.getOrDefault("temperature", 0.7))
                 .model(modelName);
 
-        // 两种方式表达"深度思考"：SDK 的 reasoningEffort 和原生的 thinking extra_body 参数。
-        // DeepSeek/GLM 兼容两者（reasoning_effort 控制强度，thinking.type 控制开关）；
-        // 仅当 provider 显式声明冲突（如 Moonshot K2.x）时，才跳过 reasoningEffort 由 thinking 接管。
+        // reasoning_effort 对不支持思考的模型无意义（被 API 忽略），跳过发送。
         ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
         boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
-        boolean skipReasoningEffort = modelSupportsThinking
-                && spec != null && spec.isThinkingConflictsWithReasoningEffort();
-        if (effort != null && !skipReasoningEffort) {
+        if (effort != null && modelSupportsThinking) {
             paramsBuilder.reasoningEffort(effort);
         }
 
@@ -375,30 +371,31 @@ public class OpenAICompatibleProvider implements AiService {
                     .maxCompletionTokens(effectiveMaxTokens)
                     .temperature(effectiveTemperature);
 
-            // Apply reasoning effort — skip only when the provider declares that thinking
-            // extra_body conflicts with reasoning_effort (e.g. Moonshot K2.x). DeepSeek/GLM
-            // accept both parameters concurrently.
+            // Apply reasoning effort. Skip for models that don't support thinking — the
+            // parameter has no effect and may be rejected by some providers.
             ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
-            boolean skipReasoningEffort = modelSupportsThinking
-                    && spec != null && spec.isThinkingConflictsWithReasoningEffort();
-            if (effort != null && !skipReasoningEffort) {
+            if (effort != null && modelSupportsThinking) {
                 paramsBuilder.reasoningEffort(effort);
             }
 
             // Determine if thinking mode is active (mirrors Nanobot's thinking_active logic).
             // Only true when the provider has a thinking_style AND model supports it AND reasoning_effort is not none.
-            boolean thinkingActive = spec != null
+            // Always-on models (e.g. kimi-k2.7-code) force this true so reasoning_content backfill
+            // triggers correctly for multi-turn tool calls.
+            boolean alwaysOn = spec != null && spec.isThinkingAlwaysOn(modelName);
+            boolean thinkingActive = alwaysOn || (spec != null
                     && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
                     && modelSupportsThinking
                     && effectiveReasoningEffort != null
-                    && !"none".equalsIgnoreCase(effectiveReasoningEffort);
+                    && !"none".equalsIgnoreCase(effectiveReasoningEffort));
 
             // Provider-specific thinking parameters (mirrors Nanobot's _THINKING_STYLE_MAP).
             // Only sent when reasoning_effort is explicitly configured so that
             // the provider default is preserved otherwise.
             if (spec != null && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
                     && effectiveReasoningEffort != null && modelSupportsThinking) {
-                boolean thinkingEnabled = !"none".equalsIgnoreCase(effectiveReasoningEffort);
+                // Always-on models cannot receive disabled (API rejects); force enabled.
+                boolean thinkingEnabled = alwaysOn || !"none".equalsIgnoreCase(effectiveReasoningEffort);
                 java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
                         THINKING_STYLE_MAP.get(spec.getThinkingStyle());
                 if (styleBuilder != null) {
