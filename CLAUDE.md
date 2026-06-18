@@ -170,10 +170,6 @@ mvn clean package -DskipTests
 - **GetSelectedElementTool** - 获取当前选中的元素
 - **QueryElementPropertiesTool** - 按属性查询 JMeter 组件
 - **ToggleJMeterElementTool** - JMeter 组件启用/禁用/切换状态
-- **LintElementsTool** - 代码规范检查元素
-- **OptimizeJMeterElementTool** - 优化元素配置
-- **WrapSamplersTool** - 将采样器包装到事务控制器
-- **UsageTool** - 获取 token 使用统计
 
 #### JMeter 测试执行工具 (`tools/jmeter/execution`)
 - **RunTestTool** - 运行 JMeter 测试
@@ -366,7 +362,7 @@ references/
 │   ├── BeanShellPreProcessor.schema.yaml
 │   ├── JSR223PreProcessor.schema.yaml
 │   └── UserParameters.schema.yaml
-├── samplers/           # 采样器 (10)
+├── samplers/           # 采样器 (12)
 │   ├── BeanShellSampler.schema.yaml
 │   ├── DebugSampler.schema.yaml
 │   ├── FlowControlAction.schema.yaml
@@ -376,7 +372,9 @@ references/
 │   ├── JDBCSampler.schema.yaml
 │   ├── JSR223Sampler.schema.yaml
 │   ├── OSProcessSampler.schema.yaml
-│   └── S3Sampler.schema.yaml
+│   ├── S3Sampler.schema.yaml
+│   ├── SSHCommandSampler.schema.yaml
+│   └── SSHSFTPSampler.schema.yaml
 ├── thread-group/       # 线程组 (8)
 │   ├── PerforAutoSteppingThreadGroup.schema.yaml
 │   ├── PerforAutoThreadGroup.schema.yaml
@@ -399,7 +397,7 @@ references/
 ### 技能系统 (`src/main/jmeter-agent/skills/`)
 Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` 和可选的 `references/` 目录：
 
-- **jmeter/** - JMeter 核心技能，包含 71 个组件 schema 和 131 个参考文档（含 58 个 JMeter 函数文档）
+- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 133 个参考文档（含 58 个 JMeter 函数文档）
   - `SKILL.md` - 主技能定义
   - `references/functions/` - 58 个 JMeter 函数参考文档（覆盖全部内置函数和自定义扩展函数）
   - `references/standards.md` - JMeter 编写规范
@@ -490,8 +488,8 @@ D:\WorkHome\git\github\jmeter-5.6.3
 ## 重要说明
 
 - 插件使用 JMeter 5.6.3 作为依赖项（ApacheJMeter_core）
-- **ELEMENT_CLASS_MAP** 注册了 170 个 JMeter 组件类映射（涵盖采样器、线程组、断言、定时器、前置/后置处理器、配置元件、监听器、控制器、测试片段等）
-- 71 个组件拥有完整的参考文档和参数 Schema（覆盖 10 大类别：控制器 15、采样器 10、断言 9、线程组 8、配置元件 10、后置处理器 6、前置处理器 3、定时器 4、监听器 4、测试片段 2）
+- **ELEMENT_CLASS_MAP** 注册了 172 个 JMeter 组件类映射（涵盖采样器、线程组、断言、定时器、前置/后置处理器、配置元件、监听器、控制器、测试片段等）
+- 73 个组件拥有完整的参考文档和参数 Schema（覆盖 10 大类别：控制器 15、采样器 12、断言 9、线程组 8、配置元件 10、后置处理器 6、前置处理器 3、定时器 4、监听器 4、测试片段 2）
 - 对话历史受到限制以防止 token 耗尽（默认：10 条消息）
 - 系统提示仅在第一条消息时发送以节省 token
 - 下拉菜单中的模型 ID 带有前缀（例如 "openai:gpt-4o"、"ollama:llama3.1"）
