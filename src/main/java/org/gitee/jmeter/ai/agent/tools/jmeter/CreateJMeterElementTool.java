@@ -226,45 +226,29 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
     private ToolResult addElementToTestPlan(GuiPackage guiPackage, TestElement newElement,
                                              JMeterTreeNode parentNode) {
         // The addComponent() call must be on EDT because it configures GUI components
-        final Exception[] edtError = new Exception[1];
-        try {
-            javax.swing.SwingUtilities.invokeAndWait(() -> {
-                try {
-                    ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-                    try {
-                        Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
-                        guiPackage.getTreeModel().addComponent(newElement, parentNode);
-                        log.info("Successfully added element to the tree model");
+        Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+            guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            log.info("Successfully added element to the tree model");
 
-                        try {
-                            guiPackage.getMainFrame().getTree()
-                                    .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
+            try {
+                guiPackage.getMainFrame().getTree()
+                        .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
 
-                            if (parentNode.getChildCount() > 0) {
-                                JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
-                                guiPackage.getTreeListener().getJTree()
-                                        .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
-                                log.info("Selected newly added element: {}", lastChild.getName());
-                            }
-                        } catch (Exception e) {
-                            log.error("Failed to expand tree or select element on EDT", e);
-                        }
-                    } finally {
-                        Thread.currentThread().setContextClassLoader(originalClassLoader);
-                    }
-                } catch (Exception e) {
-                    edtError[0] = e;
-                    log.error("Failed to add element to tree model on EDT", e);
+                if (parentNode.getChildCount() > 0) {
+                    JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
+                    guiPackage.getTreeListener().getJTree()
+                            .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
+                    log.info("Selected newly added element: {}", lastChild.getName());
                 }
-            });
-        } catch (Exception e) {
-            return ToolResult.error("Failed to add element to tree: " + e.getMessage());
+            } catch (Exception e) {
+                // expandPath / setSelectionPath failure is non-fatal — element is already in tree
+                log.error("Failed to expand tree or select element on EDT", e);
+            }
+        });
+        if (edtError != null) {
+            log.error("Failed to add element to tree model on EDT", edtError);
+            return ToolResult.error("Failed to add element to tree: " + edtError.getMessage());
         }
-
-        if (edtError[0] != null) {
-            return ToolResult.error("Failed to add element to tree: " + edtError[0].getMessage());
-        }
-
         return ToolResult.success("");
     }
 

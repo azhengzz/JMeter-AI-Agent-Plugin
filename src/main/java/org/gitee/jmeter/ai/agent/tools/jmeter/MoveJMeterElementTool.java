@@ -263,7 +263,10 @@ public class MoveJMeterElementTool extends AbstractTool {
         log.info("Moving element: {} ({}) from '{}' to '{}' at index {}",
                 elementName, elementType, oldParentPath, targetParent.getName(), insertIndex);
 
-        try {
+        // All JMeterTreeModel and GuiPackage.updateCurrentGui calls must run on EDT
+        // (JMeterTreeModel extends DefaultTreeModel, see JMeter source). Running them
+        // on tool-executor corrupts JTree internal TreeState and triggers EDT NPEs.
+        Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
             // Remove from old parent
             guiPackage.getTreeModel().removeNodeFromParent(sourceNode);
 
@@ -280,24 +283,24 @@ public class MoveJMeterElementTool extends AbstractTool {
             TreePath newPath = new TreePath(sourceNode.getPath());
             guiPackage.getTreeListener().getJTree().setSelectionPath(newPath);
             guiPackage.updateCurrentGui();
-
-            // Build success message
-            StringBuilder result = new StringBuilder();
-            result.append("Successfully moved element: **").append(elementName)
-                    .append("** (").append(elementType).append(")\n\n");
-            result.append("From: `").append(oldParentPath).append("`\n");
-            result.append("To: `").append(JMeterTreeUtils.getNodePath(targetParent)).append("`\n");
-            result.append("New elementId: ").append(System.identityHashCode(sourceNode));
-
-            log.info("Successfully moved element: {} ({}) from '{}' to '{}'",
-                    elementName, elementType, oldParentPath, targetParent.getName());
-
-            return ToolResult.success(result.toString());
-
-        } catch (Exception e) {
-            log.error("Failed to move element: {} ({})", elementName, elementType, e);
-            return ToolResult.error("Failed to move element: " + e.getMessage());
+        });
+        if (edtError != null) {
+            log.error("Failed to move element: {} ({})", elementName, elementType, edtError);
+            return ToolResult.error("Failed to move element: " + edtError.getMessage());
         }
+
+        // Build success message (after EDT confirmed success)
+        StringBuilder result = new StringBuilder();
+        result.append("Successfully moved element: **").append(elementName)
+                .append("** (").append(elementType).append(")\n\n");
+        result.append("From: `").append(oldParentPath).append("`\n");
+        result.append("To: `").append(JMeterTreeUtils.getNodePath(targetParent)).append("`\n");
+        result.append("New elementId: ").append(System.identityHashCode(sourceNode));
+
+        log.info("Successfully moved element: {} ({}) from '{}' to '{}'",
+                elementName, elementType, oldParentPath, targetParent.getName());
+
+        return ToolResult.success(result.toString());
     }
 
     /**

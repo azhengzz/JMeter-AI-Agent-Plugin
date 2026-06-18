@@ -111,26 +111,46 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                 }
             }
 
-            boolean hasUpdates = false;
+            boolean hasUpdates = !universalProps.isEmpty() || !schemaProps.isEmpty();
 
-            // Apply universal properties (name, comment)
-            if (!universalProps.isEmpty()) {
-                applyUniversalProperties(element, universalProps);
-                hasUpdates = true;
-            }
-
-            // Apply schema-defined properties
-            if (!schemaProps.isEmpty()) {
-                ToolResult updateResult = updateElementProperties(targetNode, schemaProps);
-                if (!updateResult.isSuccess()) {
-                    return updateResult;
-                }
-                hasUpdates = true;
-            }
-
-            // Unified tree refresh after all updates
+            // Apply property changes and refresh tree/GUI on EDT atomically.
+            // Race condition prevented: setProperties (writes TestElement) and refreshCurrentGui
+            // (reads TestElement back into RSyntaxTextArea via configure()) must be in the same EDT
+            // call. Otherwise, configure() may read a half-written TestElement and corrupt the
+            // RSyntaxTextArea Token cache, triggering EDT NPE.
             if (hasUpdates) {
-                refreshTreeAfterUpdate(targetNode);
+                final ToolResult[] updateResultHolder = new ToolResult[1];
+                Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+                    // 1. Apply universal properties (name, comment) — modifies TestElement
+                    if (!universalProps.isEmpty()) {
+                        applyUniversalProperties(element, universalProps);
+                    }
+
+                    // 2. Apply schema-defined properties — modifies TestElement
+                    if (!schemaProps.isEmpty()) {
+                        ToolResult updateResult = updateElementProperties(targetNode, schemaProps);
+                        if (!updateResult.isSuccess()) {
+                            updateResultHolder[0] = updateResult;
+                            return;
+                        }
+                    }
+
+                    // 3. Notify tree model (Swing DefaultTreeModel — needs EDT)
+                    guiPackage.getTreeModel().nodeChanged(targetNode);
+
+                    // 4. Refresh GUI panel from updated TestElement
+                    //    (calls configure() → RSyntaxTextArea.setText — needs EDT)
+                    guiPackage.refreshCurrentGui();
+                    // Force-refresh JTables that don't fire tableChanged on configure
+                    refreshTables(guiPackage.getCurrentGui());
+                });
+                if (edtError != null) {
+                    log.error("Error updating JMeter element", edtError);
+                    return ToolResult.error("Failed to update element: " + edtError.getMessage());
+                }
+                if (updateResultHolder[0] != null) {
+                    return updateResultHolder[0];
+                }
             }
 
             // Build and return success result
@@ -224,46 +244,6 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
         } catch (Exception e) {
             log.error("Failed to update properties on element", e);
             return ToolResult.error("Failed to update properties: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Refresh the tree after property update.
-     */
-    private void refreshTreeAfterUpdate(JMeterTreeNode targetNode) {
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return;
-        }
-
-        try {
-            // Notify tree model that node has changed
-            guiPackage.getTreeModel().nodeChanged(targetNode);
-            log.info("Tree node changed notification sent for: {}", targetNode.getName());
-
-            // IMPORTANT: Use SwingUtilities.invokeLater to ensure GUI update happens on EDT
-            // This prevents thread blocking and ensures proper Swing thread safety
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                try {
-                    // Refresh the GUI panel from the updated TestElement
-                    // This calls bindingGroup.updateUi(element) which updates all bound fields
-                    guiPackage.refreshCurrentGui();
-
-                    // Workaround: Some JMeter GUI panels (e.g., HeaderPanel) update their
-                    // internal model in configure() but don't fire tableChanged events,
-                    // so the JTable still shows stale data. Force-refresh any JTables.
-                    refreshTables(guiPackage.getCurrentGui());
-
-                    log.info("Successfully refreshed GUI on EDT for element: {}", targetNode.getName());
-                } catch (Exception e) {
-                    log.error("Failed to refresh GUI on EDT", e);
-                }
-            });
-
-            log.info("Successfully initiated tree and GUI refresh for updated element: {}", targetNode.getName());
-
-        } catch (Exception e) {
-            log.error("Failed to refresh tree after update", e);
         }
     }
 

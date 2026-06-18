@@ -11,7 +11,6 @@ import org.gitee.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -172,6 +171,18 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Step 6: Apply updates to each element
+            // De-select current node before batch modification to avoid race with GUI:
+            // setProperties writes TestElement off-EDT (for performance); if the GUI panel
+            // still binds a node being modified, a concurrent EDT configure() call could read
+            // a half-written TestElement and corrupt RSyntaxTextArea Token cache.
+            // Selecting root node (row 0) rebinds GUI to TestPlan which is not in our batch.
+            Exception deselectError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(
+                    guiPackage,
+                    () -> guiPackage.getTreeListener().getJTree().setSelectionRow(0));
+            if (deselectError != null) {
+                log.warn("Failed to de-select current node before batch update", deselectError);
+            }
+
             List<ElementUpdateResult> results = new ArrayList<>();
             for (Map.Entry<Integer, JMeterTreeNode> entry : nodeMap.entrySet()) {
                 int id = entry.getKey();
@@ -207,22 +218,21 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
     }
 
     private void refreshTreeAfterBatchUpdate(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap) {
-        try {
+        // All operations must run on EDT atomically:
+        // - nodeChanged (Swing DefaultTreeModel)
+        // - refreshCurrentGui (configure → RSyntaxTextArea.setText)
+        // Previously nodeChanged ran on tool-executor while refreshCurrentGui was invokeLater'd,
+        // which left the tree state half-updated between two EDT calls.
+        Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
             for (JMeterTreeNode node : nodeMap.values()) {
                 guiPackage.getTreeModel().nodeChanged(node);
             }
-
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    guiPackage.refreshCurrentGui();
-                    refreshTables(guiPackage.getCurrentGui());
-                    log.info("Successfully refreshed GUI after batch update");
-                } catch (Exception e) {
-                    log.error("Failed to refresh GUI on EDT after batch update", e);
-                }
-            });
-        } catch (Exception e) {
-            log.error("Failed to refresh tree after batch update", e);
+            guiPackage.refreshCurrentGui();
+            refreshTables(guiPackage.getCurrentGui());
+            log.info("Successfully refreshed GUI after batch update");
+        });
+        if (edtError != null) {
+            log.error("Failed to refresh tree after batch update", edtError);
         }
     }
 

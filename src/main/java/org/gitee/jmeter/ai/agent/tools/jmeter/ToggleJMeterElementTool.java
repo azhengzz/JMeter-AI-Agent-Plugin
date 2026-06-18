@@ -115,11 +115,18 @@ public class ToggleJMeterElementTool extends AbstractTool {
                         "\n\nElement Id: " + elementId);
             }
 
-            // Follow JMeter's EnableComponent.enableComponents() pattern:
-            // 1. Update tree node (also notifies treeModel to repaint)
-            targetNode.setEnabled(newEnabledState);
-            // 2. Update GUI component panel
-            guiPackage.getGui(testElement).setEnabled(newEnabledState);
+            // Follow JMeter's EnableComponent.enableComponents() pattern, on EDT:
+            // 1. Update tree node (calls treeModel.nodeChanged internally — needs EDT)
+            // 2. Update GUI component panel (getGui uses non-thread-safe IdentityHashMap — needs EDT)
+            // The two steps must be atomic, otherwise UI shows "disabled" while data still "enabled".
+            Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+                targetNode.setEnabled(newEnabledState);
+                guiPackage.getGui(testElement).setEnabled(newEnabledState);
+            });
+            if (edtError != null) {
+                log.error("Failed to toggle element with elementId: {}", elementId, edtError);
+                return ToolResult.error("Failed to toggle element: " + edtError.getMessage());
+            }
 
             String oldStateStr = wasEnabled ? "enabled" : "disabled";
             String newStateStr = newEnabledState ? "enabled" : "disabled";

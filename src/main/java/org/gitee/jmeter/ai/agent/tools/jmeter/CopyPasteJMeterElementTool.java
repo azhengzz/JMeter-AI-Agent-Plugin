@@ -167,53 +167,35 @@ public class CopyPasteJMeterElementTool extends AbstractTool {
         String targetPath = JMeterTreeUtils.getNodePath(targetParent);
         int childCount = countDescendants(clonedNode);
 
-        final Exception[] edtError = new Exception[1];
         final JMeterTreeNode[] addedNodeHolder = new JMeterTreeNode[1];
 
-        try {
-            javax.swing.SwingUtilities.invokeAndWait(() -> {
-                try {
-                    ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-                    try {
-                        Thread.currentThread().setContextClassLoader(guiPackage.getClass().getClassLoader());
+        Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+            // Add root cloned element (mirrors Paste.addNode())
+            JMeterTreeNode addedNode = guiPackage.getTreeModel().addComponent(
+                    clonedNode.getTestElement(), targetParent);
+            addedNodeHolder[0] = addedNode;
 
-                        // Add root cloned element (mirrors Paste.addNode())
-                        JMeterTreeNode addedNode = guiPackage.getTreeModel().addComponent(
-                                clonedNode.getTestElement(), targetParent);
-                        addedNodeHolder[0] = addedNode;
+            // Recursively add children
+            addNodeRecursive(addedNode, clonedNode, guiPackage);
 
-                        // Recursively add children
-                        addNodeRecursive(addedNode, clonedNode, guiPackage);
+            // Reposition if not 'last' (addComponent always appends at end)
+            int lastIdx = targetParent.getChildCount() - 1;
+            if (insertIndex < lastIdx) {
+                JMeterTreeNode lastChild = (JMeterTreeNode) targetParent.getChildAt(lastIdx);
+                guiPackage.getTreeModel().removeNodeFromParent(lastChild);
+                guiPackage.getTreeModel().insertNodeInto(lastChild, targetParent, insertIndex);
+                addedNodeHolder[0] = lastChild;
+            }
 
-                        // Reposition if not 'last' (addComponent always appends at end)
-                        int lastIdx = targetParent.getChildCount() - 1;
-                        if (insertIndex < lastIdx) {
-                            JMeterTreeNode lastChild = (JMeterTreeNode) targetParent.getChildAt(lastIdx);
-                            guiPackage.getTreeModel().removeNodeFromParent(lastChild);
-                            guiPackage.getTreeModel().insertNodeInto(lastChild, targetParent, insertIndex);
-                            addedNodeHolder[0] = lastChild;
-                        }
-
-                        // Expand parent and select new node
-                        guiPackage.getMainFrame().getTree()
-                                .expandPath(new TreePath(targetParent.getPath()));
-                        guiPackage.getTreeListener().getJTree()
-                                .setSelectionPath(new TreePath(addedNodeHolder[0].getPath()));
-
-                    } finally {
-                        Thread.currentThread().setContextClassLoader(originalClassLoader);
-                    }
-                } catch (Exception e) {
-                    edtError[0] = e;
-                    log.error("Failed to paste cloned element on EDT", e);
-                }
-            });
-        } catch (Exception e) {
-            return ToolResult.error("Failed to paste cloned element: " + e.getMessage());
-        }
-
-        if (edtError[0] != null) {
-            return ToolResult.error("Failed to paste cloned element: " + edtError[0].getMessage());
+            // Expand parent and select new node
+            guiPackage.getMainFrame().getTree()
+                    .expandPath(new TreePath(targetParent.getPath()));
+            guiPackage.getTreeListener().getJTree()
+                    .setSelectionPath(new TreePath(addedNodeHolder[0].getPath()));
+        });
+        if (edtError != null) {
+            log.error("Failed to paste cloned element on EDT", edtError);
+            return ToolResult.error("Failed to paste cloned element: " + edtError.getMessage());
         }
 
         int newElementId = System.identityHashCode(addedNodeHolder[0]);

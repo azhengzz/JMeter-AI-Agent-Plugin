@@ -108,16 +108,41 @@ public class DeleteJMeterElementTool extends AbstractTool {
             JMeterTreeNode parentNode = (JMeterTreeNode) targetNode.getParent();
             String parentPath = parentNode != null ? JMeterTreeUtils.getNodePath(parentNode) : "Unknown";
 
-            // 8. Perform deletion
-            performDeletion(targetNode, testElement);
+            // 8-10. Perform deletion, refresh tree, and refresh GUI on EDT.
+            // All JMeterTreeModel and GuiPackage.updateCurrentGui calls must run on EDT
+            // (JMeterTreeModel extends DefaultTreeModel, see JMeter source). Running them
+            // on tool-executor corrupts JTree internal TreeState and triggers EDT NPEs.
+            final JMeterTreeNode parentForRefresh = parentNode;
+            Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+                // 8. Perform deletion (tree model + GuiPackage node map)
+                guiPackage.getTreeModel().removeNodeFromParent(targetNode);
+                if (testElement != null) {
+                    guiPackage.removeNode(testElement);
+                }
 
-            // 9. Refresh tree
-            if (parentNode != null) {
-                refreshTreeAfterDeletion(parentNode);
+                // 9. Refresh tree structure (nodeStructureChanged + select parent)
+                if (parentForRefresh != null) {
+                    guiPackage.getTreeModel().nodeStructureChanged(parentForRefresh);
+                    guiPackage.getTreeListener().getJTree()
+                            .setSelectionPath(new TreePath(parentForRefresh.getPath()));
+                }
+
+                // 10. Refresh GUI
+                guiPackage.updateCurrentGui();
+            });
+            if (edtError != null) {
+                log.error("Failed to delete element: {} ({})", elementName, elementType, edtError);
+                return ToolResult.error("Failed to delete element: " + edtError.getMessage());
             }
 
-            // 10. Refresh GUI
-            guiPackage.updateCurrentGui();
+            // Call element cleanup callback (non-Swing, safe off-EDT)
+            if (testElement != null) {
+                try {
+                    testElement.removed();
+                } catch (Exception e) {
+                    log.warn("Error calling removed() on test element: {}", e.getMessage());
+                }
+            }
 
             // 11. Return success result
             StringBuilder result = new StringBuilder();
@@ -185,62 +210,4 @@ public class DeleteJMeterElementTool extends AbstractTool {
         return testElement.canRemove();
     }
 
-    /**
-     * Perform the actual deletion with proper cleanup.
-     * Reference: JMeter Remove.java removeNode() method
-     *
-     * @param node        The node to delete
-     * @param testElement The test element associated with the node
-     */
-    private void performDeletion(JMeterTreeNode node, TestElement testElement) {
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            throw new IllegalStateException("GuiPackage is not available");
-        }
-
-        // Reference JMeter Remove.java deletion logic:
-        // 1. Remove from tree model
-        guiPackage.getTreeModel().removeNodeFromParent(node);
-
-        // 2. Remove from GuiPackage
-        if (testElement != null) {
-            guiPackage.removeNode(testElement);
-        }
-
-        // 3. Call element cleanup callback
-        if (testElement != null) {
-            try {
-                testElement.removed();
-            } catch (Exception e) {
-                log.warn("Error calling removed() on test element: {}", e.getMessage());
-            }
-        }
-
-        log.info("Removed node from tree: {}", node.getName());
-    }
-
-    /**
-     * Refresh the tree after deletion.
-     *
-     * @param parent The parent node of the deleted node
-     */
-    private void refreshTreeAfterDeletion(JMeterTreeNode parent) {
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return;
-        }
-
-        try {
-            // Notify tree model that node structure has changed
-            guiPackage.getTreeModel().nodeStructureChanged(parent);
-            log.debug("Tree structure changed notification sent for parent: {}", parent.getName());
-
-            // Select parent node for visual feedback
-            guiPackage.getTreeListener().getJTree()
-                    .setSelectionPath(new TreePath(parent.getPath()));
-
-        } catch (Exception e) {
-            log.error("Failed to refresh tree after deletion", e);
-        }
-    }
 }
