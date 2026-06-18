@@ -770,7 +770,7 @@ public class OpenAiService implements AiService {
                             // Get ID from the functionToolCall
                             toolCalls.add(new ToolCall(functionToolCall.id(), function.name(), arguments));
                         } catch (JsonProcessingException e) {
-                            log.error("Failed to parse tool arguments for {}", function.name(), e);
+                            log.error("Failed to parse tool arguments for {}: rawArguments=[{}]", function.name(), function.arguments(), e);
                         }
                     }
                 }
