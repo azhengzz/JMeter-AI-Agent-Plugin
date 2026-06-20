@@ -102,24 +102,36 @@ public class SelectionContextBar extends JPanel {
             return;
         }
 
-        TestElement element = snapshot.element;
-        String displayType = (snapshot.elementType != null)
-                ? JMeterElementManager.getDefaultNameForElement(snapshot.elementType)
-                : element.getClass().getSimpleName();
-        String icon = pickIcon(snapshot.elementType, element.getClass().getSimpleName());
-        String name = element.getName();
+        // 日志面板上下文：L2 焦点位于底部 LoggerPanel 时，L1 仍保留上次选中元素
+        // 会让"元素信息"与"日志选区"互相割裂。改为 L1 展示日志说明，不显示 id。
+        boolean isLogContext = snapshot.focusControl != null
+                && "LoggerPanel".equals(snapshot.focusControl.controlType);
 
-        // Row 1: icon + type (bold) + name + elementId + child count
-        StringBuilder r1 = new StringBuilder();
-        r1.append(icon).append(' ').append(displayType).append(' ');
-        r1.append(name == null || name.isEmpty() ? "(unnamed)" : name);
-        r1.append("  #").append(snapshot.elementId);
-        if (snapshot.childCount > 0) {
-            r1.append("  ×").append(snapshot.childCount);
+        if (isLogContext) {
+            // Row 1: 📜 Log (no id, no child count)
+            lines[0].text = "📜 日志面板";
+            lines[0].color = defaultColor;
+            lines[0].boldPrefix = "📜 ";
+        } else {
+            TestElement element = snapshot.element;
+            String displayType = (snapshot.elementType != null)
+                    ? JMeterElementManager.getDefaultNameForElement(snapshot.elementType)
+                    : element.getClass().getSimpleName();
+            String icon = pickIcon(snapshot.elementType, element.getClass().getSimpleName());
+            String name = element.getName();
+
+            // Row 1: icon + type (bold) + name + elementId + child count
+            StringBuilder r1 = new StringBuilder();
+            r1.append(icon).append(' ').append(displayType).append(' ');
+            r1.append(name == null || name.isEmpty() ? "(unnamed)" : name);
+            r1.append("  #").append(snapshot.elementId);
+            if (snapshot.childCount > 0) {
+                r1.append("  ×").append(snapshot.childCount);
+            }
+            lines[0].text = r1.toString();
+            lines[0].color = defaultColor;
+            lines[0].boldPrefix = icon + " " + displayType + " ";
         }
-        lines[0].text = r1.toString();
-        lines[0].color = defaultColor;
-        lines[0].boldPrefix = icon + " " + displayType + " ";
 
         // Row 2: focus control (L2)
         if (snapshot.focusControl != null

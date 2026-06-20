@@ -264,6 +264,9 @@ public class ContextBuilder {
     /**
      * 追加当前 JMeter 选中元素的信息（L1 + L2）。
      * 仅当 {@link SelectionTracker#isInjectToContextEnabled()} 为 true 且 snapshot 非空时输出。
+     *
+     * <p>日志面板上下文（L2 焦点在底部 LoggerPanel）下，L1 的"当前选中元素"与日志选区
+     * 互不相关，改为输出 "Selected: Log Panel"，不附带 element id。
      */
     private void appendSelectionContext(StringBuilder lines) {
         if (!SelectionTracker.isInjectToContextEnabled()) {
@@ -274,15 +277,22 @@ public class ContextBuilder {
             return;
         }
 
-        String type = snapshot.elementType != null ? snapshot.elementType : "";
-        String name = snapshot.element.getName();
-        if (name == null) {
-            name = "";
+        boolean isLogContext = snapshot.focusControl != null
+                && "LoggerPanel".equals(snapshot.focusControl.controlType);
+
+        if (isLogContext) {
+            lines.append("\n").append("Selected: Log Panel");
+        } else {
+            String type = snapshot.elementType != null ? snapshot.elementType : "";
+            String name = snapshot.element.getName();
+            if (name == null) {
+                name = "";
+            }
+            lines.append("\n").append("Selected Element: ")
+                    .append("type=").append(type)
+                    .append(", name=\"").append(name).append("\"")
+                    .append(", id=").append(snapshot.elementId);
         }
-        lines.append("\n").append("Selected Element: ")
-                .append("type=").append(type)
-                .append(", name=\"").append(name).append("\"")
-                .append(", id=").append(snapshot.elementId);
 
         if (snapshot.focusControl != null
                 && snapshot.focusControl.controlType != null

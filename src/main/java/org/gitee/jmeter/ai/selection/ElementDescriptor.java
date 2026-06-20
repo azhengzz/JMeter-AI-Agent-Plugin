@@ -38,6 +38,14 @@ public final class ElementDescriptor {
             return ElementInfo.empty();
         }
 
+        // 优先检测 JMeter 日志面板（底部 LoggerPanel）— 焦点切到这里时，
+        // 用户是在看日志而非编辑当前树节点，L1 的元素信息与此刻上下文无关。
+        // 用 controlType="LoggerPanel" 标记，由 SelectionContextBar / ContextBuilder
+        // 据此调整展示。
+        if (isInsideLoggerPanel(c)) {
+            return describeLoggerPanel(c);
+        }
+
         // 双击 JTable cell 进入编辑模式时，cell editor（通常是 JTextField）
         // 会被加到 JTable 上作为临时子组件。检测这种情况并转而描述 JTable，
         // 这样展示栏会显示 row/col/value 而不是 (unlabeled field) = 单元格内容。
@@ -51,6 +59,35 @@ public final class ElementDescriptor {
         String value = resolveValue(c);
 
         return new ElementInfo(controlType, fieldName, null, value);
+    }
+
+    /**
+     * 检测组件是否位于 JMeter 主窗口底部的 LoggerPanel 内。
+     * 类名匹配避免对 ApacheJMeter_core 的硬依赖（运行时类一定存在，编译期可选）。
+     */
+    private static boolean isInsideLoggerPanel(Component c) {
+        final String loggerPanelClassName = "org.apache.jmeter.gui.LoggerPanel";
+        Container p = c.getParent();
+        while (p != null) {
+            if (loggerPanelClassName.equals(p.getClass().getName())) {
+                return true;
+            }
+            p = p.getParent();
+        }
+        return false;
+    }
+
+    /**
+     * 描述 LoggerPanel 内焦点控件（通常是 JSyntaxTextArea）的选中状态。
+     * controlType 固定为 "LoggerPanel"，fieldName 固定为 "Log Content"，
+     * value 复用 JTextComponent 的选中行号 + 预览逻辑。
+     */
+    private static ElementInfo describeLoggerPanel(Component c) {
+        String value = null;
+        if (c instanceof JTextComponent tc) {
+            value = describeTextSelection(tc);
+        }
+        return new ElementInfo("LoggerPanel", "Log Content", null, value);
     }
 
     /**
