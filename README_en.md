@@ -14,6 +14,7 @@ Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that 
 - **7 AI Providers** — Anthropic Claude, OpenAI, DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax, Ollama
 - **Component Schema Validation** — 67 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
 - **Memory System** — Two-layer memory architecture (long-term memory + event history) with cross-session consolidation
+- **Live Selection Sync** — Chat panel shows the currently selected JMeter element and focused control in real time, with one-click injection into the AI context
 - **Security Controls** — File access whitelisting, SSRF protection, dangerous command blocking
 - **Tracing** — Optional LangSmith integration for LLM call tracing and monitoring
 

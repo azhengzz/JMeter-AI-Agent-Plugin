@@ -4,6 +4,9 @@ import org.gitee.jmeter.ai.agent.memory.MemoryStore;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.skills.SkillsLoader;
+import org.gitee.jmeter.ai.selection.ElementInfo;
+import org.gitee.jmeter.ai.selection.SelectionSnapshot;
+import org.gitee.jmeter.ai.selection.SelectionTracker;
 import org.gitee.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -253,7 +256,45 @@ public class ContextBuilder {
             lines.append("\n").append("Chat ID: ").append(chatId);
         }
 
+        appendSelectionContext(lines);
+
         return lines.toString();
+    }
+
+    /**
+     * 追加当前 JMeter 选中元素的信息（L1 + L2）。
+     * 仅当 {@link SelectionTracker#isInjectToContextEnabled()} 为 true 且 snapshot 非空时输出。
+     */
+    private void appendSelectionContext(StringBuilder lines) {
+        if (!SelectionTracker.isInjectToContextEnabled()) {
+            return;
+        }
+        SelectionSnapshot snapshot = SelectionTracker.getCurrentSnapshot();
+        if (snapshot == null || snapshot.isEmpty()) {
+            return;
+        }
+
+        String type = snapshot.elementType != null ? snapshot.elementType : "";
+        String name = snapshot.element.getName();
+        if (name == null) {
+            name = "";
+        }
+        lines.append("\n").append("Selected Element: ")
+                .append("type=").append(type)
+                .append(", name=\"").append(name).append("\"")
+                .append(", id=").append(snapshot.elementId);
+
+        if (snapshot.focusControl != null
+                && snapshot.focusControl.controlType != null
+                && !snapshot.focusControl.isEmpty()) {
+            ElementInfo fc = snapshot.focusControl;
+            String field = (fc.fieldName == null || fc.fieldName.isEmpty())
+                    ? "(unlabeled field)" : fc.fieldName;
+            lines.append("\n").append("Focused Field: ").append(field);
+            if (fc.value != null && !fc.value.isEmpty()) {
+                lines.append(" = ").append(fc.value);
+            }
+        }
     }
 
     /**

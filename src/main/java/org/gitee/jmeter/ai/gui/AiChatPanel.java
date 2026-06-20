@@ -18,6 +18,9 @@ import org.gitee.jmeter.ai.agent.model.AgentResponse;
 import org.gitee.jmeter.ai.agent.model.ProgressUpdate;
 import org.gitee.jmeter.ai.agent.model.ToolEvent;
 import org.gitee.jmeter.ai.agent.swing.AgentSwingWorker;
+import org.gitee.jmeter.ai.selection.SelectionListener;
+import org.gitee.jmeter.ai.selection.SelectionSnapshot;
+import org.gitee.jmeter.ai.selection.SelectionTracker;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
 
@@ -75,6 +78,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private boolean toolCallsDisplayedProgressively;
     // Separate Stop button (visible during agent processing)
     private JButton stopButton;
+
+    // Selection context bar (current JMeter element + focused control)
+    private SelectionContextBar selectionContextBar;
+    private JCheckBox injectContextCheckBox;
+    private SelectionListener selectionTrackerListener;
 
     /**
      * Constructs a new AiChatPanel.
@@ -254,11 +262,27 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
 
         // Add model selector to the bottom panel
-        FlowLayout flowLayout = new FlowLayout(FlowLayout.LEFT);
-        JPanel modelPanel = new JPanel(flowLayout);
+        // modelPanel uses BorderLayout: WEST holds "Model: " + selector,
+        // CENTER holds the selection context bar so it stretches to the right.
+        JPanel modelPanel = new JPanel(new BorderLayout(8, 0));
+        JPanel modelLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         JLabel modelLabel = new JLabel("Model: ");
-        modelPanel.add(modelLabel);
-        modelPanel.add(modelSelector);
+        modelLeft.add(modelLabel);
+        modelLeft.add(modelSelector);
+        modelPanel.add(modelLeft, BorderLayout.WEST);
+
+        // Selection context bar: shows current JMeter element + focused control
+        selectionContextBar = new SelectionContextBar();
+        modelPanel.add(selectionContextBar, BorderLayout.CENTER);
+
+        // Toggle: whether to inject current selection into UserMessage sent to LLM
+        injectContextCheckBox = new JCheckBox("ToAI", SelectionTracker.isInjectToContextEnabled());
+        injectContextCheckBox.setToolTipText("When checked, each message automatically appends the currently selected JMeter element info (type/name/id/focused field) to the context so the AI is aware of it.");
+        injectContextCheckBox.setMargin(new Insets(0, 4, 0, 0));
+        injectContextCheckBox.addItemListener(e ->
+                SelectionTracker.setInjectToContextEnabled(e.getStateChange() == ItemEvent.SELECTED));
+        modelPanel.add(injectContextCheckBox, BorderLayout.EAST);
+
         bottomPanel.add(modelPanel, BorderLayout.NORTH);
 
         // Create the input panel with message field and send button
@@ -358,6 +382,35 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Display welcome message
         displayWelcomeMessage();
+
+        // Subscribe to selection tracker (L1: tree node, L2: focused control)
+        installSelectionTracker();
+    }
+
+    /**
+     * Subscribe to {@link SelectionTracker} so the {@link SelectionContextBar}
+     * reflects the current JMeter element selection and editor-panel focus.
+     *
+     * <p>{@code SelectionTracker.install()} is idempotent: it is normally installed
+     * by {@code SelectionInitCommand} on JMeter's ADD_ALL event, but we call it
+     * here as a fallback in case the panel is created before that event fires.
+     */
+    private void installSelectionTracker() {
+        SelectionTracker.install();
+        selectionTrackerListener = new SelectionListener() {
+            @Override
+            public void onComponentSelected(SelectionSnapshot snapshot) {
+                SwingUtilities.invokeLater(() -> selectionContextBar.update(snapshot));
+            }
+
+            @Override
+            public void onElementFocused(SelectionSnapshot snapshot) {
+                SwingUtilities.invokeLater(() -> selectionContextBar.update(snapshot));
+            }
+        };
+        SelectionTracker.addListener(selectionTrackerListener);
+        // Sync current selection state immediately so the bar isn't empty on first open
+        SelectionTracker.fireInitialSnapshot(selectionTrackerListener);
     }
 
     /**
@@ -1129,6 +1182,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     public void cleanup() {
         // Unregister property change listener
         UIManager.removePropertyChangeListener(this);
+
+        // Detach from SelectionTracker (other consumers may still be subscribed,
+        // so we don't call SelectionTracker.uninstall()).
+        if (selectionTrackerListener != null) {
+            SelectionTracker.removeListener(selectionTrackerListener);
+            selectionTrackerListener = null;
+        }
     }
 
     /**
