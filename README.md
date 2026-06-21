@@ -347,6 +347,13 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 - **安全：** 不要在对话中分享敏感信息（凭证、专有代码等）
 - **性能影响：** 部分 AI 建议的配置可能影响测试性能，请监控资源使用
 
+## 致谢
+
+本项目在设计与实现中参考了以下开源项目：
+
+- [nanobot](https://github.com/HKUDS/nanobot) — Agent 设计与实现参考
+- [jmeter-ai](https://github.com/QAInsights/jmeter-ai) — 设计灵感参考
+
 ## 许可证
 
-Apache License 2.0
+MIT License
