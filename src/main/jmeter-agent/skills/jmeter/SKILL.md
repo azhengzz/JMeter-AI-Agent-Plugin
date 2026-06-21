@@ -27,6 +27,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`)
   - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`)
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
+  - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` for quick validation)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
