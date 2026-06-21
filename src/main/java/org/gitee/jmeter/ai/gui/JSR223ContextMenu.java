@@ -6,9 +6,16 @@ import org.gitee.jmeter.ai.service.CodeRefactorer;
 import org.gitee.jmeter.ai.service.provider.ProviderRegistry;
 import org.gitee.jmeter.ai.service.provider.ProviderSpec;
 import org.gitee.jmeter.ai.utils.AiConfig;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.JMeterGUIComponent;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.testbeans.gui.TestBeanGUI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +68,7 @@ public class JSR223ContextMenu {
      */
     private static void setupContextMenus(AiService aiService) {
         // Find all JSR223 script editors and add context menus
-        RSyntaxTextArea scriptEditor = CodeCommandHandler.findJSR223ScriptEditor();
+        RSyntaxTextArea scriptEditor = findJSR223ScriptEditor();
         if (scriptEditor != null) {
             addContextMenu(scriptEditor, aiService);
         }
@@ -297,9 +304,164 @@ public class JSR223ContextMenu {
             return;
         }
 
-        RSyntaxTextArea scriptEditor = CodeCommandHandler.findJSR223ScriptEditor();
+        RSyntaxTextArea scriptEditor = findJSR223ScriptEditor();
         if (scriptEditor != null) {
             addContextMenu(scriptEditor, sharedAiService);
         }
+    }
+
+    /**
+     * Finds the RSyntaxTextArea in the currently selected JSR223 element.
+     *
+     * @return The RSyntaxTextArea, or null if not found
+     */
+    private static RSyntaxTextArea findJSR223ScriptEditor() {
+        try {
+            GuiPackage guiPackage = GuiPackage.getInstance();
+            if (guiPackage == null) {
+                return null;
+            }
+
+            JMeterTreeNode node = guiPackage.getTreeListener().getCurrentNode();
+            if (node == null) {
+                return null;
+            }
+
+            // Check if this is a JSR223 element
+            String className = node.getTestElement().getClass().getName();
+            if (!className.contains("JSR223")) {
+                return null;
+            }
+
+            // Get the GUI component
+            JMeterGUIComponent guiComp = guiPackage.getCurrentGui();
+            if (!(guiComp instanceof TestBeanGUI)) {
+                return null;
+            }
+
+            TestBeanGUI testBeanGUI = (TestBeanGUI) guiComp;
+
+            // First attempt: Find the RSyntaxTextArea in the component hierarchy
+            RSyntaxTextArea scriptEditor = findRSyntaxTextArea(testBeanGUI);
+            if (scriptEditor != null) {
+                return scriptEditor;
+            }
+
+            // Second attempt: Try to find it in the parent container
+            Container parent = testBeanGUI.getParent();
+            if (parent != null) {
+                scriptEditor = findRSyntaxTextArea(parent);
+                if (scriptEditor != null) {
+                    return scriptEditor;
+                }
+            }
+
+            // Third attempt: Try to find it in the main frame
+            if (guiPackage.getMainFrame() != null) {
+                scriptEditor = findRSyntaxTextArea(guiPackage.getMainFrame());
+                if (scriptEditor != null) {
+                    return scriptEditor;
+                }
+            }
+
+            // Final attempt: Search all windows for the RSyntaxTextArea
+            scriptEditor = findRSyntaxTextAreaInAllWindows();
+            if (scriptEditor != null) {
+                return scriptEditor;
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.error("Error finding JSR223 script editor", e);
+            return null;
+        }
+    }
+
+    /**
+     * Recursively searches for RSyntaxTextArea in the component hierarchy.
+     *
+     * @param container The container to search in
+     * @return The RSyntaxTextArea, or null if not found
+     */
+    private static RSyntaxTextArea findRSyntaxTextArea(Container container) {
+        // First, try to find the component by name - often used in JMeter for script
+        // areas
+        for (Component component : container.getComponents()) {
+            String componentName = component.getName();
+            if (componentName != null &&
+                    (componentName.contains("script") || componentName.contains("Script") ||
+                            componentName.contains("code") || componentName.contains("Code"))) {
+                if (component instanceof RSyntaxTextArea) {
+                    return (RSyntaxTextArea) component;
+                }
+            }
+        }
+
+        // Regular recursive search
+        for (Component component : container.getComponents()) {
+            if (component instanceof RSyntaxTextArea) {
+                return (RSyntaxTextArea) component;
+            } else if (component.getClass().getName().contains("JSyntaxTextArea")) {
+                // JMeter uses a custom JSyntaxTextArea which extends RSyntaxTextArea
+                return (RSyntaxTextArea) component;
+            } else if (component instanceof JScrollPane ||
+                    component.getClass().getName().contains("JTextScrollPane")) {
+                // Special handling for scroll panes, which often contain the text area
+                try {
+                    // Use reflection to get the viewport and view since JTextScrollPane might not
+                    // be in our classpath
+                    Container viewport = null;
+                    if (component instanceof JScrollPane) {
+                        viewport = ((JScrollPane) component).getViewport();
+                    } else {
+                        // Try to get viewport through reflection
+                        java.lang.reflect.Method getViewportMethod = component.getClass().getMethod("getViewport");
+                        viewport = (Container) getViewportMethod.invoke(component);
+                    }
+
+                    if (viewport != null) {
+                        Component viewComponent = viewport.getComponent(0);
+                        if (viewComponent instanceof RSyntaxTextArea ||
+                                viewComponent.getClass().getName().contains("JSyntaxTextArea")) {
+                            return (RSyntaxTextArea) viewComponent;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("Error getting viewport from scroll pane", e);
+                }
+            } else if (component instanceof Container) {
+                RSyntaxTextArea result = findRSyntaxTextArea((Container) component);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Searches for RSyntaxTextArea in all open windows.
+     * This is a more aggressive approach when the standard search fails.
+     *
+     * @return The first RSyntaxTextArea found, or null if none found
+     */
+    private static RSyntaxTextArea findRSyntaxTextAreaInAllWindows() {
+
+        // Get all windows
+        Window[] windows = Window.getWindows();
+
+        // Search each window
+        for (Window window : windows) {
+            if (window.isVisible()) {
+                RSyntaxTextArea textArea = findRSyntaxTextArea(window);
+                if (textArea != null) {
+                    log.info("Found RSyntaxTextArea in window: {}", window);
+                    return textArea;
+                }
+            }
+        }
+
+        log.info("No RSyntaxTextArea found in any window");
+        return null;
     }
 }

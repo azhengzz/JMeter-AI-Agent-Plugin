@@ -15,13 +15,6 @@ public class CommandIntellisenseProvider {
         commands.add("/new");
         commands.add("/status");
         commands.add("/help");
-        // Agent commands
-        commands.add("@code");
-        commands.add("@wrap");
-        commands.add("@lint");
-        commands.add("@usage");
-        commands.add("@optimize");
-        commands.add("@this");
     }
 
     public List<String> getSuggestions(String prefix) {

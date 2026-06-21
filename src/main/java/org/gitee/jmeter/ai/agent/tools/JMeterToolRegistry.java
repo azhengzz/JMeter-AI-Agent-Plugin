@@ -5,7 +5,6 @@ import org.gitee.jmeter.ai.agent.tools.filesystem.*;
 import org.gitee.jmeter.ai.agent.tools.jmeter.*;
 import org.gitee.jmeter.ai.agent.tools.jmeter.execution.*;
 import org.gitee.jmeter.ai.agent.tools.web.*;
-import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +25,8 @@ public class JMeterToolRegistry {
      * Register all default JMeter tools with the given registry.
      *
      * @param registry The tool registry to register tools with
-     * @param aiService The AI service (required for some tools)
      */
-    public static void registerDefaultTools(ToolRegistry registry, AiService aiService) {
+    public static void registerDefaultTools(ToolRegistry registry) {
         // Register core JMeter tools
         registry.register(new GetScriptInfoTool());
         registry.register(new GetSelectedElementTool());
@@ -43,16 +41,6 @@ public class JMeterToolRegistry {
         registry.register(new CopyPasteJMeterElementTool());
         registry.register(new ToggleJMeterElementTool());
         registry.register(new QueryElementPropertiesTool());
-
-        // // Register tools that require AI service
-        // if (aiService != null) {
-        //     registry.register(new OptimizeJMeterElementTool(aiService));
-        //     registry.register(new LintElementsTool(aiService));
-        //     registry.register(new UsageTool(aiService));
-        // }
-
-        // // Register tools without AI service dependency
-        // registry.register(new WrapSamplersTool());
 
         // Register test execution tools
         registry.register(new RunTestTool());
@@ -119,31 +107,6 @@ public class JMeterToolRegistry {
         } else {
             log.info("Exec tool is disabled");
         }
-    }
-
-    /**
-     * Register a minimal set of tools (no AI service required).
-     *
-     * @param registry The tool registry to register tools with
-     */
-    public static void registerBasicTools(ToolRegistry registry) {
-        registry.register(new GetScriptInfoTool());
-        registry.register(new GetSelectedElementTool());
-        registry.register(new GetTestPlanTreeTool());
-        registry.register(new ParseJmxFileTool());
-        registry.register(new FindElementTool());
-        registry.register(new CreateJMeterElementTool());
-        registry.register(new UpdateJMeterElementTool());
-        registry.register(new BatchUpdateJMeterElementTool());
-        registry.register(new DeleteJMeterElementTool());
-        registry.register(new MoveJMeterElementTool());
-        registry.register(new CopyPasteJMeterElementTool());
-        registry.register(new ToggleJMeterElementTool());
-        registry.register(new QueryElementPropertiesTool());
-        // registry.register(new WrapSamplersTool());
-        registry.register(new RunTestTool());
-        registry.register(new GetTestStatusTool());
-        registry.register(new GetTestResultsTool());
     }
 
     /**

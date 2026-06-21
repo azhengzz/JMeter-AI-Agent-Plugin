@@ -698,7 +698,7 @@ public class OpenAiService implements AiService {
             ChatCompletion chatCompletion = client.chat().completions().create(params);
             log.info("Received response from OpenAI");
 
-            // 记录使用量（供 @usage 命令使用）
+            // 记录 token 使用量
             try {
                 OpenAiUsage.getInstance().recordUsage(chatCompletion, currentModelId);
             } catch (Exception ex) {

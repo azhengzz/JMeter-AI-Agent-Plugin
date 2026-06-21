@@ -13,7 +13,6 @@ import java.util.Map;
 /**
  * Tool to get information about the currently selected JMeter element.
  * Returns the element data in JSON format with the same structure as FindElementTool.
- * Corresponds to the @this command.
  */
 public class GetSelectedElementTool extends AbstractTool {
 

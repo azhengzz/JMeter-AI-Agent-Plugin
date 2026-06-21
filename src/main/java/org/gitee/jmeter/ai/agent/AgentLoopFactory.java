@@ -74,7 +74,7 @@ public class AgentLoopFactory {
 
         // Register tools
         if (config.isJmeterToolsEnabled()) {
-            JMeterToolRegistry.registerDefaultTools(toolRegistry, aiService);
+            JMeterToolRegistry.registerDefaultTools(toolRegistry);
         }
 
         // Create Agent Loop

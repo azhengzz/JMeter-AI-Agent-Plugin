@@ -30,24 +30,24 @@ public class IntellisensePopupTest {
     public void testSetSelectedIndex() {
         // Instead of showing the popup (which requires a visible component),
         // we'll just set the data directly
-        List<String> suggestions = Arrays.asList("@code", "@wrap", "@lint");
-        
+        List<String> suggestions = Arrays.asList("/new", "/status", "/help");
+
         // Set the data directly on the JList
         popup.suggestionList.setListData(suggestions.toArray(new String[0]));
-        
+
         // Test setting selected index
         popup.setSelectedIndex(1);
-        assertEquals("@wrap", popup.getSelectedValue());
-        
+        assertEquals("/status", popup.getSelectedValue());
+
         // Test setting another index
         popup.setSelectedIndex(2);
-        assertEquals("@lint", popup.getSelectedValue());
+        assertEquals("/help", popup.getSelectedValue());
     }
     
     @Test
     public void testGetSuggestionCount() {
         // Set the data directly on the JList
-        List<String> suggestions = Arrays.asList("@code", "@wrap", "@lint", "@usage");
+        List<String> suggestions = Arrays.asList("/new", "/status", "/help", "/exit");
         popup.suggestionList.setListData(suggestions.toArray(new String[0]));
         
         // Test getting suggestion count
@@ -57,7 +57,7 @@ public class IntellisensePopupTest {
     @Test
     public void testGetSelectedIndex() {
         // Set the data directly on the JList
-        List<String> suggestions = Arrays.asList("@code", "@wrap", "@lint");
+        List<String> suggestions = Arrays.asList("/new", "/status", "/help");
         popup.suggestionList.setListData(suggestions.toArray(new String[0]));
         
         // Test getting selected index (initially -1 since no selection)

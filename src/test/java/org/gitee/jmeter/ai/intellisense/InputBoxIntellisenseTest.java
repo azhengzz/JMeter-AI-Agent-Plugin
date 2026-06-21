@@ -63,7 +63,7 @@ public class InputBoxIntellisenseTest {
     public void testCommandInsertion() {
         // Create a real text area for testing
         JTextArea textArea = new JTextArea();
-        textArea.setText("Hello @code");
+        textArea.setText("Hello /new");
         textArea.setCaretPosition(textArea.getText().length());
         
         // Create intellisense

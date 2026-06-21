@@ -26,6 +26,7 @@
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
+        <jmeter.home>D:/apache-jmeter-5.6.3</jmeter.home>
     </properties>
     <repositories>
         <repository>
@@ -124,28 +125,6 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>
             <version>3.10.0</version>
-        </dependency>
-
-        <!-- JediTerm terminal emulator + PTY support -->
-        <dependency>
-            <groupId>org.jetbrains.jediterm</groupId>
-            <artifactId>jediterm-core</artifactId>
-            <version>3.53</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.jediterm</groupId>
-            <artifactId>jediterm-ui</artifactId>
-            <version>3.53</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.jediterm</groupId>
-            <artifactId>jediterm-pty</artifactId>
-            <version>2.69</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.pty4j</groupId>
-            <artifactId>pty4j</artifactId>
-            <version>0.13.12</version>
         </dependency>
 
         <!-- JUnit 5 dependencies -->
@@ -284,7 +263,24 @@
                                 <!-- <copy file="${project.build.directory}/${project.build.finalName}.jar"
                                       todir="C:/Users/Navee/tools/apache-jmeter-5.6.3/lib/ext"/> -->
                                 <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                    todir="D:/WorkHome/git/gitee/osc/apache-jmeter-5.6.3/lib/ext"/>
+                                    todir="${jmeter.home}/lib/ext"/>
+
+                                <!-- Copy built-in skills to JMeter bin/jmeter-agent/skills directory -->
+                                <delete dir="${jmeter.home}/bin/jmeter-agent/skills" quiet="true"/>
+                                <mkdir dir="${jmeter.home}/bin/jmeter-agent/skills"/>
+                                <copy todir="${jmeter.home}/bin/jmeter-agent/skills">
+                                    <fileset dir="${project.basedir}/src/main/jmeter-agent/skills"/>
+                                </copy>
+
+                                <!-- Copy template markdown files to JMeter bin/jmeter-agent directory -->
+                                <delete file="${jmeter.home}/bin/jmeter-agent/AGENTS.md" quiet="true"/>
+                                <delete file="${jmeter.home}/bin/jmeter-agent/SOUL.md" quiet="true"/>
+                                <delete file="${jmeter.home}/bin/jmeter-agent/TOOLS.md" quiet="true"/>
+                                <delete file="${jmeter.home}/bin/jmeter-agent/USER.md" quiet="true"/>
+                                <copy todir="${jmeter.home}/bin/jmeter-agent">
+                                    <fileset dir="${project.basedir}/src/main/resources/templates" includes="AGENTS.md,SOUL.md,TOOLS.md,USER.md"/>
+                                </copy>
+
                             </target>
                         </configuration>
                     </execution>

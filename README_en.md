@@ -10,7 +10,7 @@ Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that 
 
 - **Agent Loop Architecture** — Full iterative cycle of LLM call → tool execution → result feedback, supporting multi-turn tool calling for complex tasks
 - **22 Agent Tools** — Covering JMeter element CRUD, test execution, filesystem, web search, and command execution
-- **Skills System** — Dynamically loaded skill modules from filesystem, with built-in JMeter expertise (68 component references, 58 function references), API autotest, and more
+- **Skills System** — Dynamically loaded skill modules from filesystem, with built-in JMeter expertise (73 component references, 58 function references), API autotest, and more
 - **7 AI Providers** — Anthropic Claude, OpenAI, DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax, Ollama
 - **Component Schema Validation** — 67 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
 - **Memory System** — Two-layer memory architecture (long-term memory + event history) with cross-session consolidation
@@ -147,7 +147,7 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 
 | Skill | Description |
 |-------|-------------|
-| **jmeter** | Core JMeter skill — 68 component references, 67 parameter schemas, 58 JMeter function references, coding standards, anti-patterns |
+| **jmeter** | Core JMeter skill — 73 component references, 73 parameter schemas, 58 JMeter function references, coding standards, anti-patterns |
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
 
@@ -309,14 +309,6 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | `agent.tools.exec.working.dir` | Restrict working directory (only this dir and its subdirs allowed when set) | — |
 | `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex, comma-separated) | Built-in defaults (rm -rf, del /f, format, mkfs, shutdown, etc.) |
 | `agent.tools.exec.path.append` | Additional directories to append to PATH | — |
-
-### Claude Code Terminal Configuration
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `jmeter.ai.terminal.claudecode.enabled` | Enable the embedded Claude Code terminal | `true` |
-| `jmeter.ai.terminal.claudecode.path` | Full path to the `claude` executable (Windows: `C:\Users\YOUR_USER\.local\bin\claude`; Linux/macOS: `/usr/local/bin/claude`) | Empty (auto-detect) |
-| `jmeter.ai.terminal.claudecode.prompt` | Custom prompt for the terminal startup | Built-in default prompt |
 
 ### Chat UI Configuration
 

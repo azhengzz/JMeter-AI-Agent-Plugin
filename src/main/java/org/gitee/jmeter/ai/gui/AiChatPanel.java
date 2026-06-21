@@ -319,15 +319,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         });
 
-        // Add focus listener to store selected text when clicking in the chat box
-        // messageField.addFocusListener(new FocusAdapter() {
-        // @Override
-        // public void focusGained(FocusEvent e) {
-        // log.info("Message field gained focus, storing selected text");
-        // CodeCommandHandler.storeSelectedText();
-        // }
-        // });
-
         JScrollPane messageScrollPane = new JScrollPane(messageField);
         messageScrollPane.setBorder(BorderFactory.createEmptyBorder());
         inputPanel.add(messageScrollPane, BorderLayout.CENTER);
@@ -648,21 +639,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 "- `/help` — Show available commands\n\n" +
                 "How can I assist you today?";
 
-        // String welcomeMessage = "# Welcome to Gitee Ai - JMeter Agent\n\n" +
-        //         "I'm here to help you with your JMeter test plan. You can ask me questions about JMeter, " +
-        //         "request help with creating test elements, or get advice on optimizing your tests.\n\n" +
-        //         "**Slash commands:**\n" +
-        //         "- `/new` — Start a new conversation\n" +
-        //         "- `/status` — Show agent status\n" +
-        //         "- `/help` — Show available commands\n\n" +
-        //         "**Agent commands:**\n" +
-        //         "- Use `@this` to get information about the currently selected element\n" +
-        //         "- Use `@optimize` to get optimization suggestions for your test plan\n" +
-        //         "- Use `@lint` to rename elements in your test plan with meaningful names\n" +
-        //         "- Use `@wrap` to group HTTP request samplers under Transaction Controllers\n" +
-        //         "- Use `@usage` to view usage statistics for your AI interactions\n\n" +
-        //         "How can I assist you today?";
-
         try {
             messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, getThemeColor("TextPane.foreground", Color.BLACK), true);
         } catch (BadLocationException e) {
@@ -739,22 +715,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             messageProcessor.appendMessage(chatArea.getStyledDocument(), "AI is thinking...", getThemeColor("Label.disabledForeground", Color.GRAY), false);
         } catch (BadLocationException e) {
             log.error("Error adding loading indicator", e);
-        }
-
-        // Check for special commands that don't go through AgentLoop
-        if (message.trim().startsWith("@code")) {
-            // @code command is disabled - use right-click context menu instead
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "The @code command is disabled. Please use the right-click context menu in the JSR223 editor instead.",
-                        Color.RED, false);
-                removeLoadingIndicator();
-                setButtonToSendMode();
-                messageField.requestFocusInWindow();
-            } catch (BadLocationException e) {
-                log.error("Error displaying message", e);
-            }
-            return;
         }
 
         // Ensure AgentLoop is initialized
