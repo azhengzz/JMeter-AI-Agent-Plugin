@@ -106,13 +106,13 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
 | `variableloopcontroller` | Loop with configurable counter variable | [Variable Loop Controller](./references/controllers/VariableLoopController.md) | [Schema](./references/controllers/VariableLoopController.schema.yaml) |
 | `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
-| `parameterincludecontroller` | Include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
+| `parameterincludecontroller` | Paired with `parametertestfragmentcontroller` — include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
 
 ### Test Fragments
 | elementType | Description | Docs | Schema |
 |-------------|-------------|------|--------|
 | `testfragmentcontroller` | Non-executable container for reusable test modules referenced by Module/Include Controllers | [Test Fragment](./references/test-fragments/TestFragmentController.md) | [Schema](./references/test-fragments/TestFragmentController.schema.yaml) |
-| `parametertestfragmentcontroller` | Define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/test-fragments/ParameterTestFragmentController.schema.yaml) |
+| `parametertestfragmentcontroller` | Paired with `parameterincludecontroller` — define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/test-fragments/ParameterTestFragmentController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |

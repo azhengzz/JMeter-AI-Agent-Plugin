@@ -94,6 +94,10 @@ public class SchemaBasedPropertyHandler {
                     handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
                 } else if ("ParameterTestFragmentController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
                     handleParameterTestFragmentReturnValueProperty(element, propName, propValue);
+                } else if ("ParameterIncludeController.Arguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
+                } else if ("ParameterIncludeController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
+                    handleParameterIncludeControllerReturnValueProperty(element, propName, propValue);
                 } else if ("HTTPUDConfigElement.http_header_parameters_name".equals(propName) && propDef.hasItemProperties()) {
                     handleHttpudHeaderParametersProperty(element, propName, propValue);
                 } else if ("HTTPUDArgumentsGui.HTTPUDArguments".equals(propName) && propDef.hasItemProperties()) {
@@ -1074,6 +1078,57 @@ public class SchemaBasedPropertyHandler {
                 if (name == null) continue;
                 String desc = getStringValue(argProps, "Argument.desc", "");
                 org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, "", "=", desc);
+                args.addArgument(argument);
+            }
+        }
+
+        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
+        log.info("Set {} with {} arguments", propName, args.getArguments().size());
+    }
+
+    /**
+     * Handle ParameterIncludeController.ReturnValueArguments property.
+     * Creates ParameterIncludeControllerReturnValueArgument objects with name, value, desc.
+     * Wraps them in an Arguments TestElement via TestElementProperty so the GUI's
+     * configure() cast (Arguments) getObjectValue() succeeds.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleParameterIncludeControllerReturnValueProperty(TestElement element, String propName, Object propValue) {
+        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
+
+        try {
+            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterIncludeControllerReturnValueArgument");
+
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) {
+                    continue;
+                }
+
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+
+                Object arg = argClass
+                        .getConstructor(String.class, String.class, String.class)
+                        .newInstance(name, value, desc);
+
+                args.addArgument((org.apache.jmeter.config.Argument) arg);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create ParameterIncludeControllerReturnValueArgument, falling back to standard Argument", e);
+            for (Object argItem : convertToList(propValue)) {
+                if (!(argItem instanceof Map)) continue;
+                Map<String, Object> argProps = (Map<String, Object>) argItem;
+                String name = getStringValue(argProps, "Argument.name");
+                if (name == null) continue;
+                String value = getStringValue(argProps, "Argument.value", "");
+                String desc = getStringValue(argProps, "Argument.desc", "");
+                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
                 args.addArgument(argument);
             }
         }

@@ -13,11 +13,37 @@ When the controller executes, it:
 
 ## Parameters
 
+### Core
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| ParameterIncludeController.includepath | String | Yes | - | Path to the JMX file containing a Test Fragment (with Parameters) |
+| ParameterIncludeController.includepath | String | Yes | - | Path to the JMX file containing a ParameterTestFragmentController. Relative paths resolve against the JMeter base directory (FileServer). The first TestFragmentController found in the file is used. |
 
-**Note:** Input parameters (`Arguments`) and return value mappings (`ReturnValueArguments`) are automatically populated via the "Update Parameters" button in the GUI after setting the include path. They are synced from the referenced Test Fragment's definitions.
+### Input Parameters (`ParameterIncludeController.Arguments`)
+
+Array of `ParameterIncludeControllerArgument`. Before the fragment runs, each entry is written into the fragment's JMeterVariables, overriding the defaults declared on the ParameterTestFragmentController.
+
+| Sub-property | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| Argument.name | String | Yes | - | Parameter name. Must match an argument declared in the referenced ParameterTestFragmentController for required/notNull checks to apply. |
+| Argument.value | String | No | "" | Parameter value injected into the fragment scope. |
+| Argument.desc | String | No | - | Parameter description (display only). |
+| Argument.metadata | String | No | "=" | Metadata character (typically '='). |
+| ParameterIncludeControllerArgument.required | Boolean | No | false | Reserved for symmetry with the fragment argument; the required-check is driven by the ParameterTestFragmentController declaration, not by this flag on the Include side. |
+| ParameterIncludeControllerArgument.notNull | Boolean | No | false | Reserved for symmetry with the fragment argument; the notNull-check is driven by the ParameterTestFragmentController declaration, not by this flag on the Include side. |
+
+### Return Value Mappings (`ParameterIncludeController.ReturnValueArguments`)
+
+Array of `ParameterIncludeControllerReturnValueArgument`. After the fragment finishes, for each entry, the variable named by `Argument.name` is read from the fragment's JMeterVariables and re-published into the outer scope under `Argument.value`. If `Argument.value` is empty, that return value is skipped.
+
+| Sub-property | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| Argument.name | String | Yes | - | Source variable name produced inside the fragment scope. |
+| Argument.value | String | No | "" | Target variable name to set in the outer JMeterVariables. Empty value means the return value is not exported. |
+| Argument.desc | String | No | - | Return value description (display only). |
+| Argument.metadata | String | No | "=" | Metadata character (typically '='). |
+
+**Note:** Input parameters and return value mappings are auto-populated via the GUI "Update Parameters" button after the include path is set. The synced table can then be edited to supply actual values and rename return variables.
 
 ## Usage Examples
 
