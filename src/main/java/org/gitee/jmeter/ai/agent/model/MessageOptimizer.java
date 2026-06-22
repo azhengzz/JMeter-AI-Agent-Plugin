@@ -1,11 +1,12 @@
 package org.gitee.jmeter.ai.agent.model;
 
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
+
 /**
  * Utility for optimizing messages before persistence.
  * Based on Nanobot's session persistence optimizations.
  */
 public class MessageOptimizer {
-    private static final int TOOL_RESULT_MAX_CHARS = 16000;
     private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context";
 
     /**
@@ -29,14 +30,16 @@ public class MessageOptimizer {
             content = removeRuntimeContext(content);
         }
 
+        int maxChars = AgentConfig.getInstance().getToolResultMaxChars();
+
         // Handle tool result messages - truncate large results
-        if (role == Message.Role.TOOL && content.length() > TOOL_RESULT_MAX_CHARS) {
-            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n...(truncated)";
+        if (role == Message.Role.TOOL && content.length() > maxChars) {
+            content = content.substring(0, maxChars) + "\n...(truncated)";
         }
 
         // Handle assistant messages - truncate if needed
-        if (role == Message.Role.ASSISTANT && content.length() > TOOL_RESULT_MAX_CHARS) {
-            content = content.substring(0, TOOL_RESULT_MAX_CHARS) + "\n...(truncated)";
+        if (role == Message.Role.ASSISTANT && content.length() > maxChars) {
+            content = content.substring(0, maxChars) + "\n...(truncated)";
         }
 
         return content;

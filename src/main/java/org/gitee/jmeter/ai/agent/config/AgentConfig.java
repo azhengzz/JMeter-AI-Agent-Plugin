@@ -22,6 +22,7 @@ public class AgentConfig {
     private final int contextWindowTokens;
     private final int toolResultMaxChars;
     private final int maxHistorySize;
+    private final int maxStringLength;
 
     // Memory Configuration
     private final boolean memoryEnabled;
@@ -47,6 +48,7 @@ public class AgentConfig {
         this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
         this.toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
         this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.history.size", "120"));
+        this.maxStringLength = Integer.parseInt(AiConfig.getProperty("jmeter.ai.tool.max.string.length", "2048"));
 
         // Memory Configuration
         this.memoryEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.memory.enabled", "true"));
@@ -104,6 +106,7 @@ public class AgentConfig {
         log.info("  maxIterations: {}", maxIterations);
         log.info("  contextWindowTokens: {}", contextWindowTokens);
         log.info("  maxHistorySize: {}", maxHistorySize);
+        log.info("  maxStringLength: {}", maxStringLength);
         log.info("  memoryEnabled: {}", memoryEnabled);
         log.info("  workspacePath: {}", workspacePath);
         log.info("  jmeterToolsEnabled: {}", jmeterToolsEnabled);
@@ -134,6 +137,10 @@ public class AgentConfig {
 
     public int getToolResultMaxChars() {
         return toolResultMaxChars;
+    }
+
+    public int getMaxStringLength() {
+        return maxStringLength;
     }
 
     public int getMaxHistorySize() {

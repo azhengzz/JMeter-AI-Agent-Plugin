@@ -4,6 +4,7 @@ import org.gitee.jmeter.ai.agent.memory.MemoryStore;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.skills.SkillsLoader;
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.selection.ElementInfo;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.selection.SelectionTracker;
@@ -316,8 +317,7 @@ public class ContextBuilder {
         }
 
         // Tool results should be limited to prevent token overflow
-        int maxChars = Integer.parseInt(System.getProperty(
-                "agent.tool.result.max.chars", "16000"));
+        int maxChars = AgentConfig.getInstance().getToolResultMaxChars();
 
         if (content.length() > maxChars) {
             return content.substring(0, maxChars) + "\n...(truncated)";
