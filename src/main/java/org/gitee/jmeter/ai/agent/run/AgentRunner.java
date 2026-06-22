@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.context.ContextWindowManager;
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.hooks.AgentHookContext;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
@@ -110,7 +111,7 @@ public class AgentRunner {
                     messages = new ArrayList<>(spec.getInitialMessages());
                 } else {
                     messages = contextBuilder.buildMessages(
-                        session.getHistory(0),
+                        session.getHistory(AgentConfig.getInstance().getMaxHistorySize()),
                         spec.getUserMessage(),
                         toolRegistry.getToolDefinitions()
                     );

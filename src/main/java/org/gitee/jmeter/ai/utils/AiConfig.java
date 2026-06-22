@@ -8,29 +8,6 @@ public class AiConfig {
     }
 
     /**
-     * Resolve a configuration value with three-tier fallback:
-     * 1. {providerPrefix}.{key}  (per-provider override)
-     * 2. jmeter.ai.{key}         (global default)
-     * 3. hardcoded default
-     */
-    public static String getPropertyWithFallback(String providerPrefix, String key, String defaultValue) {
-        // 1. Try per-provider override
-        String providerKey = providerPrefix + "." + key;
-        String value = JMeterUtils.getPropDefault(providerKey, null);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        // 2. Try global default
-        String globalKey = "jmeter.ai." + key;
-        value = JMeterUtils.getPropDefault(globalKey, null);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        // 3. Hardcoded default
-        return defaultValue;
-    }
-
-    /**
      * Get the default model from global configuration.
      */
     public static String getDefaultModel() {

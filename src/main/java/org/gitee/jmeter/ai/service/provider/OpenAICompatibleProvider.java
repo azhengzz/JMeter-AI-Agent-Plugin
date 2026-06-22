@@ -57,7 +57,6 @@ public class OpenAICompatibleProvider implements AiService {
     private final String apiKey;
     private final String baseUrl;
 
-    private final int maxHistorySize;
     private String currentModelId;
     private String systemPrompt;
     private GenerationSettings generationSettings;
@@ -89,8 +88,6 @@ public class OpenAICompatibleProvider implements AiService {
 
         this.client = clientBuilder.build();
 
-        // Initialize configuration with global defaults fallback
-        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback(providerName, "max.history.size", "10"));
         this.currentModelId = AiConfig.getDefaultModel();
         this.generationSettings = GenerationSettings.fromConfig();
         // Load system prompt using centralized utility
@@ -153,9 +150,8 @@ public class OpenAICompatibleProvider implements AiService {
         }
 
         // Process conversation history
-        List<String> limitedHistory = limitConversation(conversation);
-        for (int i = 0; i < limitedHistory.size(); i++) {
-            String msg = limitedHistory.get(i);
+        for (int i = 0; i < conversation.size(); i++) {
+            String msg = conversation.get(i);
             if (msg == null || msg.isEmpty()) continue;
 
             if (i % 2 == 0) {
@@ -205,9 +201,8 @@ public class OpenAICompatibleProvider implements AiService {
             }
 
             // Add conversation
-            List<String> limitedHistory = limitConversation(conversation);
-            for (int i = 0; i < limitedHistory.size(); i++) {
-                String msg = limitedHistory.get(i);
+            for (int i = 0; i < conversation.size(); i++) {
+                String msg = conversation.get(i);
                 if (msg == null || msg.isEmpty()) continue;
 
                 if (i % 2 == 0) {
@@ -806,13 +801,6 @@ public class OpenAICompatibleProvider implements AiService {
             }
         }
         return modelId;
-    }
-
-    private List<String> limitConversation(List<String> conversation) {
-        if (conversation.size() <= maxHistorySize) {
-            return new ArrayList<>(conversation);
-        }
-        return conversation.subList(conversation.size() - maxHistorySize, conversation.size());
     }
 
     /**

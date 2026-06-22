@@ -36,7 +36,6 @@ public class OpenAiService implements AiService {
     private OpenAIClient client;
     private boolean systemPromptInitialized = false;
 
-    private final int maxHistorySize;
     private String currentModelId;
     private String systemPrompt;
     private GenerationSettings generationSettings;
@@ -47,8 +46,6 @@ public class OpenAiService implements AiService {
     };
 
     public OpenAiService() {
-        // Use global defaults with per-provider override fallback
-        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("openai", "max.history.size", "10"));
         this.currentModelId = AiConfig.getDefaultModel();
         this.generationSettings = GenerationSettings.fromConfig();
 
@@ -282,13 +279,6 @@ public class OpenAiService implements AiService {
                 log.info("Using previously initialized conversation with system prompt");
             }
 
-            // Limit conversation history to last 10 messages to avoid token limits
-            List<String> limitedConversation = conversation;
-            if (conversation.size() > maxHistorySize) {
-                limitedConversation = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
-                log.info("Limiting conversation to last {} messages", limitedConversation.size());
-            }
-
             // Create a fresh builder for parameters following the working example
             ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
                     .maxCompletionTokens((long) generationSettings.getMaxTokens())
@@ -305,32 +295,23 @@ public class OpenAiService implements AiService {
             paramsBuilder.addSystemMessage(systemPrompt);
             log.info("Including system prompt in request (length: {})", systemPrompt.length());
 
-            // Limit conversation history to last maxHistorySize messages to avoid token limits
-            List<String> limitedHistory;
-            if (conversation.size() > maxHistorySize) {
-                limitedHistory = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
-                log.info("Limiting conversation to last {} messages", limitedHistory.size());
-            } else {
-                limitedHistory = new java.util.ArrayList<>(conversation);
-            }
-
             // Debug log the conversation array
-            log.info("Conversation size: {}", limitedHistory.size());
+            log.info("Conversation size: {}", conversation.size());
 
             // Log the conversation for debugging
-            for (int i = 0; i < limitedHistory.size(); i++) {
-                log.info("Message[{}]: {}", i, limitedHistory.get(i));
+            for (int i = 0; i < conversation.size(); i++) {
+                log.info("Message[{}]: {}", i, conversation.get(i));
             }
 
-            if (limitedHistory.isEmpty()) {
+            if (conversation.isEmpty()) {
                 log.warn("Conversation is empty, using default message");
                 paramsBuilder.addUserMessage("Hello, how can you help me with JMeter?");
             } else {
                 // Process the conversation history
                 // We'll assume the conversation alternates between user and assistant messages
                 // with the first message being from the user
-                for (int i = 0; i < limitedHistory.size(); i++) {
-                    String msg = limitedHistory.get(i);
+                for (int i = 0; i < conversation.size(); i++) {
+                    String msg = conversation.get(i);
                     if (msg == null || msg.isEmpty()) {
                         log.warn("Skipping empty message at position {}", i);
                         continue;
