@@ -2,16 +2,15 @@ package org.gitee.jmeter.ai.agent.tools.jmeter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.save.SaveService;
-import org.apache.jmeter.testelement.TestElement;
-import org.apache.jorphan.collections.HashTree;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
-import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
+import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JmxFileParser;
+import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JmxFileParser.ParsedJmxElement;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
+import org.xml.sax.SAXException;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +19,10 @@ import java.util.Map;
 /**
  * Tool to parse an external JMX script file and return its component tree
  * or query elements by properties. Does not require JMeter GUI to be open.
+ *
+ * <p>Uses {@link JmxFileParser} (pure DOM) instead of {@code SaveService.loadTree}
+ * to avoid triggering {@code ParameterIncludeController.loadIncludedElements}
+ * recursion which pollutes GUI state when invoked on a non-EDT thread.
  */
 public class ParseJmxFileTool extends AbstractTool {
 
@@ -109,53 +112,44 @@ public class ParseJmxFileTool extends AbstractTool {
             return ToolResult.error("File is not readable: " + file.getAbsolutePath());
         }
 
-        // Determine mode: tree or query
         String elementType = getStringParameter(parameters, "elementType", "");
         String propertyName = getStringParameter(parameters, "propertyName", "");
         String propertyValue = getStringParameter(parameters, "propertyValue", "");
         boolean hasFilter = !elementType.isEmpty() || !propertyName.isEmpty() || !propertyValue.isEmpty();
 
         try {
-            HashTree tree = SaveService.loadTree(file);
-
-            if (tree == null || tree.list().isEmpty()) {
+            ParsedJmxElement root = JmxFileParser.parse(file);
+            if (root == null) {
                 return ToolResult.error("JMX file contains no test plan: " + file.getAbsolutePath());
             }
 
-            JMeterTreeNode rootNode = JMeterTreeUtils.convertHashTreeToTreeNodes(tree);
-            if (rootNode == null) {
-                return ToolResult.error("JMX file contains no valid test plan: " + file.getAbsolutePath());
-            }
-
             if (hasFilter) {
-                return executeQuery(rootNode, elementType, propertyName, propertyValue, parameters);
+                return executeQuery(root, elementType, propertyName, propertyValue, parameters);
             } else {
-                return executeTreeMode(rootNode, parameters);
+                return executeTreeMode(root, parameters);
             }
-        } catch (JsonProcessingException e) {
-            log.error("Error serializing parsed JMX tree to JSON", e);
-            return ToolResult.error("Failed to serialize tree to JSON: " + e.getMessage());
+        } catch (SAXException | IOException e) {
+            log.error("Error parsing JMX file: {}", filePath, e);
+            return ToolResult.error("Failed to parse JMX file: " + e.getMessage());
         } catch (Exception e) {
             log.error("Error parsing JMX file: {}", filePath, e);
             return ToolResult.error("Failed to parse JMX file: " + e.getMessage());
         }
     }
 
-    private ToolResult executeTreeMode(JMeterTreeNode rootNode, Map<String, Object> parameters)
+    private ToolResult executeTreeMode(ParsedJmxElement root, Map<String, Object> parameters)
             throws JsonProcessingException {
         boolean includeProperties = getBooleanParameter(parameters, "includeProperties", true);
         int maxDepth = getIntParameter(parameters, "maxDepth", -1);
 
-        Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(
-                rootNode, includeProperties, maxDepth, 0);
-
-        removeElementIds(treeData);
+        Map<String, Object> treeData = buildTreeData(root, includeProperties, maxDepth, 0,
+                root.name == null ? "" : root.name);
 
         String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(treeData);
         return ToolResult.success(json);
     }
 
-    private ToolResult executeQuery(JMeterTreeNode rootNode, String elementType,
+    private ToolResult executeQuery(ParsedJmxElement root, String elementType,
                                      String propertyName, String propertyValue,
                                      Map<String, Object> parameters) throws JsonProcessingException {
         String matchMode = getStringParameter(parameters, "matchMode", "contains");
@@ -173,8 +167,7 @@ public class ParseJmxFileTool extends AbstractTool {
 
         boolean exact = "exact".equals(matchMode);
 
-        // Collect candidate nodes
-        List<JMeterTreeNode> candidates;
+        List<ParsedJmxElement> candidates;
         if (!elementType.isEmpty()) {
             String normalized = JMeterElementManager.normalizeElementType(elementType);
             JMeterElementManager.ElementClassInfo classInfo = JMeterElementManager.getElementClassMap().get(normalized);
@@ -185,33 +178,29 @@ public class ParseJmxFileTool extends AbstractTool {
             String modelClassName = classInfo.getModelClassName();
             String simpleClassName = modelClassName.substring(modelClassName.lastIndexOf('.') + 1);
             String guiClassName = classInfo.getGuiClassName();
-            candidates = JMeterTreeUtils.findNodesByTypeAndGui(rootNode, simpleClassName, guiClassName);
+            candidates = new ArrayList<>();
+            findElementsByType(root, simpleClassName, guiClassName, candidates);
         } else {
             candidates = new ArrayList<>();
-            JMeterTreeUtils.collectAllNodes(rootNode, candidates);
+            collectAllElements(root, candidates);
         }
 
-        // Match properties
         List<MatchedElement> matched = new ArrayList<>();
-        for (JMeterTreeNode node : candidates) {
-            TestElement element = node.getTestElement();
-            if (element == null) continue;
-
-            List<String> matchedProps = JMeterTreeUtils.matchProperties(element, propertyName, propertyValue, exact);
+        for (ParsedJmxElement el : candidates) {
+            List<String> matchedProps = matchProperties(el, propertyName, propertyValue, exact);
             if (!matchedProps.isEmpty()) {
-                matched.add(new MatchedElement(node, matchedProps));
+                matched.add(new MatchedElement(el, matchedProps));
             }
         }
 
-        // Paginate
         int total = matched.size();
         int fromIndex = Math.min(offset, total);
         int toIndex = Math.min(fromIndex + limit, total);
 
         List<Map<String, Object>> elements = new ArrayList<>();
         for (MatchedElement me : matched.subList(fromIndex, toIndex)) {
-            Map<String, Object> treeData = JMeterTreeUtils.buildTreeData(me.node, includeProperties, maxDepth, 0);
-            treeData.remove("elementId");
+            String path = me.element.name == null ? "" : me.element.name;
+            Map<String, Object> treeData = buildTreeData(me.element, includeProperties, maxDepth, 0, path);
             treeData.put("matchedProperties", me.matchedProps);
             elements.add(treeData);
         }
@@ -226,25 +215,155 @@ public class ParseJmxFileTool extends AbstractTool {
         return ToolResult.success(json);
     }
 
+    private static Map<String, Object> buildTreeData(ParsedJmxElement el, boolean includeProperties,
+                                                      int maxDepth, int currentDepth, String path) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("depth", currentDepth);
+        data.put("elementType", el.elementType);
+        data.put("name", el.name);
+        data.put("enabled", el.enabled);
+        if (includeProperties && el.properties != null && !el.properties.isEmpty()) {
+            data.put("properties", el.properties);
+        }
+        data.put("path", path);
+
+        int childCount = el.children == null ? 0 : el.children.size();
+        data.put("childCount", childCount);
+
+        if (childCount > 0 && (maxDepth < 0 || currentDepth < maxDepth)) {
+            List<Map<String, Object>> childrenList = new ArrayList<>(childCount);
+            for (ParsedJmxElement child : el.children) {
+                String childName = child.name == null ? "" : child.name;
+                String childPath = path.isEmpty() ? childName : path + " > " + childName;
+                childrenList.add(buildTreeData(child, includeProperties, maxDepth, currentDepth + 1, childPath));
+            }
+            data.put("children", childrenList);
+        } else if (childCount > 0) {
+            data.put("hasMoreChildren", true);
+        }
+
+        return data;
+    }
+
+    private static void collectAllElements(ParsedJmxElement el, List<ParsedJmxElement> result) {
+        result.add(el);
+        if (el.children != null) {
+            for (ParsedJmxElement child : el.children) {
+                collectAllElements(child, result);
+            }
+        }
+    }
+
+    private static void findElementsByType(ParsedJmxElement el, String simpleClassName,
+                                            String guiClassName, List<ParsedJmxElement> result) {
+        if (simpleClassName.equals(el.elementType)
+                && (guiClassName == null || guiClassName.equals(el.guiClass))) {
+            result.add(el);
+        }
+        if (el.children != null) {
+            for (ParsedJmxElement child : el.children) {
+                findElementsByType(child, simpleClassName, guiClassName, result);
+            }
+        }
+    }
+
+    private static List<String> matchProperties(ParsedJmxElement el, String nameQuery,
+                                                 String valueQuery, boolean exact) {
+        List<String> matches = new ArrayList<>();
+
+        if (el.name != null && matchesCriteria("name", el.name, nameQuery, valueQuery, exact)) {
+            matches.add("name");
+        }
+
+        String comment = extractComment(el.properties);
+        if (comment != null && !comment.isEmpty()
+                && matchesCriteria("comment", comment, nameQuery, valueQuery, exact)) {
+            matches.add("comment");
+        }
+
+        if (el.properties != null) {
+            matchPropertyMap(el.properties, "", nameQuery, valueQuery, exact, matches);
+        }
+
+        return matches;
+    }
+
     @SuppressWarnings("unchecked")
-    private static void removeElementIds(Map<String, Object> node) {
-        node.remove("elementId");
-        Object children = node.get("children");
-        if (children instanceof Iterable<?>) {
-            for (Object child : (Iterable<Object>) children) {
-                if (child instanceof Map) {
-                    removeElementIds((Map<String, Object>) child);
+    private static void matchPropertyMap(Map<String, Object> props, String parentPath,
+                                          String nameQuery, String valueQuery, boolean exact,
+                                          List<String> matches) {
+        for (Map.Entry<String, Object> entry : props.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("TestElement.")) {
+                continue;
+            }
+            Object value = entry.getValue();
+            String path = parentPath.isEmpty() ? key : parentPath + "." + key;
+
+            if (value instanceof Map) {
+                matchPropertyMap((Map<String, Object>) value, path, nameQuery, valueQuery, exact, matches);
+            } else if (value instanceof List) {
+                matchPropertyList((List<Object>) value, path, nameQuery, valueQuery, exact, matches);
+            } else {
+                String strValue = value == null ? null : value.toString();
+                if (matchesCriteria(path, strValue, nameQuery, valueQuery, exact)) {
+                    matches.add(path);
                 }
             }
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static void matchPropertyList(List<Object> items, String parentPath,
+                                           String nameQuery, String valueQuery, boolean exact,
+                                           List<String> matches) {
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            String itemPath = parentPath + "[" + i + "]";
+            if (item instanceof Map) {
+                matchPropertyMap((Map<String, Object>) item, itemPath, nameQuery, valueQuery, exact, matches);
+            } else {
+                String strValue = item == null ? null : item.toString();
+                if (matchesCriteria(itemPath, strValue, nameQuery, valueQuery, exact)) {
+                    matches.add(itemPath);
+                }
+            }
+        }
+    }
+
+    private static String extractComment(Map<String, Object> properties) {
+        if (properties == null) {
+            return null;
+        }
+        Object teComment = properties.get("TestElement.comments");
+        if (teComment instanceof String) {
+            return (String) teComment;
+        }
+        Object tpComment = properties.get("TestPlan.comments");
+        if (tpComment instanceof String) {
+            return (String) tpComment;
+        }
+        return null;
+    }
+
+    private static boolean matchesCriteria(String propName, String propValue,
+                                            String nameQuery, String valueQuery, boolean exact) {
+        boolean nameMatch = nameQuery.isEmpty() || propName.equals(nameQuery);
+        boolean valueMatch = valueQuery.isEmpty() ||
+                (propValue != null && matchText(propValue, valueQuery, exact));
+        return nameMatch && valueMatch;
+    }
+
+    private static boolean matchText(String text, String query, boolean exact) {
+        return exact ? text.equals(query) : text.contains(query);
+    }
+
     private static class MatchedElement {
-        final JMeterTreeNode node;
+        final ParsedJmxElement element;
         final List<String> matchedProps;
 
-        MatchedElement(JMeterTreeNode node, List<String> matchedProps) {
-            this.node = node;
+        MatchedElement(ParsedJmxElement element, List<String> matchedProps) {
+            this.element = element;
             this.matchedProps = matchedProps;
         }
     }
