@@ -347,6 +347,13 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 - **Security:** Do not share sensitive information (credentials, proprietary code) in conversations.
 - **Performance Impact:** Some AI-suggested configurations may affect test performance. Monitor resource usage.
 
+## Acknowledgements
+
+This project drew inspiration and implementation references from the following open-source projects:
+
+- [nanobot](https://github.com/HKUDS/nanobot) — Reference for Agent design and implementation
+- [jmeter-ai](https://github.com/QAInsights/jmeter-ai) — Design inspiration reference
+
 ## License
 
-Apache License 2.0
+MIT License

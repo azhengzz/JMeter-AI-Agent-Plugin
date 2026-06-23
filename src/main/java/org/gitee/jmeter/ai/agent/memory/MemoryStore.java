@@ -78,8 +78,9 @@ public class MemoryStore {
      */
     public void writeLongTermMemory(String content) {
         try {
-            Files.writeString(memoryFile, content != null ? content : "", StandardCharsets.UTF_8);
-            log.info("Updated long-term memory: {} characters", content != null ? content.length() : 0);
+            String safe = sanitizeForUtf8(content != null ? content : "");
+            Files.writeString(memoryFile, safe, StandardCharsets.UTF_8);
+            log.info("Updated long-term memory: {} characters", safe.length());
         } catch (IOException e) {
             log.error("Error writing memory file", e);
         }
@@ -91,13 +92,40 @@ public class MemoryStore {
      */
     public void appendHistory(String entry) {
         try {
-            String formattedEntry = entry + "\n\n";
+            String formattedEntry = sanitizeForUtf8(entry) + "\n\n";
             Files.writeString(historyFile, formattedEntry, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.debug("Appended to history: {} characters", formattedEntry.length());
         } catch (IOException e) {
             log.error("Error appending to history file", e);
         }
+    }
+
+    /**
+     * Strip isolated UTF-16 surrogate chars that would make Files.writeString throw.
+     * JDK's Files.writeString(path, str, UTF_8) routes through String.getBytesNoRepl(),
+     * which throws UnmappableCharacterException on half surrogate pairs (common in
+     * corrupted LLM output) instead of replacing them.
+     */
+    private static String sanitizeForUtf8(String s) {
+        if (s == null || s.isEmpty()) return s;
+        int len = s.length();
+        StringBuilder sb = new StringBuilder(len);
+        int i = 0;
+        while (i < len) {
+            char c = s.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < len && Character.isLowSurrogate(s.charAt(i + 1))) {
+                sb.append(c).append(s.charAt(i + 1));
+                i += 2;
+            } else if (Character.isSurrogate(c)) {
+                // isolated high/low surrogate — drop
+                i++;
+            } else {
+                sb.append(c);
+                i++;
+            }
+        }
+        return sb.toString();
     }
 
     /**

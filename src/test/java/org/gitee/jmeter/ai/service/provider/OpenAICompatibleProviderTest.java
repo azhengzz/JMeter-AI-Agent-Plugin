@@ -48,8 +48,6 @@ class OpenAICompatibleProviderTest {
         aiConfigMock.when(() -> AiConfig.getProperty("MINIMAX_API_KEY", "")).thenReturn("");
         aiConfigMock.when(() -> AiConfig.getProperty("minimax.api.base.url", "https://api.minimaxi.chat/v1"))
                 .thenReturn("https://api.minimaxi.chat/v1");
-        aiConfigMock.when(() -> AiConfig.getPropertyWithFallback("minimax", "max.history.size", "10"))
-                .thenReturn("10");
         aiConfigMock.when(() -> AiConfig.getDefaultModel()).thenReturn("minimax:MiniMax-M2.7");
         aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.temperature", "0.7")).thenReturn("0.7");
         aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.max.tokens", "4096")).thenReturn("4096");

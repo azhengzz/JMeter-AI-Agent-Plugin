@@ -25,7 +25,6 @@ public class OllamaAiService implements AiService {
     private final Ollama ollamaClient;
     private String model;
     private final String host;
-    private final int maxHistorySize;
     private final boolean isThinkingModeEnabled;
     private final ThinkMode thinkingMode;
     private final long requestTimeoutSeconds;
@@ -39,7 +38,6 @@ public class OllamaAiService implements AiService {
 
         this.model = AiConfig.getDefaultModel();
         this.generationSettings = GenerationSettings.fromConfig();
-        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("ollama", "max.history.size", "10"));
         this.isThinkingModeEnabled = AiConfig.getProperty("ollama.thinking.mode", "DISABLED").equalsIgnoreCase("enabled");
 
         // Resolve thinking level: per-provider override > global reasoning.effort > hardcoded default
@@ -197,15 +195,8 @@ public class OllamaAiService implements AiService {
                 request.withMessage(OllamaChatMessageRole.SYSTEM, SystemPrompt.getDefault());
             }
 
-            List<String> limitedHistory;
-            if (messages.size() > maxHistorySize) {
-                limitedHistory = messages.subList(messages.size() - maxHistorySize, messages.size());
-            } else {
-                limitedHistory = new ArrayList<>(messages);
-            }
-
-            for (int i = 0; i < limitedHistory.size(); i++) {
-                String msg = limitedHistory.get(i);
+            for (int i = 0; i < messages.size(); i++) {
+                String msg = messages.get(i);
                 if (msg == null || msg.isEmpty()) continue;
                 if (i % 2 == 0) {
                     request.withMessage(OllamaChatMessageRole.USER, msg);

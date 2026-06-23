@@ -8,6 +8,7 @@ import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jorphan.collections.HashTree;
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 
 import javax.swing.tree.TreePath;
@@ -21,12 +22,6 @@ import java.util.Map;
  * Provides common methods for building tree data structures and querying elements.
  */
 public class JMeterTreeUtils {
-
-    // 最大属性数量
-    private static final int DEFAULT_MAX_PROPERTIES = 500;
-    // 属性值最大长度
-    private static final int DEFAULT_MAX_STRING_LENGTH = 2000;
-    private static final int MAX_NESTED_DEPTH = 3;
 
     private JMeterTreeUtils() {
         // Utility class - prevent instantiation
@@ -43,8 +38,7 @@ public class JMeterTreeUtils {
      */
     public static Map<String, Object> buildTreeData(JMeterTreeNode node, boolean includeProperties,
                                                       int maxDepth, int currentDepth) {
-        return buildTreeData(node, includeProperties, maxDepth, currentDepth,
-                DEFAULT_MAX_PROPERTIES, DEFAULT_MAX_STRING_LENGTH);
+        return buildTreeData(node, includeProperties, maxDepth, currentDepth, AgentConfig.getInstance().getMaxStringLength());
     }
 
     /**
@@ -54,13 +48,11 @@ public class JMeterTreeUtils {
      * @param includeProperties Whether to include element properties
      * @param maxDepth Maximum depth to traverse (-1 for unlimited, 0 for current node only, 1 for first-level children)
      * @param currentDepth Current depth level
-     * @param maxProperties Maximum number of properties to include per element
      * @param maxLength Maximum string length for property values
      * @return Map containing node data
      */
     public static Map<String, Object> buildTreeData(JMeterTreeNode node, boolean includeProperties,
-                                                      int maxDepth, int currentDepth,
-                                                      int maxProperties, int maxLength) {
+                                                      int maxDepth, int currentDepth, int maxLength) {
         Map<String, Object> data = new LinkedHashMap<>();
 
         // Node basic info
@@ -77,7 +69,7 @@ public class JMeterTreeUtils {
 
             // Properties
             if (includeProperties) {
-                data.put("properties", buildPropertiesData(element, maxProperties, maxLength));
+                data.put("properties", buildPropertiesData(element, maxLength));
             }
         } else {
             data.put("elementType", "null");
@@ -95,8 +87,7 @@ public class JMeterTreeUtils {
             List<Map<String, Object>> childrenList = new ArrayList<>(childCount);
             for (int i = 0; i < childCount; i++) {
                 JMeterTreeNode child = (JMeterTreeNode) node.getChildAt(i);
-                childrenList.add(buildTreeData(child, includeProperties, maxDepth, currentDepth + 1,
-                        maxProperties, maxLength));
+                childrenList.add(buildTreeData(child, includeProperties, maxDepth, currentDepth + 1, maxLength));
             }
             data.put("children", childrenList);
         } else if (childCount > 0) {
@@ -157,36 +148,21 @@ public class JMeterTreeUtils {
      * @return Map of property names to values
      */
     public static Map<String, Object> buildPropertiesData(TestElement element) {
-        return buildPropertiesData(element, DEFAULT_MAX_PROPERTIES, DEFAULT_MAX_STRING_LENGTH, 0);
-    }
-
-    /**
-     * Build data structure for element properties.
-     *
-     * @param element The test element
-     * @param maxProperties Maximum number of properties to include
-     * @param maxLength Maximum string length for property values
-     * @return Map of property names to values (can be String or nested Map for ObjectProperty)
-     */
-    public static Map<String, Object> buildPropertiesData(TestElement element, int maxProperties, int maxLength) {
-        return buildPropertiesData(element, maxProperties, maxLength, 0);
+        return buildPropertiesData(element, AgentConfig.getInstance().getMaxStringLength());
     }
 
     /**
      * Build data structure for element properties with nested object support.
      *
      * @param element The test element
-     * @param maxProperties Maximum number of properties to include
      * @param maxLength Maximum string length for property values
-     * @param nestedDepth Current nested depth (for preventing infinite recursion)
      * @return Map of property names to values (can be String or nested Map for ObjectProperty)
      */
-    private static Map<String, Object> buildPropertiesData(TestElement element, int maxProperties, int maxLength, int nestedDepth) {
+    public static Map<String, Object> buildPropertiesData(TestElement element, int maxLength) {
         Map<String, Object> props = new LinkedHashMap<>();
         PropertyIterator propIterator = element.propertyIterator();
-        int count = 0;
 
-        while (propIterator.hasNext() && count < maxProperties) {
+        while (propIterator.hasNext()) {
             JMeterProperty prop = propIterator.next();
             String propName = prop.getName();
 
@@ -195,48 +171,30 @@ public class JMeterTreeUtils {
                 if (prop instanceof TestElementProperty) {
                     // Handle nested TestElement properties
                     TestElement nestedElement = ((TestElementProperty) prop).getElement();
-                    if (nestedElement != null && nestedDepth < MAX_NESTED_DEPTH) {
+                    if (nestedElement != null) {
                         // Try to extract collection items (e.g., Arguments, HTTPFileArgs)
                         List<Map<String, Object>> collectionItems = extractCollectionItems(nestedElement, maxLength);
                         if (collectionItems != null) {
                             // Output array directly (matches create/update input format)
                             props.put(propName, collectionItems);
-                            count++;
                         } else {
                             // Output nested properties as flat map (e.g., LoopController)
-                            Map<String, Object> nestedProps = buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1);
+                            Map<String, Object> nestedProps = buildPropertiesData(nestedElement, maxLength);
                             props.put(propName, nestedProps);
-                            count++;
                         }
-                        // --- Original logic (kept for reference) ---
-                        // Map<String, Object> nestedProps = new LinkedHashMap<>();
-                        // nestedProps.put("__type", nestedElement.getClass().getSimpleName());
-                        // nestedProps.put("__nestedProperties", buildPropertiesData(nestedElement, maxProperties, maxLength, nestedDepth + 1));
-                        // props.put(propName, nestedProps);
-                    } else if (nestedElement != null) {
-                        // Max depth reached, use string representation
-                        String propValue = nestedElement.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(nestedElement));
-                        props.put(propName, propValue);
-                        count++;
                     }
                 } else if (prop instanceof CollectionProperty) {
                     List<Map<String, Object>> items = convertCollectionToList((CollectionProperty) prop, maxLength);
                     if (items != null && !items.isEmpty()) {
                         props.put(propName, items);
-                        count++;
                     }
                 } else {
                     String propValue = prop.getStringValue();
                     if (propValue != null && !propValue.isEmpty()) {
                         props.put(propName, truncate(propValue, maxLength));
-                        count++;
                     }
                 }
             }
-        }
-
-        if (count >= maxProperties && propIterator.hasNext()) {
-            props.put("...", maxProperties + "+ properties");
         }
 
         return props;
@@ -660,10 +618,10 @@ public class JMeterTreeUtils {
             if (prop instanceof TestElementProperty) {
                 TestElement nestedElement = ((TestElementProperty) prop).getElement();
                 if (nestedElement != null) {
-                    matchNestedProperties(nestedElement, propName, nameQuery, valueQuery, exact, 0, matches);
+                    matchNestedProperties(nestedElement, propName, nameQuery, valueQuery, exact, matches);
                 }
             } else if (prop instanceof CollectionProperty) {
-                matchCollectionItems((CollectionProperty) prop, propName, nameQuery, valueQuery, exact, 0, matches);
+                matchCollectionItems((CollectionProperty) prop, propName, nameQuery, valueQuery, exact, matches);
             } else {
                 String propValue = prop.getStringValue();
                 if (matchesCriteria(propName, propValue, nameQuery, valueQuery, exact)) {
@@ -676,9 +634,7 @@ public class JMeterTreeUtils {
 
     private static void matchNestedProperties(TestElement element, String parentPath,
                                                String nameQuery, String valueQuery, boolean exact,
-                                               int depth, List<String> matches) {
-        if (depth >= MAX_NESTED_DEPTH) return;
-
+                                               List<String> matches) {
         PropertyIterator iter = element.propertyIterator();
         while (iter.hasNext()) {
             JMeterProperty prop = iter.next();
@@ -690,10 +646,10 @@ public class JMeterTreeUtils {
             if (prop instanceof TestElementProperty) {
                 TestElement nestedElement = ((TestElementProperty) prop).getElement();
                 if (nestedElement != null) {
-                    matchNestedProperties(nestedElement, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
+                    matchNestedProperties(nestedElement, fullPath, nameQuery, valueQuery, exact, matches);
                 }
             } else if (prop instanceof CollectionProperty) {
-                matchCollectionItems((CollectionProperty) prop, fullPath, nameQuery, valueQuery, exact, depth + 1, matches);
+                matchCollectionItems((CollectionProperty) prop, fullPath, nameQuery, valueQuery, exact, matches);
             } else {
                 String propValue = prop.getStringValue();
                 if (matchesCriteria(fullPath, propValue, nameQuery, valueQuery, exact)) {
@@ -705,9 +661,7 @@ public class JMeterTreeUtils {
 
     private static void matchCollectionItems(CollectionProperty collProp, String parentPath,
                                               String nameQuery, String valueQuery, boolean exact,
-                                              int depth, List<String> matches) {
-        if (depth >= MAX_NESTED_DEPTH) return;
-
+                                              List<String> matches) {
         PropertyIterator iter = collProp.iterator();
         int index = 0;
         while (iter.hasNext()) {
@@ -724,7 +678,7 @@ public class JMeterTreeUtils {
                             matches.add(namePath);
                         }
                     }
-                    matchNestedProperties(itemElement, itemPath, nameQuery, valueQuery, exact, depth + 1, matches);
+                    matchNestedProperties(itemElement, itemPath, nameQuery, valueQuery, exact, matches);
                 }
             } else {
                 String itemValue = item.getStringValue();

@@ -5,6 +5,7 @@ import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
+import java.net.URI;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +50,7 @@ import org.slf4j.LoggerFactory;
 public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static final Logger log = LoggerFactory.getLogger(AiChatPanel.class);
     private static final String CHAT_SESSION_KEY = "jmeter-ai-chat";
+    private static final String REPO_URL = "https://github.com/azhengzz/JMeter-Agent";
 
     // UI components (kept for backward compatibility)
     private JTextPane chatArea;
@@ -420,7 +422,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Add a title to the left side of the header panel
         JLabel titleLabel = new JLabel("Gitee Ai - JMeter Agent v" + VersionUtils.getVersion());
         titleLabel.setFont(new Font(titleLabel.getFont().getName(), Font.BOLD, 14));
-        headerPanel.add(titleLabel, BorderLayout.WEST);
+
+        // Title + Star link grouped on the left so the star sits right of the version.
+        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        titlePanel.setOpaque(false);
+        titlePanel.add(titleLabel);
+        titlePanel.add(createStarLinkButton());
+        headerPanel.add(titlePanel, BorderLayout.WEST);
 
         // Create the "New Chat" button with a plus icon
         JButton newChatButton = new JButton("+");
@@ -440,6 +448,37 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         headerPanel.add(newChatButton, BorderLayout.EAST);
 
         return headerPanel;
+    }
+
+    /**
+     * Build the "⭐ Star" hyperlink-style button that opens the project repo.
+     * Rendered as an inline link: no border, no fill, blue text, hand cursor.
+     */
+    private static JButton createStarLinkButton() {
+        JButton starButton = new JButton("⭐ Star");
+        starButton.setBorderPainted(false);
+        starButton.setContentAreaFilled(false);
+        starButton.setFocusPainted(false);
+        starButton.setOpaque(false);
+        starButton.setMargin(new Insets(0, 2, 0, 2));
+        starButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        starButton.setForeground(new Color(9, 105, 218));
+        starButton.setFont(new Font(starButton.getFont().getName(), Font.PLAIN, 13));
+        starButton.setToolTipText("Star the project on GitHub");
+        starButton.addActionListener(e -> openRepoUrl());
+        return starButton;
+    }
+
+    private static void openRepoUrl() {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(REPO_URL));
+            } else {
+                log.warn("Desktop browsing is not supported on this platform");
+            }
+        } catch (Exception ex) {
+            log.error("Failed to open repo URL: {}", REPO_URL, ex);
+        }
     }
 
     /**

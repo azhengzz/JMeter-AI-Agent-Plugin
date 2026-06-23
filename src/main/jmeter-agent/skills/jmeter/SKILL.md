@@ -27,6 +27,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`)
   - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`)
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
+  - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` for quick validation)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
@@ -105,13 +106,13 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
 | `variableloopcontroller` | Loop with configurable counter variable | [Variable Loop Controller](./references/controllers/VariableLoopController.md) | [Schema](./references/controllers/VariableLoopController.schema.yaml) |
 | `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
-| `parameterincludecontroller` | Include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
+| `parameterincludecontroller` | Paired with `parametertestfragmentcontroller` — include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
 
 ### Test Fragments
 | elementType | Description | Docs | Schema |
 |-------------|-------------|------|--------|
 | `testfragmentcontroller` | Non-executable container for reusable test modules referenced by Module/Include Controllers | [Test Fragment](./references/test-fragments/TestFragmentController.md) | [Schema](./references/test-fragments/TestFragmentController.schema.yaml) |
-| `parametertestfragmentcontroller` | Define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/test-fragments/ParameterTestFragmentController.schema.yaml) |
+| `parametertestfragmentcontroller` | Paired with `parameterincludecontroller` — define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/test-fragments/ParameterTestFragmentController.schema.yaml) |
 
 ### Configuration Elements
 | elementType | Description | Docs | Schema |

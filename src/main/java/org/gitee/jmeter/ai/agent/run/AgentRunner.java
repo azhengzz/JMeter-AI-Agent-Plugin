@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.context.ContextWindowManager;
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.hooks.AgentHookContext;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
@@ -110,7 +111,7 @@ public class AgentRunner {
                     messages = new ArrayList<>(spec.getInitialMessages());
                 } else {
                     messages = contextBuilder.buildMessages(
-                        session.getHistory(0),
+                        session.getHistory(AgentConfig.getInstance().getMaxHistorySize()),
                         spec.getUserMessage(),
                         toolRegistry.getToolDefinitions()
                     );
@@ -593,18 +594,28 @@ public class AgentRunner {
             String optimizedContent = MessageOptimizer.optimizeContent(
                 msg.getRole(), msg.getContent(), msg.hasToolCalls());
 
-            if (optimizedContent != null) {
-                // Create optimized message (with same properties but modified content)
-                Message optimizedMsg = Message.builder()
-                    .role(msg.getRole())
-                    .content(optimizedContent)
-                    .toolCalls(msg.getToolCalls())
-                    .toolCallId(msg.getToolCallId())
-                    .reasoningContent(msg.getReasoningContent())
-                    .metadata(msg.getMetadata())
-                    .build();
-                session.addMessage(optimizedMsg);
+            if (optimizedContent == null) {
+                continue;
             }
+
+            // Strip runtime-context block from user messages so jsonl stores only the
+            // real user input. Mirrors Nanobot _save_turn: tag-based slice + skip if empty.
+            if (msg.getRole() == Message.Role.USER) {
+                optimizedContent = ContextBuilder.stripRuntimeContext(optimizedContent);
+                if (optimizedContent.isEmpty()) {
+                    continue;
+                }
+            }
+
+            Message optimizedMsg = Message.builder()
+                .role(msg.getRole())
+                .content(optimizedContent)
+                .toolCalls(msg.getToolCalls())
+                .toolCallId(msg.getToolCallId())
+                .reasoningContent(msg.getReasoningContent())
+                .metadata(msg.getMetadata())
+                .build();
+            session.addMessage(optimizedMsg);
         }
         sessionManager.saveSession(session);
     }

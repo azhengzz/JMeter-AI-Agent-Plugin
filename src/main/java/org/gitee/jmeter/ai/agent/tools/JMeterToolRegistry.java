@@ -41,6 +41,7 @@ public class JMeterToolRegistry {
         registry.register(new CopyPasteJMeterElementTool());
         registry.register(new ToggleJMeterElementTool());
         registry.register(new QueryElementPropertiesTool());
+        registry.register(new GetLogPanelContentTool());
 
         // Register test execution tools
         registry.register(new RunTestTool());

@@ -24,7 +24,6 @@ import org.gitee.jmeter.ai.usage.AnthropicUsage;
  */
 public class ClaudeService implements AiService {
     private static final Logger log = LoggerFactory.getLogger(ClaudeService.class);
-    private final int maxHistorySize;
     private String currentModelId;
     private final AnthropicClient client;
     private String systemPrompt;
@@ -32,8 +31,6 @@ public class ClaudeService implements AiService {
     private GenerationSettings generationSettings;
 
     public ClaudeService() {
-        this.maxHistorySize = Integer.parseInt(AiConfig.getPropertyWithFallback("claude", "max.history.size", "10"));
-
         String API_KEY = AiConfig.getProperty("anthropic.api.key", "YOUR_API_KEY");
 
         String loggingLevel = AiConfig.getProperty("anthropic.log.level", "");
@@ -145,12 +142,6 @@ public class ClaudeService implements AiService {
                 log.info("Using previously initialized conversation with system prompt");
             }
 
-            List<String> limitedConversation = conversation;
-            if (conversation.size() > maxHistorySize) {
-                limitedConversation = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
-                log.info("Limiting conversation to last {} messages", limitedConversation.size());
-            }
-
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .maxTokens(maxTokens)
                     .model(currentModelId);
@@ -172,8 +163,8 @@ public class ClaudeService implements AiService {
                 log.info("Skipping system prompt to save tokens (already sent in previous messages)");
             }
 
-            for (int i = 0; i < limitedConversation.size(); i++) {
-                String msg = limitedConversation.get(i);
+            for (int i = 0; i < conversation.size(); i++) {
+                String msg = conversation.get(i);
                 if (i % 2 == 0) {
                     paramsBuilder.addUserMessage(msg);
                 } else {
@@ -184,7 +175,7 @@ public class ClaudeService implements AiService {
             MessageCreateParams params = paramsBuilder.build();
             log.info("Request parameters: maxTokens={}, temperature={}, model={}, messagesCount={}",
                     params.maxTokens(), params.temperature(), params.model(),
-                    limitedConversation.size());
+                    conversation.size());
 
             Message message = client.messages().create(params);
 
@@ -202,7 +193,7 @@ public class ClaudeService implements AiService {
                 }
             } catch (Exception e) {
                 log.warn("Could not extract real usage from response, using estimates: {}", e.getMessage());
-                inputTokens = estimateTokens(String.join(" ", limitedConversation));
+                inputTokens = estimateTokens(String.join(" ", conversation));
                 outputTokens = estimateTokens(responseText);
             }
 

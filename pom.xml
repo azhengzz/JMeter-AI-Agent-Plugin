@@ -6,13 +6,13 @@
 
     <groupId>org.gitee</groupId>
     <artifactId>jmeter-agent</artifactId>
-    <version>0.1.5</version>
+    <version>0.2.0</version>
     <name>jmeter-agent</name>
     <description>Gitee Ai - JMeter Agent for performance engineers</description>
     <licenses>
         <license>
-            <name>The Apache Software License, Version 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <name>The MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
             <distribution>repo</distribution>
         </license>
     </licenses>

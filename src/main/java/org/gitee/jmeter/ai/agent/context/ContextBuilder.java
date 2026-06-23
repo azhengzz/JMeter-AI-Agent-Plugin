@@ -1,9 +1,11 @@
 package org.gitee.jmeter.ai.agent.context;
 
+import org.apache.jmeter.gui.GuiPackage;
 import org.gitee.jmeter.ai.agent.memory.MemoryStore;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.skills.SkillsLoader;
+import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.selection.ElementInfo;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.selection.SelectionTracker;
@@ -28,6 +30,7 @@ public class ContextBuilder {
     private static final Logger log = LoggerFactory.getLogger(ContextBuilder.class);
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]";
+    private static final String RUNTIME_CONTEXT_END = "[/Runtime Context]";
 
     // Bootstrap files to load from workspace (similar to Nanobot's BOOTSTRAP_FILES)
     private static final String[] BOOTSTRAP_FILES = {
@@ -150,9 +153,10 @@ public class ContextBuilder {
 
         List<Message> messages = new ArrayList<>();
 
-        // Build runtime context and merge with user message
+        // User content first for prompt-cache stability; runtime context appended at the end.
+        // Persistence layer (AgentRunner.saveMessagesToSession) strips the runtime block before writing to jsonl.
         String runtimeContext = buildRuntimeContext(channel, chatId);
-        String mergedUserContent = runtimeContext + "\n\n" + currentMessage;
+        String mergedUserContent = currentMessage + "\n\n" + runtimeContext;
 
         // Build system prompt
         // String systemPrompt = buildSystemPromptWithTools(tools);
@@ -256,9 +260,43 @@ public class ContextBuilder {
             lines.append("\n").append("Chat ID: ").append(chatId);
         }
 
+        appendScriptInfo(lines);
         appendSelectionContext(lines);
 
+        lines.append("\n").append(RUNTIME_CONTEXT_END);
         return lines.toString();
+    }
+
+    /**
+     * Strip the runtime-context block appended at the end of a user message.
+     * Used by the persistence layer to keep jsonl clean and avoid stale context
+     * accumulation across turns. Mirrors Nanobot's {@code _save_turn} stripping logic.
+     */
+    public static String stripRuntimeContext(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        int tagPos = content.indexOf(RUNTIME_CONTEXT_TAG);
+        if (tagPos < 0) {
+            return content;
+        }
+        return content.substring(0, tagPos).strip();
+    }
+
+    /**
+     * 追加当前 JMeter 窗口打开的脚本文件完整路径。
+     * 仅在脚本已保存（testPlanFile 非空）时输出，未保存的新脚本不输出该行。
+     */
+    private void appendScriptInfo(StringBuilder lines) {
+        GuiPackage gp = GuiPackage.getInstance();
+        if (gp == null) {
+            return;
+        }
+        String testPlanFile = gp.getTestPlanFile();
+        if (testPlanFile == null || testPlanFile.isEmpty()) {
+            return;
+        }
+        lines.append("\n").append("Current Script: ").append(testPlanFile);
     }
 
     /**
@@ -277,18 +315,20 @@ public class ContextBuilder {
             return;
         }
 
+        lines.append("\n").append("Current Selection:");
+
         boolean isLogContext = snapshot.focusControl != null
                 && "LoggerPanel".equals(snapshot.focusControl.controlType);
 
         if (isLogContext) {
-            lines.append("\n").append("Selected: Log Panel");
+            lines.append("\n  ").append("Target: Log Panel");
         } else {
             String type = snapshot.elementType != null ? snapshot.elementType : "";
             String name = snapshot.element.getName();
             if (name == null) {
                 name = "";
             }
-            lines.append("\n").append("Selected Element: ")
+            lines.append("\n  ").append("Element: ")
                     .append("type=").append(type)
                     .append(", name=\"").append(name).append("\"")
                     .append(", id=").append(snapshot.elementId);
@@ -300,7 +340,7 @@ public class ContextBuilder {
             ElementInfo fc = snapshot.focusControl;
             String field = (fc.fieldName == null || fc.fieldName.isEmpty())
                     ? "(unlabeled field)" : fc.fieldName;
-            lines.append("\n").append("Focused Field: ").append(field);
+            lines.append("\n  ").append("Focused Field: ").append(field);
             if (fc.value != null && !fc.value.isEmpty()) {
                 lines.append(" = ").append(fc.value);
             }
@@ -316,8 +356,7 @@ public class ContextBuilder {
         }
 
         // Tool results should be limited to prevent token overflow
-        int maxChars = Integer.parseInt(System.getProperty(
-                "agent.tool.result.max.chars", "16000"));
+        int maxChars = AgentConfig.getInstance().getToolResultMaxChars();
 
         if (content.length() > maxChars) {
             return content.substring(0, maxChars) + "\n...(truncated)";
