@@ -50,7 +50,7 @@ import org.slf4j.LoggerFactory;
 public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static final Logger log = LoggerFactory.getLogger(AiChatPanel.class);
     private static final String CHAT_SESSION_KEY = "jmeter-ai-chat";
-    private static final String REPO_URL = "https://github.com/azhengzz/JMeter-Agent";
+    private static final String REPO_URL = "https://github.com/azhengzz/JMeter-AI-Agent-Plugin";
 
     // UI components (kept for backward compatibility)
     private JTextPane chatArea;
