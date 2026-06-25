@@ -19,14 +19,15 @@ properties:
     default: "5000"
     description: Queue size for batching samples before sending to backend
 
-  # Arguments object - contains backend-specific parameters
-  # Note: Arguments.arguments is an array format in JMeter
-  - name: Arguments.arguments
+  # BackendListener.ARGUMENTS constant = "arguments" (BackendListener.java:84)
+  - name: arguments
     type: Array
     required: true
     class: org.apache.jmeter.config.Arguments
-    description: Backend-specific configuration parameters
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     itemClass: org.apache.jmeter.config.Argument
+    description: Backend-specific configuration parameters
     itemProperties:
       - name: Argument.name
         type: String
@@ -44,4 +45,5 @@ properties:
         type: String
         required: false
         default: "="
+        setterOverride: setMetaData
         description: metadata always is '='

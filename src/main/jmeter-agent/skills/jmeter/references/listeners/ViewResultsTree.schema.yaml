@@ -27,8 +27,9 @@ properties:
   # Controls which data fields are saved to the results file
   - name: saveConfig
     type: Object
-    required: false
+    mountMode: ObjectProperty
     class: org.apache.jmeter.samplers.SampleSaveConfiguration
+    required: false
     description: Configuration for which fields to save in results (XML/CSV format)
     properties:
       - name: time
@@ -119,6 +120,7 @@ properties:
         type: Boolean
         required: false
         default: false
+        setterOverride: setAsXml
         description: Save in XML format (false = CSV)
 
       - name: fieldNames

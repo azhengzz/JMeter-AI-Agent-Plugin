@@ -11,6 +11,9 @@ properties:
 
   - name: HTTPUDArgumentsGui.HTTPUDArguments
     type: Array
+    class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: User-defined parameters to pass to the sampler, overriding defaults from the config element
     itemClass: com.gitee.qa.jmeter.protocol.httpud.util.HTTPUDArgument
@@ -28,6 +31,7 @@ properties:
       - name: Argument.desc
         type: String
         required: true
+        setterOverride: setDescription
         description: Parameter description (read-only, inherited from the referenced HTTP User Defined Element Configuration)
 
       - name: HTTPUDArgument.required

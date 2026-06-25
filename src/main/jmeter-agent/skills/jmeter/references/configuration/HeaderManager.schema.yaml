@@ -7,8 +7,10 @@ properties:
   - name: HeaderManager.headers
     type: Array
     class: org.apache.jmeter.protocol.http.control.HeaderManager
+    mountMode: self
+    containerAddMethod: add
     required: false
-    description: 
+    description:
     itemClass: org.apache.jmeter.protocol.http.control.Header
     itemProperties:
       - name: Header.name

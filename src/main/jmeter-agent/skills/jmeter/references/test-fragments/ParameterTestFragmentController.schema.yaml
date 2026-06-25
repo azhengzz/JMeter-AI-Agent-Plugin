@@ -7,6 +7,8 @@ properties:
   - name: ParameterTestFragmentController.arguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: Input parameter definitions with name, default value, description, required, and notNull flags.
     itemClass: com.gitee.qa.jmeter.control.util.ParameterIncludeControllerArgument
@@ -24,6 +26,7 @@ properties:
       - name: Argument.desc
         type: String
         required: false
+        setterOverride: setDescription
         description: Parameter description
 
       - name: ParameterIncludeControllerArgument.required
@@ -39,6 +42,8 @@ properties:
   - name: ParameterTestFragmentController.ReturnValueArguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: Return value definitions. Each item defines the variable name and description.
     itemClass: com.gitee.qa.jmeter.control.util.ParameterTestFragmentReturnValueArgument
@@ -51,4 +56,5 @@ properties:
       - name: Argument.desc
         type: String
         required: false
+        setterOverride: setDescription
         description: Description of the return value

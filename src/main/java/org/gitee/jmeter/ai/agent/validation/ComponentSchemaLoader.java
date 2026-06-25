@@ -210,6 +210,24 @@ public class ComponentSchemaLoader {
             // Parse inner item type for ARRAY_2D properties
             propDef.setInnerItemType(getStringValue(propData, "innerItemType"));
 
+            // Parse container-driven template fields.
+            // Note: "class" YAML key maps to className (shared between Object's nested-object and Array's container-items).
+            String mountModeStr = getStringValue(propData, "mountMode");
+            if (mountModeStr != null) {
+                propDef.setMountMode(mountModeStr);
+            }
+            propDef.setContainerAddMethod(getStringValue(propData, "containerAddMethod"));
+            propDef.setGuiClass(getStringValue(propData, "guiClass"));
+            propDef.setSetterOverride(getStringValue(propData, "setterOverride"));
+
+            // Schema validation: Array property with class (container) requires itemProperties
+            if (propDef.getClassName() != null
+                    && propDef.getType() == ComponentSchema.PropertyType.ARRAY
+                    && !propDef.hasItemProperties()) {
+                log.warn("Property '{}' declares class='{}' for Array but has no itemProperties — "
+                        + "container template requires item field definitions", propDef.getName(), propDef.getClassName());
+            }
+
             // Parse item properties for collection properties
             if (propData.containsKey("itemProperties")) {
                 Object itemPropsObj = propData.get("itemProperties");

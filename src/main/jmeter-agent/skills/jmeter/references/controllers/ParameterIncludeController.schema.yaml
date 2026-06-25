@@ -12,6 +12,8 @@ properties:
   - name: ParameterIncludeController.Arguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: Input parameters passed into the fragment. Before the fragment runs, each entry is written to JMeterVariables (overriding the fragment's defaults). Required and notNull flags declared on the matching ParameterTestFragmentController arguments are enforced against this set.
     itemClass: com.gitee.qa.jmeter.control.util.ParameterIncludeControllerArgument
@@ -30,12 +32,14 @@ properties:
       - name: Argument.desc
         type: String
         required: false
+        setterOverride: setDescription
         description: Parameter description (display only).
 
       - name: Argument.metadata
         type: String
         required: false
         default: "="
+        setterOverride: setMetaData
         description: Metadata character (typically '=').
 
       - name: ParameterIncludeControllerArgument.required
@@ -53,6 +57,8 @@ properties:
   - name: ParameterIncludeController.ReturnValueArguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: Return value mappings read from the fragment scope after execution. For each entry, the variable named by Argument.name is read from the fragment's JMeterVariables and re-published into the outer scope under Argument.value. If Argument.value is empty, that return value is skipped.
     itemClass: com.gitee.qa.jmeter.control.util.ParameterIncludeControllerReturnValueArgument
@@ -71,10 +77,12 @@ properties:
       - name: Argument.desc
         type: String
         required: false
+        setterOverride: setDescription
         description: Return value description (display only).
 
       - name: Argument.metadata
         type: String
         required: false
         default: "="
+        setterOverride: setMetaData
         description: Metadata character (typically '=').

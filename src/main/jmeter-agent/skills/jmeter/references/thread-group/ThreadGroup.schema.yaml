@@ -30,6 +30,9 @@ properties:
   - name: ThreadGroup.main_controller
     type: Object
     class: org.apache.jmeter.control.LoopController
+    mountMode: TestElementProperty
+    guiClass: org.apache.jmeter.control.gui.LoopControlPanel
+    setterOverride: setSamplerController
     required: true
     description: Main controller (LoopController) for this thread group
     properties:

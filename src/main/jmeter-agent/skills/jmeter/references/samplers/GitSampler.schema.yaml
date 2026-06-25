@@ -47,6 +47,10 @@ properties:
     type: Array
     required: false
     description: Action-specific key-value arguments
+    class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    itemClass: org.apache.jmeter.config.Argument
     itemProperties:
       - name: Argument.name
         type: String

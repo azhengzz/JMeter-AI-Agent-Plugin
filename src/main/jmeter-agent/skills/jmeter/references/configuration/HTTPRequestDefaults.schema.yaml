@@ -53,6 +53,8 @@ properties:
   - name: HTTPsampler.Arguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: HTTP request arguments/parameters as an array of HTTPArgument objects.
     itemClass: org.apache.jmeter.protocol.http.util.HTTPArgument
@@ -77,12 +79,14 @@ properties:
         type: Boolean
         required: false
         default: false
+        setterOverride: setAlwaysEncoded
         description: Whether to always encode the parameter
 
       - name: Argument.metadata
         type: String
         required: false
         default: "="
+        setterOverride: setMetaData
         description: Metadata character (typically '=')
 
       - name: HTTPArgument.content_type

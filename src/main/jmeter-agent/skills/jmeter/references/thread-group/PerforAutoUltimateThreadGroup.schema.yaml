@@ -14,7 +14,7 @@ properties:
     description: Behavior on sampler error
 
   - name: ultimatethreadgroupdata
-    type: Array
+    type: ARRAY_2D
     required: true
     description: Schedule rows, each row defines a thread batch with 5 fields
     itemProperties:
@@ -76,6 +76,9 @@ properties:
   - name: ThreadGroup.main_controller
     type: Object
     class: org.apache.jmeter.control.LoopController
+    mountMode: TestElementProperty
+    guiClass: org.apache.jmeter.control.gui.LoopControlPanel
+    setterOverride: setSamplerController
     required: true
     description: Main controller (LoopController) for this thread group
     properties:

@@ -92,13 +92,17 @@ properties:
   - name: HTTPsampler.Arguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
-    description: HTTP request query parameters. Supports parameter substitution via @{param_name}.
+    default: []
+    description: HTTP request query parameters. Supports parameter substitution via @{param_name}. MUST be provided when HTTPSampler.postBodyRaw=true (raw body lives as a single Argument with empty name).
     itemClass: org.apache.jmeter.protocol.http.util.HTTPArgument
     itemProperties:
       - name: Argument.name
         type: String
         required: false
+        default: ""
         description: Parameter name. Required for parameter mode, omit for postBodyRaw mode.
 
       - name: Argument.value
@@ -116,12 +120,14 @@ properties:
         type: Boolean
         required: false
         default: false
+        setterOverride: setAlwaysEncoded
         description: Whether to always URL-encode the parameter
 
       - name: Argument.metadata
         type: String
         required: false
         default: "="
+        setterOverride: setMetaData
         description: Metadata character (typically '=')
 
       - name: HTTPArgument.content_type
@@ -132,6 +138,9 @@ properties:
 
   - name: HTTPsampler.Files
     type: Array
+    class: org.apache.jmeter.protocol.http.util.HTTPFileArgs
+    mountMode: TestElementProperty
+    containerAddMethod: addHTTPFileArg
     required: false
     description: File upload parameters for multipart/form-data requests. Supports parameter substitution via @{param_name}.
     itemClass: org.apache.jmeter.protocol.http.util.HTTPFileArg
@@ -144,17 +153,23 @@ properties:
       - name: File.paramname
         type: String
         required: true
+        setterOverride: setParamName
         description: HTTP parameter name for the file upload
 
       - name: File.mimetype
         type: String
         required: false
         default: "application/octet-stream"
+        setterOverride: setMimeType
         description: MIME type of the file
 
   - name: HTTPUDConfigElement.http_header_parameters_name
     type: Array
+    class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
+    default: []
     description: HTTP headers to include in requests. Does NOT support parameter substitution.
     itemClass: org.apache.jmeter.config.Argument
     itemProperties:
@@ -170,6 +185,9 @@ properties:
 
   - name: HTTPUDArgumentsGui.HTTPUDArguments
     type: Array
+    class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: Custom parameter definitions with default values that can be overridden by samplers
     itemClass: com.gitee.qa.jmeter.protocol.httpud.util.HTTPUDArgument
@@ -188,6 +206,7 @@ properties:
       - name: Argument.desc
         type: String
         required: true
+        setterOverride: setDescription
         description: Parameter description
 
       - name: HTTPUDArgument.required

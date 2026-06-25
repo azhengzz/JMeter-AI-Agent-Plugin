@@ -31,6 +31,9 @@ properties:
 
   - name: CookieManager.cookies
     type: Array
+    class: org.apache.jmeter.protocol.http.control.CookieManager
+    mountMode: self
+    containerAddMethod: add
     required: false
     description: Cookie entries
     itemClass: org.apache.jmeter.protocol.http.control.Cookie

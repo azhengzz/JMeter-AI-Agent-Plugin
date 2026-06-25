@@ -30,8 +30,10 @@ properties:
   - name: SystemSampler.arguments
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
-    description: "Command-line arguments passed to the executable. Specify as an array of argument value strings. Example: ['-c', 'echo hello'] for bash -c 'echo hello'. Can also use array of objects: [{'Argument.value': '-c'}, {'Argument.value': 'echo hello'}]."
+    description: "Command-line arguments passed to the executable. Specify as array of objects: [{'Argument.value': '-c'}, {'Argument.value': 'echo hello'}] for bash -c 'echo hello'."
     itemClass: org.apache.jmeter.config.Argument
     itemProperties:
       - name: Argument.value
@@ -42,6 +44,8 @@ properties:
   - name: SystemSampler.environment
     type: Array
     class: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
     required: false
     description: "Environment variables to set for command execution. Specify as array of name-value pairs. Example: [{'Argument.name': 'PATH', 'Argument.value': '/usr/bin:/bin'}, {'Argument.name': 'JAVA_HOME', 'Argument.value': '/usr/lib/jvm/java-8'}]."
     itemClass: org.apache.jmeter.config.Argument

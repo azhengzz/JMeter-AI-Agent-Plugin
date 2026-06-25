@@ -9,6 +9,8 @@ properties:
     required: false
     description: List of variable name-value pairs
     class: org.apache.jmeter.config.Arguments
+    mountMode: self
+    containerAddMethod: addArgument
     itemClass: org.apache.jmeter.config.Argument
     itemProperties:
       - name: Argument.name
@@ -27,10 +29,12 @@ properties:
         type: String
         required: true
         default: ""
+        setterOverride: setDescription
         description: Description for this variable
 
       - name: Argument.metadata
         type: String
         required: true
         default: "="
+        setterOverride: setMetaData
         description: Metadata character (typically '=')
