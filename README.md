@@ -357,3 +357,11 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 ## 许可证
 
 MIT License
+
+<br>
+<p align="center">
+  Thanks for visiting ✨ <b>JMeter Ai Agent Plugin</b>
+</p>
+<p align="center">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=azhengzz.JMeter-AI-Agent-Plugin" alt="visitors"/>
+</p>

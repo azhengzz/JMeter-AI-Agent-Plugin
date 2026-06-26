@@ -357,3 +357,12 @@ This project drew inspiration and implementation references from the following o
 ## License
 
 MIT License
+
+<br>
+<p align="center">
+  Thanks for visiting ✨ <b>JMeter Ai Agent Plugin</b>
+</p>
+<p align="center">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=azhengzz.JMeter-AI-Agent-Plugin" alt="visitors"/>
+</p>
+
