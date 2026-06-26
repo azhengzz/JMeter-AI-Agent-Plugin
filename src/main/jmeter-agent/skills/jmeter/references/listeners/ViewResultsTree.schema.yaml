@@ -2,8 +2,9 @@ component:
   type: viewresultstree
   name: View Results Tree
   description: Displays detailed results of samplers including requests, responses, headers, and assertion results
-  class: org.apache.jmeter.visualizers.ViewResultsFullVisualizer
+  testClass: org.apache.jmeter.reporters.ResultCollector
 
+  guiClass: org.apache.jmeter.visualizers.ViewResultsFullVisualizer
 properties:
   # ResultCollector base class properties
   - name: filename

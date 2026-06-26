@@ -1,5 +1,7 @@
 component:
   type: cookiemanager
+  testClass: org.apache.jmeter.protocol.http.control.CookieManager
+  guiClass: org.apache.jmeter.protocol.http.gui.CookiePanel
   name: Cookie Manager
   description: Automatically stores and sends cookies with HTTP requests
 
@@ -31,7 +33,7 @@ properties:
 
   - name: CookieManager.cookies
     type: Array
-    class: org.apache.jmeter.protocol.http.control.CookieManager
+    testClass: org.apache.jmeter.protocol.http.control.CookieManager
     mountMode: self
     containerAddMethod: add
     required: false

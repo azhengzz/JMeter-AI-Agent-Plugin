@@ -1,12 +1,14 @@
 component:
   type: parametertestfragmentcontroller
+  testClass: com.gitee.qa.jmeter.control.ParameterTestFragmentController
+  guiClass: com.gitee.qa.jmeter.control.gui.ParameterTestFragmentControllerGui
   name: Test Fragment (with Parameters)
   description: Enhanced Test Fragment that defines input parameters and return values for reusable parameterized test modules. Paired with ParameterIncludeController.
 
 properties:
   - name: ParameterTestFragmentController.arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -41,7 +43,7 @@ properties:
 
   - name: ParameterTestFragmentController.ReturnValueArguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

@@ -1,5 +1,7 @@
 component:
   type: sshcommandsampler
+  testClass: org.apache.jmeter.protocol.ssh.sampler.SSHCommandSampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: SSH Command Sampler
   description: "Opens an SSH session to a remote host and executes a single command via the exec channel. Captures stdout (and optionally stderr) as the response data. Supports password and public-key authentication. Useful for triggering remote admin commands or verifying remote state as part of a load test."
 

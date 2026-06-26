@@ -1,0 +1,333 @@
+# JMeter elements without dedicated schema files.
+# Loaded by ElementRegistry at startup as fallback for schema-driven registry.
+# Each entry must declare elementType, testClass, guiClass, defaultName.
+# Aliases are optional. Update ELEMENT_CLASS_MAP-deletion baseline when adding components.
+elements:
+  - elementType: ftprequest
+    testClass: org.apache.jmeter.protocol.ftp.sampler.FTPSampler
+    guiClass: org.apache.jmeter.protocol.ftp.control.gui.FtpTestSamplerGui
+    defaultName: "Ftprequest"
+  - elementType: javarequest
+    testClass: org.apache.jmeter.protocol.java.sampler.JavaSampler
+    guiClass: org.apache.jmeter.protocol.java.control.gui.JavaTestSamplerGui
+    defaultName: "Javarequest"
+  - elementType: ldaprequest
+    testClass: org.apache.jmeter.protocol.ldap.sampler.LDAPSampler
+    guiClass: org.apache.jmeter.protocol.ldap.control.gui.LdapTestSamplerGui
+    defaultName: "Ldaprequest"
+  - elementType: ldapeextendedrequest
+    testClass: org.apache.jmeter.protocol.ldap.sampler.LDAPExtSampler
+    guiClass: org.apache.jmeter.protocol.ldap.control.gui.LdapExtTestSamplerGui
+    defaultName: "Ldapeextendedrequest"
+  - elementType: accesslogsampler
+    testClass: org.apache.jmeter.protocol.http.sampler.AccessLogSampler
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Accesslogsampler"
+  - elementType: tcpsampler
+    testClass: org.apache.jmeter.protocol.tcp.sampler.TCPSampler
+    guiClass: org.apache.jmeter.protocol.tcp.control.gui.TCPSamplerGui
+    defaultName: "Tcpsampler"
+  - elementType: jmspublisher
+    testClass: org.apache.jmeter.protocol.jms.sampler.PublisherSampler
+    guiClass: org.apache.jmeter.protocol.jms.control.gui.JMSPublisherGui
+    defaultName: "Jmspublisher"
+  - elementType: jmssubscriber
+    testClass: org.apache.jmeter.protocol.jms.sampler.SubscriberSampler
+    guiClass: org.apache.jmeter.protocol.jms.control.gui.JMSSubscriberGui
+    defaultName: "Jmssubscriber"
+  - elementType: jmspointtopoint
+    testClass: org.apache.jmeter.protocol.jms.sampler.JMSSampler
+    guiClass: org.apache.jmeter.protocol.jms.control.gui.JMSSamplerGui
+    defaultName: "Jmspointtopoint"
+  - elementType: junitrequest
+    testClass: org.apache.jmeter.protocol.java.sampler.JUnitSampler
+    guiClass: org.apache.jmeter.protocol.java.control.gui.JUnitTestSamplerGui
+    defaultName: "Junitrequest"
+  - elementType: mailreadersampler
+    testClass: org.apache.jmeter.protocol.mail.sampler.MailReaderSampler
+    guiClass: org.apache.jmeter.protocol.mail.sampler.gui.MailReaderSamplerGui
+    defaultName: "Mailreadersampler"
+  - elementType: smtpsampler
+    testClass: org.apache.jmeter.protocol.smtp.sampler.SmtpSampler
+    guiClass: org.apache.jmeter.protocol.smtp.sampler.gui.SmtpSamplerGui
+    defaultName: "Smtpsampler"
+  - elementType: mongodbscript
+    testClass: org.apache.jmeter.protocol.mongodb.sampler.MongoScriptSampler
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Mongodbscript"
+  - elementType: boltrequest
+    testClass: org.apache.jmeter.protocol.bolt.sampler.BoltSampler
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Boltrequest"
+  - elementType: graphqlhttprequest
+    testClass: org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy
+    guiClass: org.apache.jmeter.protocol.http.control.gui.GraphQLHTTPSamplerGui
+    defaultName: "Graphqlhttprequest"
+  - elementType: ajpsampler
+    testClass: org.apache.jmeter.protocol.http.sampler.AjpSampler
+    guiClass: org.apache.jmeter.protocol.http.control.gui.AjpSamplerGui
+    defaultName: "Ajpsampler"
+  - elementType: responseassert
+    testClass: org.apache.jmeter.assertions.ResponseAssertion
+    guiClass: org.apache.jmeter.assertions.gui.AssertionGui
+    defaultName: "Responseassert"
+  - elementType: jsonassertion
+    testClass: org.apache.jmeter.assertions.JSONPathAssertion
+    guiClass: org.apache.jmeter.assertions.gui.JSONPathAssertionGui
+    defaultName: "Jsonassertion"
+  - elementType: durationassertion
+    testClass: org.apache.jmeter.assertions.DurationAssertion
+    guiClass: org.apache.jmeter.assertions.gui.DurationAssertionGui
+    defaultName: "Duration Assertion"
+  - elementType: sizeassertion
+    testClass: org.apache.jmeter.assertions.SizeAssertion
+    guiClass: org.apache.jmeter.assertions.gui.SizeAssertionGui
+    defaultName: "Size Assertion"
+  - elementType: xpath2assertion
+    testClass: org.apache.jmeter.assertions.XPath2Assertion
+    guiClass: org.apache.jmeter.assertions.gui.XPath2AssertionGui
+    defaultName: "Xpath2assertion"
+  - elementType: compareassert
+    testClass: org.apache.jmeter.assertions.CompareAssertion
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Compareassert"
+    aliases: [compareassertion]
+  - elementType: htmlassertion
+    testClass: org.apache.jmeter.assertions.HTMLAssertion
+    guiClass: org.apache.jmeter.assertions.gui.HTMLAssertionGui
+    defaultName: "HTML Assertion"
+  - elementType: jmespathassert
+    testClass: org.apache.jmeter.assertions.jmespath.JMESPathAssertion
+    guiClass: org.apache.jmeter.assertions.jmespath.gui.JMESPathAssertionGui
+    defaultName: "Jmespathassert"
+    aliases: [jmespathassertion]
+  - elementType: md5assertion
+    testClass: org.apache.jmeter.assertions.MD5HexAssertion
+    guiClass: org.apache.jmeter.assertions.gui.MD5HexAssertionGUI
+    defaultName: "Md5assertion"
+    aliases: [md5hexassertion]
+  - elementType: smimeassertion
+    testClass: org.apache.jmeter.assertions.SMIMEAssertionTestElement
+    guiClass: org.apache.jmeter.assertions.gui.SMIMEAssertionGui
+    defaultName: "Smimeassertion"
+  - elementType: xmlschemaassertion
+    testClass: org.apache.jmeter.assertions.XMLSchemaAssertion
+    guiClass: org.apache.jmeter.assertions.gui.XMLSchemaAssertionGUI
+    defaultName: "Xmlschemaassertion"
+  - elementType: gaussianrandomtimer
+    testClass: org.apache.jmeter.timers.GaussianRandomTimer
+    guiClass: org.apache.jmeter.timers.gui.GaussianRandomTimerGui
+    defaultName: "Gaussian Random Timer"
+  - elementType: poissonrandomtimer
+    testClass: org.apache.jmeter.timers.PoissonRandomTimer
+    guiClass: org.apache.jmeter.timers.gui.PoissonRandomTimerGui
+    defaultName: "Poisson Random Timer"
+  - elementType: jsr223timer
+    testClass: org.apache.jmeter.timers.JSR223Timer
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Jsr223timer"
+  - elementType: synctimer
+    testClass: org.apache.jmeter.timers.SyncTimer
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Synctimer"
+  - elementType: beanshelltimer
+    testClass: org.apache.jmeter.timers.BeanShellTimer
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Beanshelltimer"
+  - elementType: anchormodifier
+    testClass: org.apache.jmeter.protocol.http.modifier.AnchorModifier
+    guiClass: org.apache.jmeter.protocol.http.modifier.gui.AnchorModifierGui
+    defaultName: "Anchormodifier"
+  - elementType: urlrewritingmodifier
+    testClass: org.apache.jmeter.protocol.http.modifier.URLRewritingModifier
+    guiClass: org.apache.jmeter.protocol.http.modifier.gui.URLRewritingModifierGui
+    defaultName: "Urlrewritingmodifier"
+  - elementType: jdbcpreprocessor
+    testClass: org.apache.jmeter.protocol.jdbc.processor.JDBCPreProcessor
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Jdbcpreprocessor"
+  - elementType: regexuserparameters
+    testClass: org.apache.jmeter.protocol.http.modifier.RegExUserParameters
+    guiClass: org.apache.jmeter.protocol.http.modifier.gui.RegExUserParametersGui
+    defaultName: "Regexuserparameters"
+  - elementType: sampletimeout
+    testClass: org.apache.jmeter.modifiers.SampleTimeout
+    guiClass: org.apache.jmeter.modifiers.gui.SampleTimeoutGui
+    defaultName: "Sampletimeout"
+  - elementType: xpathextractor
+    testClass: org.apache.jmeter.extractor.XPathExtractor
+    guiClass: org.apache.jmeter.extractor.gui.XPathExtractorGui
+    defaultName: "XPath Extractor"
+  - elementType: boundaryextractor
+    testClass: org.apache.jmeter.extractor.BoundaryExtractor
+    guiClass: org.apache.jmeter.extractor.gui.BoundaryExtractorGui
+    defaultName: "Boundary Extractor"
+  - elementType: jmespathextractor
+    testClass: org.apache.jmeter.extractor.json.jmespath.JMESPathExtractor
+    guiClass: org.apache.jmeter.extractor.json.jmespath.gui.JMESPathExtractorGui
+    defaultName: "Jmespathextractor"
+  - elementType: jdbcpostprocessor
+    testClass: org.apache.jmeter.protocol.jdbc.processor.JDBCPostProcessor
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Jdbcpostprocessor"
+  - elementType: resultaction
+    testClass: org.apache.jmeter.reporters.ResultAction
+    guiClass: org.apache.jmeter.reporters.gui.ResultActionGui
+    defaultName: "Resultaction"
+  - elementType: xpath2extractor
+    testClass: org.apache.jmeter.extractor.XPath2Extractor
+    guiClass: org.apache.jmeter.extractor.gui.XPath2ExtractorGui
+    defaultName: "Xpath2extractor"
+  - elementType: csvdatasetconfig
+    testClass: org.apache.jmeter.config.CSVDataSet
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Csvdatasetconfig"
+  - elementType: cachemanager
+    testClass: org.apache.jmeter.protocol.http.control.CacheManager
+    guiClass: org.apache.jmeter.protocol.http.gui.CacheManagerGui
+    defaultName: "Cachemanager"
+  - elementType: boltconnection
+    testClass: org.apache.jmeter.protocol.bolt.config.BoltConnectionElement
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Boltconnection"
+  - elementType: counterconfig
+    testClass: org.apache.jmeter.modifiers.CounterConfig
+    guiClass: org.apache.jmeter.modifiers.gui.CounterConfigGui
+    defaultName: "Counterconfig"
+  - elementType: dnscachemanager
+    testClass: org.apache.jmeter.protocol.http.control.DNSCacheManager
+    guiClass: org.apache.jmeter.protocol.http.gui.DNSCachePanel
+    defaultName: "Dnscachemanager"
+  - elementType: ftpconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.protocol.ftp.config.gui.FtpConfigGui
+    defaultName: "Ftpconfig"
+    aliases: [ftprequestdefaults]
+  - elementType: authmanager
+    testClass: org.apache.jmeter.protocol.http.control.AuthManager
+    guiClass: org.apache.jmeter.protocol.http.gui.AuthPanel
+    defaultName: "Authmanager"
+    aliases: [httpauthorizationmanager]
+  - elementType: javaconfig
+    testClass: org.apache.jmeter.protocol.java.config.JavaConfig
+    guiClass: org.apache.jmeter.protocol.java.config.gui.JavaConfigGui
+    defaultName: "Javaconfig"
+  - elementType: keystoreconfig
+    testClass: org.apache.jmeter.config.KeystoreConfig
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Keystoreconfig"
+  - elementType: ldapextconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.protocol.ldap.config.gui.LdapExtConfigGui
+    defaultName: "Ldapextconfig"
+  - elementType: ldapconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.protocol.ldap.config.gui.LdapConfigGui
+    defaultName: "Ldapconfig"
+  - elementType: loginconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.config.gui.LoginConfigGui
+    defaultName: "Loginconfig"
+  - elementType: randomvariable
+    testClass: org.apache.jmeter.config.RandomVariableConfig
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Randomvariable"
+  - elementType: simpleconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.config.gui.SimpleConfigGui
+    defaultName: "Simpleconfig"
+  - elementType: tcpconfig
+    testClass: org.apache.jmeter.config.ConfigTestElement
+    guiClass: org.apache.jmeter.protocol.tcp.config.gui.TCPConfigGui
+    defaultName: "Tcpconfig"
+  - elementType: statvisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.StatVisualizer
+    defaultName: "Aggregate Report"
+  - elementType: statgraphvisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.StatGraphVisualizer
+    defaultName: "Statgraphvisualizer"
+    aliases: [aggregategraph]
+  - elementType: assertionvisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.AssertionVisualizer
+    defaultName: "Assertionvisualizer"
+    aliases: [assertionresults]
+  - elementType: comparisonvisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.ComparisonVisualizer
+    defaultName: "Comparisonvisualizer"
+    aliases: [comparisonassertionvisualizer]
+  - elementType: summariser
+    testClass: org.apache.jmeter.reporters.Summariser
+    guiClass: org.apache.jmeter.reporters.gui.SummariserGui
+    defaultName: "Summariser"
+    aliases: [generatesummaryresults]
+  - elementType: graphvisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.GraphVisualizer
+    defaultName: "Graphvisualizer"
+    aliases: [graphresults]
+  - elementType: jsr223listener
+    testClass: org.apache.jmeter.visualizers.JSR223Listener
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Jsr223listener"
+  - elementType: mailervisualizer
+    testClass: org.apache.jmeter.reporters.MailerResultCollector
+    guiClass: org.apache.jmeter.visualizers.MailerVisualizer
+    defaultName: "Mailervisualizer"
+  - elementType: resptimegraph
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.RespTimeGraphVisualizer
+    defaultName: "Resptimegraph"
+  - elementType: resultsaver
+    testClass: org.apache.jmeter.reporters.ResultSaver
+    guiClass: org.apache.jmeter.reporters.gui.ResultSaverGui
+    defaultName: "Resultsaver"
+    aliases: [saveresponsestoafile]
+  - elementType: simpledatawriter
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.SimpleDataWriter
+    defaultName: "Simpledatawriter"
+  - elementType: tablevisualizer
+    testClass: org.apache.jmeter.reporters.ResultCollector
+    guiClass: org.apache.jmeter.visualizers.TableVisualizer
+    defaultName: "Tablevisualizer"
+    aliases: [viewresultsintable]
+  - elementType: beanshelllistener
+    testClass: org.apache.jmeter.visualizers.BeanShellListener
+    guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+    defaultName: "Beanshelllistener"
+  - elementType: interleavecontroller
+    testClass: org.apache.jmeter.control.InterleaveControl
+    guiClass: org.apache.jmeter.control.gui.InterleaveControlGui
+    defaultName: "Interleavecontroller"
+  - elementType: randomordercontroller
+    testClass: org.apache.jmeter.control.RandomOrderController
+    guiClass: org.apache.jmeter.control.gui.RandomOrderControllerGui
+    defaultName: "Randomordercontroller"
+  - elementType: throughputcontroller
+    testClass: org.apache.jmeter.control.ThroughputController
+    guiClass: org.apache.jmeter.control.gui.ThroughputControllerGui
+    defaultName: "Throughputcontroller"
+  - elementType: runtimecontroller
+    testClass: org.apache.jmeter.control.RunTime
+    guiClass: org.apache.jmeter.control.gui.RunTimeGui
+    defaultName: "Runtime Controller"
+  - elementType: switchcontroller
+    testClass: org.apache.jmeter.control.SwitchController
+    guiClass: org.apache.jmeter.control.gui.SwitchControllerGui
+    defaultName: "Switchcontroller"
+  - elementType: recordingcontroller
+    testClass: org.apache.jmeter.protocol.http.control.RecordingController
+    guiClass: org.apache.jmeter.protocol.http.control.gui.RecordController
+    defaultName: "Recordingcontroller"
+  - elementType: criticalsectioncontroller
+    testClass: org.apache.jmeter.control.CriticalSectionController
+    guiClass: org.apache.jmeter.control.gui.CriticalSectionControllerGui
+    defaultName: "Criticalsectioncontroller"
+  - elementType: sampleresultsaveconfiguration
+    testClass: org.apache.jmeter.samplers.SampleSaveConfiguration
+    guiClass: org.apache.jmeter.samplers.SampleSaveConfiguration
+    defaultName: "Sampleresultsaveconfiguration"

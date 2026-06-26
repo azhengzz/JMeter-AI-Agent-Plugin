@@ -1,5 +1,7 @@
 component:
   type: transactioncontroller
+  testClass: org.apache.jmeter.control.TransactionController
+  guiClass: org.apache.jmeter.control.gui.TransactionControllerGui
   name: Transaction Controller
   description: Groups multiple samplers into a single transaction
 

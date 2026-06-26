@@ -1,5 +1,7 @@
 component:
   type: httpudincludeconfig
+  testClass: com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDIncludeConfig
+  guiClass: com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDIncludeConfigGui
   name: HTTP User Defined Include Configuration
   description: Includes an external JMX file containing HTTP User Defined Element Configuration definitions
 

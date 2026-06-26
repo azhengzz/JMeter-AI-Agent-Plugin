@@ -1,5 +1,7 @@
 component:
   type: osprocesssampler
+  testClass: org.apache.jmeter.protocol.system.SystemSampler
+  guiClass: org.apache.jmeter.protocol.system.gui.SystemSamplerGui
   name: OS Process Sampler
   description: "Executes system commands or native executables. Supports setting working directory, command-line arguments, environment variables, and I/O stream redirection. Useful for running shell scripts, batch files, or any native application during load testing."
 
@@ -29,7 +31,7 @@ properties:
 
   - name: SystemSampler.arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -43,7 +45,7 @@ properties:
 
   - name: SystemSampler.environment
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

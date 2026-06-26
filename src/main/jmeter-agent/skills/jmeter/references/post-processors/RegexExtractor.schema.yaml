@@ -1,5 +1,7 @@
 component:
   type: regexextractor
+  testClass: org.apache.jmeter.extractor.RegexExtractor
+  guiClass: org.apache.jmeter.extractor.gui.RegexExtractorGui
   name: Regular Expression Extractor
   description: "Extracts data from server responses using regular expressions. Supports Java regex and ORO regex engines."
 

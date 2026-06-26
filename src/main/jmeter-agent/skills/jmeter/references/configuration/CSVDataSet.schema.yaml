@@ -1,5 +1,7 @@
 component:
   type: csvdataset
+  testClass: org.apache.jmeter.config.CSVDataSet
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: CSV Data Set Config
   description: Reads data from CSV files and splits it into variables
 

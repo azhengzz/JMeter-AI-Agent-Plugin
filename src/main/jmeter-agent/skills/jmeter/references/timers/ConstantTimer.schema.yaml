@@ -1,5 +1,7 @@
 component:
   type: constanttimer
+  testClass: org.apache.jmeter.timers.ConstantTimer
+  guiClass: org.apache.jmeter.timers.gui.ConstantTimerGui
   name: Constant Timer
   description: "Pauses execution for a fixed delay before each affected sampler. Simulates constant user think time or pacing between requests."
 

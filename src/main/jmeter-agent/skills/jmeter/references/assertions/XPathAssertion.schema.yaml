@@ -1,5 +1,7 @@
 component:
   type: xpathassertion
+  testClass: org.apache.jmeter.assertions.XPathAssertion
+  guiClass: org.apache.jmeter.assertions.gui.XPathAssertionGui
   name: XPath Assertion
   description: "Validates XML or HTML responses using XPath expressions."
 

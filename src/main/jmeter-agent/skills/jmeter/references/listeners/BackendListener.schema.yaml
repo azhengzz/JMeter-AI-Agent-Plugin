@@ -2,7 +2,8 @@ component:
   type: backendlistener
   name: Backend Listener
   description: Sends test results to external backends (Graphite, InfluxDB) for real-time monitoring and analysis
-  class: org.apache.jmeter.visualizers.backend.BackendListener
+  testClass: org.apache.jmeter.visualizers.backend.BackendListener
+  guiClass: org.apache.jmeter.visualizers.backend.BackendListenerGui
 
 properties:
   # BackendListener core properties
@@ -23,7 +24,7 @@ properties:
   - name: arguments
     type: Array
     required: true
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     itemClass: org.apache.jmeter.config.Argument

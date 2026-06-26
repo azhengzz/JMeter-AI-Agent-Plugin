@@ -1,5 +1,7 @@
 component:
   type: loopcontroller
+  testClass: org.apache.jmeter.control.LoopController
+  guiClass: org.apache.jmeter.control.gui.LoopControlPanel
   name: Loop Controller
   description: Controls the execution count of its child elements
 

@@ -1,5 +1,7 @@
 component:
   type: setupthreadgroup
+  testClass: org.apache.jmeter.threads.SetupThreadGroup
+  guiClass: org.apache.jmeter.threads.gui.SetupThreadGroupGui
   name: setUp Thread Group
   description: Runs before main thread groups for initialization tasks
 
@@ -27,7 +29,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

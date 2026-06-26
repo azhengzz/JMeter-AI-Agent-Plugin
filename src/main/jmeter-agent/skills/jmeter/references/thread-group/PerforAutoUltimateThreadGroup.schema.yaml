@@ -1,7 +1,8 @@
 component:
   type: perforautoultimatethreadgroup
   name: PerforAuto Ultimate Thread Group
-  class: kg.apc.jmeter.threads.PerforAutoUltimateThreadGroup
+  testClass: kg.apc.jmeter.threads.PerforAutoUltimateThreadGroup
+  guiClass: kg.apc.jmeter.threads.PerforAutoUltimateThreadGroupGui
   description: Ultimate thread group with per-row schedule control and performance automation tracking
 
 properties:
@@ -75,7 +76,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

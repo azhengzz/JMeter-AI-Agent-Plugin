@@ -1,5 +1,7 @@
 component:
   type: jsr223assertion
+  testClass: org.apache.jmeter.assertions.JSR223Assertion
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JSR223 Assertion
   description: "Executes JSR223 scripts (Groovy, JavaScript, etc.) to validate sampler results. Groovy is recommended for best performance. Use AssertionResult.setFailure(true) and setFailureMessage() to report failures."
 

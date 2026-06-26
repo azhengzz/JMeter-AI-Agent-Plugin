@@ -1,5 +1,7 @@
 component:
   type: jsonautoassertion
+  testClass: com.gitee.qa.jmeter.assertions.JsonAutoAssertion
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JSON Auto Assertion
   description: Automatically compares JSON responses with expected JSON, supporting regex patterns in expected values
 

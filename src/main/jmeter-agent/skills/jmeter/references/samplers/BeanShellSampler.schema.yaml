@@ -1,5 +1,7 @@
 component:
   type: beanshellsampler
+  testClass: org.apache.jmeter.protocol.java.sampler.BeanShellSampler
+  guiClass: org.apache.jmeter.protocol.java.control.gui.BeanShellSamplerGui
   name: BeanShell Sampler
   description: "Executes BeanShell scripts to perform custom operations. Note: JSR223 Sampler with Groovy is recommended for better performance."
 

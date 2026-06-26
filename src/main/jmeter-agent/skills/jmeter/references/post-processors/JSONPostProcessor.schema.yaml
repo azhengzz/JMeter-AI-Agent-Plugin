@@ -1,5 +1,7 @@
 component:
   type: jsonpostprocessor
+  testClass: org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor
+  guiClass: org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui
   name: JSON Post Processor
   description: "Extracts data from JSON responses using JSONPath expressions. Supports extracting single or multiple values."
 

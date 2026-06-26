@@ -2,8 +2,9 @@ component:
   type: aggregatereport
   name: Aggregate Report
   description: Provides detailed statistics for each sampler including throughput, percentiles (90%, 95%, 99%), and error rates
-  class: org.apache.jmeter.visualizers.StatVisualizer
+  testClass: org.apache.jmeter.reporters.ResultCollector
 
+  guiClass: org.apache.jmeter.visualizers.StatVisualizer
 properties:
   # ResultCollector base class properties
   - name: filename

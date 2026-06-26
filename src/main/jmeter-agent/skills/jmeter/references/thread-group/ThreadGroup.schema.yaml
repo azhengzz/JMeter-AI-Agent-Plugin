@@ -1,7 +1,8 @@
 component:
   type: threadgroup
   name: Thread Group
-  class: org.apache.jmeter.threads.ThreadGroup
+  testClass: org.apache.jmeter.threads.ThreadGroup
+  guiClass: org.apache.jmeter.threads.gui.ThreadGroupGui
   description: Defines the number of virtual users, loop count, and test execution behavior
 
 properties:
@@ -29,7 +30,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

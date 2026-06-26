@@ -1,5 +1,7 @@
 component:
   type: randomcontroller
+  testClass: org.apache.jmeter.control.RandomController
+  guiClass: org.apache.jmeter.control.gui.RandomControlGui
   name: Random Controller
   description: Randomly selects one of its child elements to execute during each iteration
 

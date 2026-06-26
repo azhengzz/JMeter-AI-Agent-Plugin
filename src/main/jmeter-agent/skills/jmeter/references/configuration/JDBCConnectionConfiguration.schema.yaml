@@ -1,5 +1,7 @@
 component:
   type: jdbcdatasource
+  testClass: org.apache.jmeter.protocol.jdbc.config.DataSourceElement
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JDBC Connection Configuration
   description: Configures JDBC database connection pool for JDBC Sampler
 

@@ -1,5 +1,7 @@
 component:
   type: constantthroughputtimer
+  testClass: org.apache.jmeter.timers.ConstantThroughputTimer
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: Constant Throughput Timer
   description: "Paces samplers to achieve constant throughput. Controls request rate across threads to maintain target samples per minute."
 

@@ -1,5 +1,7 @@
 component:
   type: variableassertion
+  testClass: com.gitee.qa.jmeter.assertions.VariableAssertion
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: Variable Assertion
   description: Validates JMeter variables and properties against expected values
 

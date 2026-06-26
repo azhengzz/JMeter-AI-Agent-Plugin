@@ -1,5 +1,7 @@
 component:
   type: jdbcsampler
+  testClass: org.apache.jmeter.protocol.jdbc.sampler.JDBCSampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JDBC Sampler
   description: Allows you to execute database queries using JDBC
 

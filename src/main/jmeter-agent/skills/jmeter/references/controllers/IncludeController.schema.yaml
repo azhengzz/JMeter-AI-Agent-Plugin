@@ -1,5 +1,7 @@
 component:
   type: includecontroller
+  testClass: org.apache.jmeter.control.IncludeController
+  guiClass: org.apache.jmeter.control.gui.IncludeControllerGui
   name: Include Controller
   description: Includes an external JMX test plan fragment (TestFragment) into the current test plan
 

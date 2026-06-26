@@ -1,7 +1,8 @@
 component:
   type: perforautothreadgroup
   name: PerforAuto Thread Group
-  class: com.gitee.qa.jmeter.threads.PerforAutoThreadGroup
+  testClass: com.gitee.qa.jmeter.threads.PerforAutoThreadGroup
+  guiClass: com.gitee.qa.jmeter.threads.gui.PerforAutoThreadGroupGui
   description: Performance automation thread group with scenario tracking, record file output, and stop delay support
 
 properties:
@@ -76,7 +77,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

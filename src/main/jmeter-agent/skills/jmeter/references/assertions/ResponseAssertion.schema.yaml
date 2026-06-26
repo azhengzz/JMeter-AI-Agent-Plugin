@@ -1,5 +1,7 @@
 component:
   type: responseassertion
+  testClass: org.apache.jmeter.assertions.ResponseAssertion
+  guiClass: org.apache.jmeter.assertions.gui.AssertionGui
   name: Response Assertion
   description: Validates server responses against expected criteria
 

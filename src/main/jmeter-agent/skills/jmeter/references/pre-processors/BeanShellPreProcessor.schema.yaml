@@ -1,5 +1,7 @@
 component:
   type: beanshellpreprocessor
+  testClass: org.apache.jmeter.modifiers.BeanShellPreProcessor
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: BeanShell Pre-Processor
   description: "Executes BeanShell scripts before a sampler runs. Note: JSR223 with Groovy is recommended for better performance."
 

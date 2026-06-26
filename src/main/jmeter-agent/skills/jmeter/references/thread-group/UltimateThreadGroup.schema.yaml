@@ -1,7 +1,8 @@
 component:
   type: ultimatethreadgroup
   name: Ultimate Thread Group
-  class: kg.apc.jmeter.threads.UltimateThreadGroup
+  testClass: kg.apc.jmeter.threads.UltimateThreadGroup
+  guiClass: kg.apc.jmeter.threads.UltimateThreadGroupGui
   description: Flexible thread group with per-row schedule control, each row defines a batch of threads with independent startup, hold, and shutdown timing
 
 properties:
@@ -50,7 +51,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

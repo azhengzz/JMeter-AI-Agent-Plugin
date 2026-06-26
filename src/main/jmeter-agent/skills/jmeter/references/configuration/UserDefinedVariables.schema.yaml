@@ -1,5 +1,7 @@
 component:
   type: userdefinedvariables
+  testClass: org.apache.jmeter.config.Arguments
+  guiClass: org.apache.jmeter.config.gui.ArgumentsPanel
   name: User Defined Variables
   description: Defines static variables that can be referenced throughout the test plan
 
@@ -8,7 +10,7 @@ properties:
     type: Array
     required: false
     description: List of variable name-value pairs
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: self
     containerAddMethod: addArgument
     itemClass: org.apache.jmeter.config.Argument

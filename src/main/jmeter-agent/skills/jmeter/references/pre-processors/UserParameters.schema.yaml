@@ -1,5 +1,7 @@
 component:
   type: userparameters
+  testClass: org.apache.jmeter.modifiers.UserParameters
+  guiClass: org.apache.jmeter.modifiers.gui.UserParametersGui
   name: User Parameters
   description: "Define specific parameter values for different users (threads). Each user gets their own set of parameter values."
 

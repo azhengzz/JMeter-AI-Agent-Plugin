@@ -2,8 +2,9 @@ component:
   type: summaryreport
   name: Summary Report
   description: Provides basic statistics for each sampler in a tabular format
-  class: org.apache.jmeter.visualizers.StatVisualizer
+  testClass: org.apache.jmeter.reporters.ResultCollector
 
+  guiClass: org.apache.jmeter.visualizers.SummaryReport
 properties:
   # ResultCollector base class properties
   - name: filename

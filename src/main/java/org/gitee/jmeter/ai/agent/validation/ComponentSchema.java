@@ -13,6 +13,8 @@ public class ComponentSchema {
     private String componentName;
     private String description;
     private List<String> aliases;
+    private String testClass;
+    private String guiClass;
     private final List<PropertyDefinition> properties = new ArrayList<>();
 
     public String getComponentType() {
@@ -45,6 +47,22 @@ public class ComponentSchema {
 
     public void setAliases(List<String> aliases) {
         this.aliases = aliases;
+    }
+
+    public String getTestClass() {
+        return testClass;
+    }
+
+    public void setTestClass(String testClass) {
+        this.testClass = testClass;
+    }
+
+    public String getGuiClass() {
+        return guiClass;
+    }
+
+    public void setGuiClass(String guiClass) {
+        this.guiClass = guiClass;
     }
 
     public List<PropertyDefinition> getProperties() {

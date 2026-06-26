@@ -1,7 +1,8 @@
 component:
   type: perforautosteppingthreadgroup
   name: PerforAuto Stepping Thread Group
-  class: kg.apc.jmeter.threads.PerforAutoSteppingThreadGroup
+  testClass: kg.apc.jmeter.threads.PerforAutoSteppingThreadGroup
+  guiClass: kg.apc.jmeter.threads.PerforAutoSteppingThreadGroupGui
   description: Stepping thread group with performance automation tracking, scenario recording, and stop delay support
 
 properties:
@@ -94,7 +95,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController

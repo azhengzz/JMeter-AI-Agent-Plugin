@@ -1,5 +1,7 @@
 component:
   type: variableloopcontroller
+  testClass: com.gitee.qa.jmeter.control.LoopController
+  guiClass: com.gitee.qa.jmeter.control.gui.LoopControlPanel
   name: Variable Loop Controller
   description: Enhanced Loop Controller with a configurable loop counter variable exposed as a JMeter variable for child elements.
 

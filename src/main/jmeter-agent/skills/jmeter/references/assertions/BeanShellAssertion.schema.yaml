@@ -1,5 +1,7 @@
 component:
   type: beanshellassertion
+  testClass: org.apache.jmeter.assertions.BeanShellAssertion
+  guiClass: org.apache.jmeter.assertions.gui.BeanShellAssertionGui
   name: BeanShell Assertion
   description: Executes BeanShell script to validate sampler results
 

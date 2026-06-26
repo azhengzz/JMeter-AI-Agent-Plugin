@@ -1,12 +1,14 @@
 component:
   type: headermanager
+  testClass: org.apache.jmeter.protocol.http.control.HeaderManager
+  guiClass: org.apache.jmeter.protocol.http.gui.HeaderPanel
   name: Header Manager
   description: Allows you to add or override HTTP request headers
 
 properties:
   - name: HeaderManager.headers
     type: Array
-    class: org.apache.jmeter.protocol.http.control.HeaderManager
+    testClass: org.apache.jmeter.protocol.http.control.HeaderManager
     mountMode: self
     containerAddMethod: add
     required: false

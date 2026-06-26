@@ -164,424 +164,8 @@ public class JMeterElementManager {
         }
     }
 
-    // Map of common element names to their model and GUI class names
-    private static final Map<String, ElementClassInfo> ELEMENT_CLASS_MAP = new HashMap<>();
-
-    static {
-        // Samplers
-        ELEMENT_CLASS_MAP.put("httpsampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
-                        "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-        ELEMENT_CLASS_MAP.put("httptestsample",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
-                        "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-        ELEMENT_CLASS_MAP.put("httprequest",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
-                        "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"));
-        ELEMENT_CLASS_MAP.put("ftprequest", new ElementClassInfo("org.apache.jmeter.protocol.ftp.sampler.FTPSampler",
-                "org.apache.jmeter.protocol.ftp.control.gui.FtpTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("jdbcsampler", new ElementClassInfo("org.apache.jmeter.protocol.jdbc.sampler.JDBCSampler",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("javarequest", new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.JavaSampler",
-                "org.apache.jmeter.protocol.java.control.gui.JavaTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("ldaprequest", new ElementClassInfo("org.apache.jmeter.protocol.ldap.sampler.LDAPSampler",
-                "org.apache.jmeter.protocol.ldap.control.gui.LdapTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("ldapeextendedrequest",
-                new ElementClassInfo("org.apache.jmeter.protocol.ldap.sampler.LDAPExtSampler",
-                        "org.apache.jmeter.protocol.ldap.control.gui.LdapExtTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("accesslogsampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.AccessLogSampler",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("beanshellsampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.BeanShellSampler",
-                        "org.apache.jmeter.protocol.java.control.gui.BeanShellSamplerGui"));
-        ELEMENT_CLASS_MAP.put("jsr223sampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.JSR223Sampler",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("tcpsampler", new ElementClassInfo("org.apache.jmeter.protocol.tcp.sampler.TCPSampler",
-                "org.apache.jmeter.protocol.tcp.control.gui.TCPSamplerGui"));
-        ELEMENT_CLASS_MAP.put("jmspublisher",
-                new ElementClassInfo("org.apache.jmeter.protocol.jms.sampler.PublisherSampler",
-                        "org.apache.jmeter.protocol.jms.control.gui.JMSPublisherGui"));
-        ELEMENT_CLASS_MAP.put("jmssubscriber",
-                new ElementClassInfo("org.apache.jmeter.protocol.jms.sampler.SubscriberSampler",
-                        "org.apache.jmeter.protocol.jms.control.gui.JMSSubscriberGui"));
-        ELEMENT_CLASS_MAP.put("jmspointtopoint",
-                new ElementClassInfo("org.apache.jmeter.protocol.jms.sampler.JMSSampler",
-                        "org.apache.jmeter.protocol.jms.control.gui.JMSSamplerGui"));
-        ELEMENT_CLASS_MAP.put("junitrequest",
-                new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.JUnitSampler",
-                        "org.apache.jmeter.protocol.java.control.gui.JUnitTestSamplerGui"));
-        ELEMENT_CLASS_MAP.put("mailreadersampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.mail.sampler.MailReaderSampler",
-                        "org.apache.jmeter.protocol.mail.sampler.gui.MailReaderSamplerGui"));
-        ELEMENT_CLASS_MAP.put("flowcontrolaction", new ElementClassInfo("org.apache.jmeter.sampler.TestAction",
-                "org.apache.jmeter.sampler.gui.TestActionGui"));
-        ELEMENT_CLASS_MAP.put("smtpsampler", new ElementClassInfo("org.apache.jmeter.protocol.smtp.sampler.SmtpSampler",
-                "org.apache.jmeter.protocol.smtp.sampler.gui.SmtpSamplerGui"));
-        ELEMENT_CLASS_MAP.put("osprocesssampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.system.SystemSampler",
-                        "org.apache.jmeter.protocol.system.gui.SystemSamplerGui"));
-        ELEMENT_CLASS_MAP.put("s3sampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.s3.sampler.S3Sampler",
-                "com.gitee.qa.jmeter.protocol.s3.gui.S3SamplerGui"));
-        ELEMENT_CLASS_MAP.put("gitsampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.git.GitSampler",
-                "com.gitee.qa.jmeter.protocol.git.gui.GitSamplerGui"));
-        ELEMENT_CLASS_MAP.put("mongodbscript",
-                new ElementClassInfo("org.apache.jmeter.protocol.mongodb.sampler.MongoScriptSampler",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("boltrequest", new ElementClassInfo("org.apache.jmeter.protocol.bolt.sampler.BoltSampler",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("graphqlhttprequest",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy",
-                        "org.apache.jmeter.protocol.http.control.gui.GraphQLHTTPSamplerGui"));
-        ELEMENT_CLASS_MAP.put("debugsampler", new ElementClassInfo("org.apache.jmeter.sampler.DebugSampler",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("ajpsampler", new ElementClassInfo("org.apache.jmeter.protocol.http.sampler.AjpSampler",
-                "org.apache.jmeter.protocol.http.control.gui.AjpSamplerGui"));
-        ELEMENT_CLASS_MAP.put("httpudsampler", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.sampler.HTTPUDSampler",
-                "com.gitee.qa.jmeter.protocol.httpud.sampler.gui.HTTPUDSamplerGui"));
-        ELEMENT_CLASS_MAP.put("sshcommandsampler", new ElementClassInfo("org.apache.jmeter.protocol.ssh.sampler.SSHCommandSampler",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("sshsftpsampler", new ElementClassInfo("org.apache.jmeter.protocol.ssh.sampler.SSHSFTPSampler",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Thread Groups
-        ELEMENT_CLASS_MAP.put("threadgroup", new ElementClassInfo("org.apache.jmeter.threads.ThreadGroup",
-                "org.apache.jmeter.threads.gui.ThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("setupthreadgroup", new ElementClassInfo("org.apache.jmeter.threads.SetupThreadGroup",
-                "org.apache.jmeter.threads.gui.SetupThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("teardownthreadgroup", new ElementClassInfo("org.apache.jmeter.threads.PostThreadGroup",
-                "org.apache.jmeter.threads.gui.PostThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("steppingthreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.SteppingThreadGroup",
-                "kg.apc.jmeter.threads.SteppingThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("ultimatethreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.UltimateThreadGroup",
-                "kg.apc.jmeter.threads.UltimateThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("perforautothreadgroup", new ElementClassInfo("com.gitee.qa.jmeter.threads.PerforAutoThreadGroup",
-                "com.gitee.qa.jmeter.threads.gui.PerforAutoThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("perforautosteppingthreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.PerforAutoSteppingThreadGroup",
-                "kg.apc.jmeter.threads.PerforAutoSteppingThreadGroupGui"));
-        ELEMENT_CLASS_MAP.put("perforautoultimatethreadgroup", new ElementClassInfo("kg.apc.jmeter.threads.PerforAutoUltimateThreadGroup",
-                "kg.apc.jmeter.threads.PerforAutoUltimateThreadGroupGui"));
-
-        // Assertions
-        ELEMENT_CLASS_MAP.put("responseassert", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
-                "org.apache.jmeter.assertions.gui.AssertionGui"));
-        ELEMENT_CLASS_MAP.put("responseassertion", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
-                "org.apache.jmeter.assertions.gui.AssertionGui"));
-        ELEMENT_CLASS_MAP.put("jsonassertion", new ElementClassInfo("org.apache.jmeter.assertions.JSONPathAssertion",
-                "org.apache.jmeter.assertions.gui.JSONPathAssertionGui"));
-        ELEMENT_CLASS_MAP.put("jsonpathassertion", new ElementClassInfo("org.apache.jmeter.assertions.JSONPathAssertion",
-                "org.apache.jmeter.assertions.gui.JSONPathAssertionGui"));
-        ELEMENT_CLASS_MAP.put("durationassertion",
-                new ElementClassInfo("org.apache.jmeter.assertions.DurationAssertion",
-                        "org.apache.jmeter.assertions.gui.DurationAssertionGui"));
-        ELEMENT_CLASS_MAP.put("sizeassertion", new ElementClassInfo("org.apache.jmeter.assertions.SizeAssertion",
-                "org.apache.jmeter.assertions.gui.SizeAssertionGui"));
-        ELEMENT_CLASS_MAP.put("xpathassertion", new ElementClassInfo("org.apache.jmeter.assertions.XPathAssertion",
-                "org.apache.jmeter.assertions.gui.XPathAssertionGui"));
-        ELEMENT_CLASS_MAP.put("jsr223assertion", new ElementClassInfo("org.apache.jmeter.assertions.JSR223Assertion",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("xpath2assertion", new ElementClassInfo("org.apache.jmeter.assertions.XPath2Assertion",
-                "org.apache.jmeter.assertions.gui.XPath2AssertionGui"));
-        ELEMENT_CLASS_MAP.put("compareassert", new ElementClassInfo("org.apache.jmeter.assertions.CompareAssertion",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("compareassertion", new ElementClassInfo("org.apache.jmeter.assertions.CompareAssertion",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("htmlassertion", new ElementClassInfo("org.apache.jmeter.assertions.HTMLAssertion",
-                "org.apache.jmeter.assertions.gui.HTMLAssertionGui"));
-        ELEMENT_CLASS_MAP.put("jmespathassert",
-                new ElementClassInfo("org.apache.jmeter.assertions.jmespath.JMESPathAssertion",
-                        "org.apache.jmeter.assertions.jmespath.gui.JMESPathAssertionGui"));
-        ELEMENT_CLASS_MAP.put("jmespathassertion",
-                new ElementClassInfo("org.apache.jmeter.assertions.jmespath.JMESPathAssertion",
-                        "org.apache.jmeter.assertions.jmespath.gui.JMESPathAssertionGui"));
-        ELEMENT_CLASS_MAP.put("md5assertion", new ElementClassInfo("org.apache.jmeter.assertions.MD5HexAssertion",
-                "org.apache.jmeter.assertions.gui.MD5HexAssertionGUI"));
-        ELEMENT_CLASS_MAP.put("md5hexassertion", new ElementClassInfo("org.apache.jmeter.assertions.MD5HexAssertion",
-                "org.apache.jmeter.assertions.gui.MD5HexAssertionGUI"));
-        ELEMENT_CLASS_MAP.put("smimeassertion",
-                new ElementClassInfo("org.apache.jmeter.assertions.SMIMEAssertionTestElement",
-                        "org.apache.jmeter.assertions.gui.SMIMEAssertionGui"));
-        ELEMENT_CLASS_MAP.put("xmlassertion", new ElementClassInfo("org.apache.jmeter.assertions.XMLAssertion",
-                "org.apache.jmeter.assertions.gui.XMLAssertionGui"));
-        ELEMENT_CLASS_MAP.put("xmlschemaassertion",
-                new ElementClassInfo("org.apache.jmeter.assertions.XMLSchemaAssertion",
-                        "org.apache.jmeter.assertions.gui.XMLSchemaAssertionGUI"));
-        ELEMENT_CLASS_MAP.put("beanshellassertion",
-                new ElementClassInfo("org.apache.jmeter.assertions.BeanShellAssertion",
-                        "org.apache.jmeter.assertions.gui.BeanShellAssertionGui"));
-        ELEMENT_CLASS_MAP.put("variableassertion",
-                new ElementClassInfo("com.gitee.qa.jmeter.assertions.VariableAssertion",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("valueassertion",
-                new ElementClassInfo("com.gitee.qa.jmeter.assertions.ValueAssertion",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsonautoassertion",
-                new ElementClassInfo("com.gitee.qa.jmeter.assertions.JsonAutoAssertion",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Timers
-        ELEMENT_CLASS_MAP.put("constanttimer", new ElementClassInfo("org.apache.jmeter.timers.ConstantTimer",
-                "org.apache.jmeter.timers.gui.ConstantTimerGui"));
-        ELEMENT_CLASS_MAP.put("uniformrandomtimer", new ElementClassInfo("org.apache.jmeter.timers.UniformRandomTimer",
-                "org.apache.jmeter.timers.gui.UniformRandomTimerGui"));
-        ELEMENT_CLASS_MAP.put("gaussianrandomtimer", new ElementClassInfo(
-                "org.apache.jmeter.timers.GaussianRandomTimer", "org.apache.jmeter.timers.gui.GaussianRandomTimerGui"));
-        ELEMENT_CLASS_MAP.put("poissonrandomtimer", new ElementClassInfo("org.apache.jmeter.timers.PoissonRandomTimer",
-                "org.apache.jmeter.timers.gui.PoissonRandomTimerGui"));
-        ELEMENT_CLASS_MAP.put("precisethroughputtimer",
-                new ElementClassInfo("org.apache.jmeter.timers.poissonarrivals.PreciseThroughputTimer",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("constantthroughputtimer", new ElementClassInfo(
-                "org.apache.jmeter.timers.ConstantThroughputTimer", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223timer", new ElementClassInfo("org.apache.jmeter.timers.JSR223Timer",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("synctimer", new ElementClassInfo("org.apache.jmeter.timers.SyncTimer",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("beanshelltimer", new ElementClassInfo("org.apache.jmeter.timers.BeanShellTimer",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Pre Processors
-        ELEMENT_CLASS_MAP.put("jsr223preprocessor", new ElementClassInfo(
-                "org.apache.jmeter.modifiers.JSR223PreProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("userparameters", new ElementClassInfo("org.apache.jmeter.modifiers.UserParameters",
-                "org.apache.jmeter.modifiers.gui.UserParametersGui"));
-        ELEMENT_CLASS_MAP.put("anchormodifier",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.modifier.AnchorModifier",
-                        "org.apache.jmeter.protocol.http.modifier.gui.AnchorModifierGui"));
-        ELEMENT_CLASS_MAP.put("urlrewritingmodifier",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.modifier.URLRewritingModifier",
-                        "org.apache.jmeter.protocol.http.modifier.gui.URLRewritingModifierGui"));
-        ELEMENT_CLASS_MAP.put("jdbcpreprocessor",
-                new ElementClassInfo("org.apache.jmeter.protocol.jdbc.processor.JDBCPreProcessor",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("regexuserparameters",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.modifier.RegExUserParameters",
-                        "org.apache.jmeter.protocol.http.modifier.gui.RegExUserParametersGui"));
-        ELEMENT_CLASS_MAP.put("sampletimeout", new ElementClassInfo("org.apache.jmeter.modifiers.SampleTimeout",
-                "org.apache.jmeter.modifiers.gui.SampleTimeoutGui"));
-        ELEMENT_CLASS_MAP.put("beanshellpreprocessor", new ElementClassInfo(
-                "org.apache.jmeter.modifiers.BeanShellPreProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Post Processors / Extractors
-        ELEMENT_CLASS_MAP.put("regexextractor", new ElementClassInfo("org.apache.jmeter.extractor.RegexExtractor",
-                "org.apache.jmeter.extractor.gui.RegexExtractorGui"));
-        ELEMENT_CLASS_MAP.put("xpathextractor", new ElementClassInfo("org.apache.jmeter.extractor.XPathExtractor",
-                "org.apache.jmeter.extractor.gui.XPathExtractorGui"));
-        ELEMENT_CLASS_MAP.put("jsonpostprocessor",
-                new ElementClassInfo("org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor",
-                        "org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui"));
-        ELEMENT_CLASS_MAP.put("boundaryextractor", new ElementClassInfo("org.apache.jmeter.extractor.BoundaryExtractor",
-                "org.apache.jmeter.extractor.gui.BoundaryExtractorGui"));
-        ELEMENT_CLASS_MAP.put("htmlextractor", new ElementClassInfo("org.apache.jmeter.extractor.HtmlExtractor",
-                "org.apache.jmeter.extractor.gui.HtmlExtractorGui"));
-        ELEMENT_CLASS_MAP.put("jmespathextractor",
-                new ElementClassInfo("org.apache.jmeter.extractor.json.jmespath.JMESPathExtractor",
-                        "org.apache.jmeter.extractor.json.jmespath.gui.JMESPathExtractorGui"));
-        ELEMENT_CLASS_MAP.put("jsr223postprocessor", new ElementClassInfo(
-                "org.apache.jmeter.extractor.JSR223PostProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("debugpostprocessor", new ElementClassInfo(
-                "org.apache.jmeter.extractor.DebugPostProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jdbcpostprocessor",
-                new ElementClassInfo("org.apache.jmeter.protocol.jdbc.processor.JDBCPostProcessor",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("resultaction", new ElementClassInfo("org.apache.jmeter.reporters.ResultAction",
-                "org.apache.jmeter.reporters.gui.ResultActionGui"));
-        ELEMENT_CLASS_MAP.put("xpath2extractor", new ElementClassInfo("org.apache.jmeter.extractor.XPath2Extractor",
-                "org.apache.jmeter.extractor.gui.XPath2ExtractorGui"));
-        ELEMENT_CLASS_MAP.put("beanshellpostprocessor", new ElementClassInfo(
-                "org.apache.jmeter.extractor.BeanShellPostProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Config Elements
-        ELEMENT_CLASS_MAP.put("csvdatasetconfig", new ElementClassInfo("org.apache.jmeter.config.CSVDataSet",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("csvdataset", new ElementClassInfo("org.apache.jmeter.config.CSVDataSet",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("exceldataconfig", new ElementClassInfo("com.gitee.qa.jmeter.config.ExcelDataConfig",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("s3configelement", new ElementClassInfo("com.gitee.qa.jmeter.protocol.s3.config.S3ConfigElement",
-                "com.gitee.qa.jmeter.protocol.s3.config.gui.S3ConfigGui"));
-        ELEMENT_CLASS_MAP.put("headermanager",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.control.HeaderManager",
-                        "org.apache.jmeter.protocol.http.gui.HeaderPanel"));
-        ELEMENT_CLASS_MAP.put("cookiemanager",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.control.CookieManager",
-                        "org.apache.jmeter.protocol.http.gui.CookiePanel"));
-        ELEMENT_CLASS_MAP.put("cachemanager",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.control.CacheManager",
-                        "org.apache.jmeter.protocol.http.gui.CacheManagerGui"));
-        ELEMENT_CLASS_MAP.put("httpdefaults", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui"));
-        ELEMENT_CLASS_MAP.put("boltconnection",
-                new ElementClassInfo("org.apache.jmeter.protocol.bolt.config.BoltConnectionElement",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("counterconfig", new ElementClassInfo("org.apache.jmeter.modifiers.CounterConfig",
-                "org.apache.jmeter.modifiers.gui.CounterConfigGui"));
-        ELEMENT_CLASS_MAP.put("dnscachemanager",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.control.DNSCacheManager",
-                        "org.apache.jmeter.protocol.http.gui.DNSCachePanel"));
-        ELEMENT_CLASS_MAP.put("ftpconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.ftp.config.gui.FtpConfigGui"));
-        ELEMENT_CLASS_MAP.put("authmanager", new ElementClassInfo("org.apache.jmeter.protocol.http.control.AuthManager",
-                "org.apache.jmeter.protocol.http.gui.AuthPanel"));
-        ELEMENT_CLASS_MAP.put("jdbcdatasource",
-                new ElementClassInfo("org.apache.jmeter.protocol.jdbc.config.DataSourceElement",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("javaconfig", new ElementClassInfo("org.apache.jmeter.protocol.java.config.JavaConfig",
-                "org.apache.jmeter.protocol.java.config.gui.JavaConfigGui"));
-        ELEMENT_CLASS_MAP.put("keystoreconfig", new ElementClassInfo("org.apache.jmeter.config.KeystoreConfig",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("ldapextconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.ldap.config.gui.LdapExtConfigGui"));
-        ELEMENT_CLASS_MAP.put("ldapconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.ldap.config.gui.LdapConfigGui"));
-        ELEMENT_CLASS_MAP.put("loginconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.config.gui.LoginConfigGui"));
-        ELEMENT_CLASS_MAP.put("randomvariable", new ElementClassInfo("org.apache.jmeter.config.RandomVariableConfig",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("simpleconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.config.gui.SimpleConfigGui"));
-        ELEMENT_CLASS_MAP.put("tcpconfig", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.tcp.config.gui.TCPConfigGui"));
-        ELEMENT_CLASS_MAP.put("userdefinedvariables", new ElementClassInfo("org.apache.jmeter.config.Arguments",
-                "org.apache.jmeter.config.gui.ArgumentsPanel"));
-        ELEMENT_CLASS_MAP.put("ftprequestdefaults", new ElementClassInfo("org.apache.jmeter.config.ConfigTestElement",
-                "org.apache.jmeter.protocol.ftp.config.gui.FtpConfigGui"));
-        ELEMENT_CLASS_MAP.put("httpauthorizationmanager",
-                new ElementClassInfo("org.apache.jmeter.protocol.http.control.AuthManager",
-                        "org.apache.jmeter.protocol.http.gui.AuthPanel"));
-        ELEMENT_CLASS_MAP.put("httpudconfigelement", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDConfigElement",
-                "com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDConfigElementGui"));
-        ELEMENT_CLASS_MAP.put("httpudincludeconfig", new ElementClassInfo("com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDIncludeConfig",
-                "com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDIncludeConfigGui"));
-
-        // Listeners
-        ELEMENT_CLASS_MAP.put("viewresultstree", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.ViewResultsFullVisualizer"));
-        ELEMENT_CLASS_MAP.put("summaryreport", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.SummaryReport"));
-        ELEMENT_CLASS_MAP.put("aggregatereport", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.StatVisualizer"));
-        ELEMENT_CLASS_MAP.put("statvisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.StatVisualizer"));
-        ELEMENT_CLASS_MAP.put("backendlistener",
-                new ElementClassInfo("org.apache.jmeter.visualizers.backend.BackendListener",
-                        "org.apache.jmeter.visualizers.backend.BackendListenerGui"));
-        ELEMENT_CLASS_MAP.put("statgraphvisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.StatGraphVisualizer"));
-        ELEMENT_CLASS_MAP.put("assertionvisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.AssertionVisualizer"));
-        ELEMENT_CLASS_MAP.put("comparisonvisualizer", new ElementClassInfo(
-                "org.apache.jmeter.reporters.ResultCollector", "org.apache.jmeter.visualizers.ComparisonVisualizer"));
-        ELEMENT_CLASS_MAP.put("summariser", new ElementClassInfo("org.apache.jmeter.reporters.Summariser",
-                "org.apache.jmeter.reporters.gui.SummariserGui"));
-        ELEMENT_CLASS_MAP.put("graphvisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.GraphVisualizer"));
-        ELEMENT_CLASS_MAP.put("jsr223listener", new ElementClassInfo("org.apache.jmeter.visualizers.JSR223Listener",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("mailervisualizer", new ElementClassInfo(
-                "org.apache.jmeter.reporters.MailerResultCollector", "org.apache.jmeter.visualizers.MailerVisualizer"));
-        ELEMENT_CLASS_MAP.put("resptimegraph", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.RespTimeGraphVisualizer"));
-        ELEMENT_CLASS_MAP.put("resultsaver", new ElementClassInfo("org.apache.jmeter.reporters.ResultSaver",
-                "org.apache.jmeter.reporters.gui.ResultSaverGui"));
-        ELEMENT_CLASS_MAP.put("simpledatawriter", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.SimpleDataWriter"));
-        ELEMENT_CLASS_MAP.put("tablevisualizer", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.TableVisualizer"));
-        ELEMENT_CLASS_MAP.put("beanshelllistener", new ElementClassInfo(
-                "org.apache.jmeter.visualizers.BeanShellListener", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // JSR223 Elements
-        ELEMENT_CLASS_MAP.put("jsr223sampler",
-                new ElementClassInfo("org.apache.jmeter.protocol.java.sampler.JSR223Sampler",
-                        "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223preprocessor", new ElementClassInfo(
-                "org.apache.jmeter.modifiers.JSR223PreProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223postprocessor", new ElementClassInfo(
-                "org.apache.jmeter.extractor.JSR223PostProcessor", "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223listener", new ElementClassInfo("org.apache.jmeter.visualizers.JSR223Listener",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223assertion", new ElementClassInfo("org.apache.jmeter.assertions.JSR223Assertion",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-        ELEMENT_CLASS_MAP.put("jsr223timer", new ElementClassInfo("org.apache.jmeter.timers.JSR223Timer",
-                "org.apache.jmeter.testbeans.gui.TestBeanGUI"));
-
-        // Controllers
-        ELEMENT_CLASS_MAP.put("loopcontroller", new ElementClassInfo("org.apache.jmeter.control.LoopController",
-                "org.apache.jmeter.control.gui.LoopControlPanel"));
-        ELEMENT_CLASS_MAP.put("ifcontroller", new ElementClassInfo("org.apache.jmeter.control.IfController",
-                "org.apache.jmeter.control.gui.IfControllerPanel"));
-        ELEMENT_CLASS_MAP.put("whilecontroller", new ElementClassInfo("org.apache.jmeter.control.WhileController",
-                "org.apache.jmeter.control.gui.WhileControllerGui"));
-        ELEMENT_CLASS_MAP.put("transactioncontroller",
-                new ElementClassInfo("org.apache.jmeter.control.TransactionController",
-                        "org.apache.jmeter.control.gui.TransactionControllerGui"));
-        ELEMENT_CLASS_MAP.put("simplecontroller", new ElementClassInfo("org.apache.jmeter.control.GenericController",
-                "org.apache.jmeter.control.gui.LogicControllerGui"));
-        ELEMENT_CLASS_MAP.put("onceonlycontroller", new ElementClassInfo("org.apache.jmeter.control.OnceOnlyController",
-                "org.apache.jmeter.control.gui.OnceOnlyControllerPanel"));
-        ELEMENT_CLASS_MAP.put("interleavecontroller", new ElementClassInfo(
-                "org.apache.jmeter.control.InterleaveControl", "org.apache.jmeter.control.gui.InterleaveControlPanel"));
-        ELEMENT_CLASS_MAP.put("randomcontroller", new ElementClassInfo("org.apache.jmeter.control.RandomController",
-                "org.apache.jmeter.control.gui.RandomControlGui"));
-        ELEMENT_CLASS_MAP.put("randomordercontroller",
-                new ElementClassInfo("org.apache.jmeter.control.RandomOrderController",
-                        "org.apache.jmeter.control.gui.RandomOrderControllerPanel"));
-        ELEMENT_CLASS_MAP.put("throughputcontroller",
-                new ElementClassInfo("org.apache.jmeter.control.ThroughputController",
-                        "org.apache.jmeter.control.gui.ThroughputControllerPanel"));
-        ELEMENT_CLASS_MAP.put("runtimecontroller",
-                new ElementClassInfo("org.apache.jmeter.control.RunTime", "org.apache.jmeter.control.gui.RunTimeGui"));
-        ELEMENT_CLASS_MAP.put("switchcontroller", new ElementClassInfo("org.apache.jmeter.control.SwitchController",
-                "org.apache.jmeter.control.gui.SwitchControllerPanel"));
-        ELEMENT_CLASS_MAP.put("foreachcontroller", new ElementClassInfo("org.apache.jmeter.control.ForeachController",
-                "org.apache.jmeter.control.gui.ForeachControlPanel"));
-        ELEMENT_CLASS_MAP.put("modulecontroller", new ElementClassInfo("org.apache.jmeter.control.ModuleController",
-                "org.apache.jmeter.control.gui.ModuleControllerGui"));
-        ELEMENT_CLASS_MAP.put("includecontroller", new ElementClassInfo("org.apache.jmeter.control.IncludeController",
-                "org.apache.jmeter.control.gui.IncludeControllerGui"));
-        ELEMENT_CLASS_MAP.put("recordingcontroller", new ElementClassInfo(
-                "org.apache.jmeter.control.RecordingController", "org.apache.jmeter.control.gui.RecordController"));
-        ELEMENT_CLASS_MAP.put("casecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.CaseController",
-                "com.gitee.qa.jmeter.control.gui.CaseControlPanel"));
-        ELEMENT_CLASS_MAP.put("dowhilecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.DoWhileController",
-                "com.gitee.qa.jmeter.control.gui.DoWhileControllerGui"));
-        ELEMENT_CLASS_MAP.put("variableloopcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.LoopController",
-                "com.gitee.qa.jmeter.control.gui.LoopControlPanel"));
-        ELEMENT_CLASS_MAP.put("probabilitycontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ProbabilityController",
-                "com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui"));
-        ELEMENT_CLASS_MAP.put("parameterincludecontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterIncludeController",
-                "com.gitee.qa.jmeter.control.gui.ParameterIncludeControllerGui"));
-        ELEMENT_CLASS_MAP.put("criticalsectioncontroller",
-                new ElementClassInfo("org.apache.jmeter.control.CriticalSectionController",
-                        "org.apache.jmeter.control.gui.CriticalSectionControllerPanel"));
-
-        // Test Fragment
-        ELEMENT_CLASS_MAP.put("testfragmentcontroller", new ElementClassInfo("org.apache.jmeter.control.TestFragmentController",
-                "org.apache.jmeter.control.gui.TestFragmentControllerGui"));
-        ELEMENT_CLASS_MAP.put("parametertestfragmentcontroller", new ElementClassInfo("com.gitee.qa.jmeter.control.ParameterTestFragmentController",
-                "com.gitee.qa.jmeter.control.gui.ParameterTestFragmentControllerGui"));
-
-        // Additional Listeners
-        ELEMENT_CLASS_MAP.put("sampleresultsaveconfiguration",
-                new ElementClassInfo("org.apache.jmeter.samplers.SampleSaveConfiguration",
-                        "org.apache.jmeter.samplers.SampleSaveConfiguration"));
-        ELEMENT_CLASS_MAP.put("graphresults", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.GraphVisualizer"));
-        ELEMENT_CLASS_MAP.put("assertionresults", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.AssertionVisualizer"));
-        ELEMENT_CLASS_MAP.put("viewresultsintable", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.TableVisualizer"));
-        ELEMENT_CLASS_MAP.put("saveresponsestoafile", new ElementClassInfo("org.apache.jmeter.reporters.ResultSaver",
-                "org.apache.jmeter.reporters.gui.ResultSaverGui"));
-        ELEMENT_CLASS_MAP.put("generatesummaryresults", new ElementClassInfo("org.apache.jmeter.reporters.Summariser",
-                "org.apache.jmeter.reporters.gui.SummariserGui"));
-        ELEMENT_CLASS_MAP.put("comparisonassertionvisualizer", new ElementClassInfo(
-                "org.apache.jmeter.reporters.ResultCollector", "org.apache.jmeter.visualizers.ComparisonVisualizer"));
-        ELEMENT_CLASS_MAP.put("aggregategraph", new ElementClassInfo("org.apache.jmeter.reporters.ResultCollector",
-                "org.apache.jmeter.visualizers.StatGraphVisualizer"));
-    }
+    // Component metadata (modelClass/guiClass/defaultName) is loaded at runtime by
+    // ElementRegistry from schema files + legacy-elements.yaml. See ElementRegistry.loadFromSkillsDir().
 
     /**
      * A generic method to create a test element using its class and GUI class
@@ -690,7 +274,7 @@ public class JMeterElementManager {
             log.info("Normalized element type: {}", normalizedType);
 
             // Get the class info for the element type
-            ElementClassInfo classInfo = ELEMENT_CLASS_MAP.get(normalizedType);
+            ElementClassInfo classInfo = ElementRegistry.getInstance().lookup(normalizedType);
             if (classInfo == null) {
                 log.error("Unknown element type: {}", elementType);
                 return false;
@@ -877,128 +461,18 @@ public class JMeterElementManager {
 
         String normalizedType = normalizeElementType(elementType);
 
-        switch (normalizedType) {
-            case "httptestsample":
-                return "HTTP Request";
-            case "httpsampler":
-                return "HTTP Request";
-            case "loopcontroller":
-                return "Loop Controller";
-            case "ifcontroller":
-                return "If Controller";
-            case "whilecontroller":
-                return "While Controller";
-            case "transactioncontroller":
-                return "Transaction Controller";
-            case "casecontroller":
-                return "Case Controller";
-            case "modulecontroller":
-                return "Module Controller";
-            case "dowhilecontroller":
-                return "DoWhile Controller";
-            case "variableloopcontroller":
-                return "Variable Loop Controller";
-            case "probabilitycontroller":
-                return "Probability Controller";
-            case "parameterincludecontroller":
-                return "Include Controller (with Parameters)";
-            case "parametertestfragmentcontroller":
-                return "Test Fragment (with Parameters)";
-            case "testfragmentcontroller":
-                return "Test Fragment";
-            case "runtimecontroller":
-                return "Runtime Controller";
-            case "headermanager":
-                return "HTTP Header Manager";
-            case "jdbcdatasource":
-                return "JDBC Connection Configuration";
-            case "csvdataset":
-                return "CSV Data Set";
-            case "exceldataconfig":
-                return "Excel Data Set Config";
-            case "s3configelement":
-                return "S3 Connection Configuration";
-            case "threadgroup":
-            case "setupthreadgroup":
-            case "teardownthreadgroup":
-                return "Thread Group";
-            case "responseassert":
-            case "responseassertion":
-                return "Response Assertion";
-            case "jsonassertion":
-            case "jsonpathassertion":
-                return "JSON Path Assertion";
-            case "durationassertion":
-                return "Duration Assertion";
-            case "sizeassertion":
-                return "Size Assertion";
-            case "xpathassertion":
-                return "XPath Assertion";
-            case "md5assertion":
-            case "md5hexassertion":
-                return "MD5 Hex Assertion";
-            case "jmespathassert":
-            case "jmespathassertion":
-                return "JMES Path Assertion";
-            case "compareassert":
-            case "compareassertion":
-                return "Compare Assertion";
-            case "htmlassertion":
-                return "HTML Assertion";
-            case "constanttimer":
-                return "Constant Timer";
-            case "constantthroughputtimer":
-                return "Constant Throughput Timer";
-            case "uniformrandomtimer":
-                return "Uniform Random Timer";
-            case "gaussianrandomtimer":
-                return "Gaussian Random Timer";
-            case "poissonrandomtimer":
-                return "Poisson Random Timer";
-            case "regexextractor":
-                return "Regular Expression Extractor";
-            case "xpathextractor":
-                return "XPath Extractor";
-            case "jsonpostprocessor":
-                return "JSON Post Processor";
-            case "boundaryextractor":
-                return "Boundary Extractor";
-            case "viewresultstree":
-                return "View Results Tree";
-            case "aggregatereport":
-            case "statvisualizer":
-                return "Aggregate Report";
-            case "userdefinedvariables":
-                return "User Defined Variables";
-            case "jsr223sampler":
-                return "JSR223 Sampler";
-            case "jsr223preprocessor":
-                return "JSR223 PreProcessor";
-            case "jsr223postprocessor":
-                return "JSR223 PostProcessor";
-            case "variableassertion":
-                return "Variable Assertion";
-            case "valueassertion":
-                return "Value Assertion";
-            case "jsonautoassertion":
-                return "JSON Auto Assertion";
-            case "httpudsampler":
-                return "HTTP User Defined Sampler";
-            case "sshcommandsampler":
-                return "SSH Command Sampler";
-            case "sshsftpsampler":
-                return "SSH SFTP Sampler";
-            case "httpudconfigelement":
-                return "HTTP User Defined Element Configuration";
-            case "httpudincludeconfig":
-                return "HTTP User Defined Include Configuration";
-            default:
-                // Convert camelCase to Title Case with spaces
-                String name = normalizedType.replaceAll("([a-z])([A-Z])", "$1 $2");
-                name = name.substring(0, 1).toUpperCase() + name.substring(1);
-
-                return name;
+        // Try registry (schema componentName or legacy yaml defaultName) first.
+        // Covers all components with schema/legacy entries (including aliases).
+        String registryName = ElementRegistry.getInstance().resolveDefaultName(normalizedType);
+        if (registryName != null && !registryName.isEmpty()) {
+            return registryName;
         }
+
+        // Fallback: convert camelCase to Title Case with spaces
+        String name = normalizedType.replaceAll("([a-z])([A-Z])", "$1 $2");
+        name = name.substring(0, 1).toUpperCase() + name.substring(1);
+
+        return name;
     }
 
     /**
@@ -1007,7 +481,7 @@ public class JMeterElementManager {
      * @return The element class map
      */
     public static Map<String, ElementClassInfo> getElementClassMap() {
-        return ELEMENT_CLASS_MAP;
+        return ElementRegistry.getInstance().snapshot();
     }
 
     /**
@@ -1018,7 +492,7 @@ public class JMeterElementManager {
      */
     public static boolean isElementTypeSupported(String elementType) {
         String normalizedType = normalizeElementType(elementType);
-        return ELEMENT_CLASS_MAP.containsKey(normalizedType);
+        return ElementRegistry.getInstance().lookup(normalizedType) != null;
     }
 
     /**
@@ -1028,7 +502,7 @@ public class JMeterElementManager {
      * @return The ElementClassInfo, or null if not found
      */
     public static ElementClassInfo getElementClassInfo(String elementType) {
-        return ELEMENT_CLASS_MAP.get(elementType);
+        return ElementRegistry.getInstance().lookup(normalizeElementType(elementType));
     }
 
     /**
@@ -1052,7 +526,7 @@ public class JMeterElementManager {
         categories.put("JSR223 Elements", new StringBuilder());
 
         // Add elements to their respective categories
-        for (Map.Entry<String, ElementClassInfo> entry : ELEMENT_CLASS_MAP.entrySet()) {
+        for (Map.Entry<String, ElementClassInfo> entry : ElementRegistry.getInstance().snapshot().entrySet()) {
             String className = entry.getValue().guiClassName;
             if (className.contains("sampler")) {
                 categories.get("Samplers").append("- ").append(getDefaultNameForElement(entry.getKey())).append("\n");
@@ -1099,7 +573,7 @@ public class JMeterElementManager {
      */
     public static Class<?> getJMeterGuiClass(String elementType) {
         String normalizedType = normalizeElementType(elementType);
-        ElementClassInfo classInfo = ELEMENT_CLASS_MAP.get(normalizedType);
+        ElementClassInfo classInfo = ElementRegistry.getInstance().lookup(normalizedType);
 
         if (classInfo == null) {
             return null;
@@ -1405,7 +879,7 @@ public class JMeterElementManager {
         log.info("Normalized element type: {}", normalizedType);
 
         // Get child element's GUI class name
-        ElementClassInfo classInfo = ELEMENT_CLASS_MAP.get(normalizedType);
+        ElementClassInfo classInfo = ElementRegistry.getInstance().lookup(normalizedType);
         if (classInfo == null) {
             log.warn("Could not find class info for element type: {} - returning INCOMPATIBLE", normalizedType);
             log.info("========== Compatibility Check End (INCOMPATIBLE) ==========");

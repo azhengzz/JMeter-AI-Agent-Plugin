@@ -1,5 +1,7 @@
 component:
   type: jsonpathassertion
+  testClass: org.apache.jmeter.assertions.JSONPathAssertion
+  guiClass: org.apache.jmeter.assertions.gui.JSONPathAssertionGui
   name: JSON Path Assertion
   description: Validates JSON responses using JSONPath expressions
 

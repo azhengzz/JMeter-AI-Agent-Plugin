@@ -1,5 +1,7 @@
 component:
   type: jsr223postprocessor
+  testClass: org.apache.jmeter.extractor.JSR223PostProcessor
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JSR223 Post-Processor
   description: "Executes JSR223 scripts (Groovy, JavaScript, etc.) after a sampler completes. Groovy is recommended for best performance."
 

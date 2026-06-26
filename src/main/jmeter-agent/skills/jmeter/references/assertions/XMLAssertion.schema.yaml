@@ -1,5 +1,7 @@
 component:
   type: xmlassertion
+  testClass: org.apache.jmeter.assertions.XMLAssertion
+  guiClass: org.apache.jmeter.assertions.gui.XMLAssertionGui
   name: XML Assertion
   description: The XML Assertion tests that the response data consists of a formally correct XML document.
 

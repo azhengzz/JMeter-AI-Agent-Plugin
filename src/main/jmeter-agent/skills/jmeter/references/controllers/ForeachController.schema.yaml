@@ -1,5 +1,7 @@
 component:
   type: foreachcontroller
+  testClass: org.apache.jmeter.control.ForeachController
+  guiClass: org.apache.jmeter.control.gui.ForeachControlPanel
   name: ForEach Controller
   description: Iterates over a list of variables and executes its children for each variable
 

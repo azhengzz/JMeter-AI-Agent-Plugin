@@ -1,5 +1,7 @@
 component:
   type: htmlextractor
+  testClass: org.apache.jmeter.extractor.HtmlExtractor
+  guiClass: org.apache.jmeter.extractor.gui.HtmlExtractorGui
   name: CSS Selector Extractor
   description: "Extracts data from HTML responses using CSS Selector or jQuery expressions. Supports JSOUP and JODD implementations."
 

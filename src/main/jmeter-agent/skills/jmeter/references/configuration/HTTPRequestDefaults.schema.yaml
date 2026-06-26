@@ -1,5 +1,7 @@
 component:
   type: httpdefaults
+  testClass: org.apache.jmeter.config.ConfigTestElement
+  guiClass: org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui
   name: HTTP Request Defaults
   description: Sets default values for HTTP Request samplers
 
@@ -52,7 +54,7 @@ properties:
 
   - name: HTTPsampler.Arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

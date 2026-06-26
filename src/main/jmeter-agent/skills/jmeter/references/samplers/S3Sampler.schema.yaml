@@ -1,7 +1,8 @@
 component:
   type: s3sampler
   name: S3 Sampler
-  class: com.gitee.qa.jmeter.protocol.s3.sampler.S3Sampler
+  testClass: com.gitee.qa.jmeter.protocol.s3.sampler.S3Sampler
+  guiClass: com.gitee.qa.jmeter.protocol.s3.gui.S3SamplerGui
   description: Execute S3 object storage operations (bucket CRUD, file upload/download/delete, metadata queries)
 
 properties:

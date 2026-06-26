@@ -1,5 +1,7 @@
 component:
   type: flowcontrolaction
+  testClass: org.apache.jmeter.sampler.TestAction
+  guiClass: org.apache.jmeter.sampler.gui.TestActionGui
   name: Flow Control Action
   description: "Controls test flow by pausing, stopping threads, or controlling loop iterations. Useful in conditional scenarios."
 

@@ -1,5 +1,7 @@
 component:
   type: ifcontroller
+  testClass: org.apache.jmeter.control.IfController
+  guiClass: org.apache.jmeter.control.gui.IfControllerPanel
   name: If Controller
   description: Allows conditional execution of its child elements
 

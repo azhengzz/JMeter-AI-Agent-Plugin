@@ -1,5 +1,7 @@
 component:
   type: debugpostprocessor
+  testClass: org.apache.jmeter.extractor.DebugPostProcessor
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: Debug Post-Processor
   description: "Displays JMeter variables, properties, and sampler information in the View Results Tree for debugging."
 

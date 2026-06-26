@@ -1,5 +1,7 @@
 component:
   type: uniformrandomtimer
+  testClass: org.apache.jmeter.timers.UniformRandomTimer
+  guiClass: org.apache.jmeter.timers.gui.UniformRandomTimerGui
   name: Uniform Random Timer
   description: "Pauses execution with random delay following uniform distribution. Each pause is equally likely to be any value between 0 and range. Total delay = constant delay + random(0 to range)."
 

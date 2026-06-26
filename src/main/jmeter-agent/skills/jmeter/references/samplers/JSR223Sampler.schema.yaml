@@ -1,5 +1,7 @@
 component:
   type: jsr223sampler
+  testClass: org.apache.jmeter.protocol.java.sampler.JSR223Sampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JSR223 Sampler
   description: Allows you to execute custom code using JSR223 compliant scripting languages
 

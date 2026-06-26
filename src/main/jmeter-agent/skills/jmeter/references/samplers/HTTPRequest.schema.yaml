@@ -2,7 +2,8 @@ component:
   type: httpsampler
   aliases: [httptestsample, httprequest]
   name: HTTP Request
-  class: 
+  testClass: org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy
+  guiClass: org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui
   description: Sends HTTP/HTTPS requests to web servers
 
 properties:
@@ -84,7 +85,7 @@ properties:
 
   - name: HTTPsampler.Arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -130,7 +131,7 @@ properties:
 
   - name: HTTPsampler.Files
     type: Array
-    class: org.apache.jmeter.protocol.http.util.HTTPFileArgs
+    testClass: org.apache.jmeter.protocol.http.util.HTTPFileArgs
     mountMode: TestElementProperty
     containerAddMethod: addHTTPFileArg
     required: false

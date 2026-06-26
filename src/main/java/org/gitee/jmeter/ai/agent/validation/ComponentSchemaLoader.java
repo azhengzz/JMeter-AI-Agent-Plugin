@@ -119,6 +119,8 @@ public class ComponentSchemaLoader {
             schema.setComponentType(getStringValue(componentData, "type"));
             schema.setComponentName(getStringValue(componentData, "name"));
             schema.setDescription(getStringValue(componentData, "description"));
+            schema.setTestClass(getStringValue(componentData, "testClass"));
+            schema.setGuiClass(getStringValue(componentData, "guiClass"));
 
             // Parse aliases
             if (componentData.containsKey("aliases")) {
@@ -181,8 +183,13 @@ public class ComponentSchemaLoader {
             propDef.setDescription(getStringValue(propData, "description"));
             propDef.setPattern(getStringValue(propData, "pattern"));
 
-            // Parse class name for Object type
-            propDef.setClassName(getStringValue(propData, "class"));
+            // Parse class name for Object/Array type.
+            // "testClass" mirrors JMX's testclass attribute (TestElement nested-object / Array container);
+            // fall back to legacy "class" key for non-TestElement ObjectProperty beans (e.g. SampleSaveConfiguration,
+            // which JMX serializes with a "class" attribute, not testclass).
+            String testClassValue = getStringValue(propData, "testClass");
+            propDef.setClassName(testClassValue != null && !testClassValue.isEmpty()
+                    ? testClassValue : getStringValue(propData, "class"));
 
             // Parse nested properties for Object type
             if (propData.containsKey("properties")) {
@@ -211,7 +218,7 @@ public class ComponentSchemaLoader {
             propDef.setInnerItemType(getStringValue(propData, "innerItemType"));
 
             // Parse container-driven template fields.
-            // Note: "class" YAML key maps to className (shared between Object's nested-object and Array's container-items).
+            // Note: "testClass"/"class" YAML key maps to className (shared between Object's nested-object and Array's container-items).
             String mountModeStr = getStringValue(propData, "mountMode");
             if (mountModeStr != null) {
                 propDef.setMountMode(mountModeStr);

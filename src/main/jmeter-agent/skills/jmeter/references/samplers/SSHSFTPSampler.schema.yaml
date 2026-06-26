@@ -1,5 +1,7 @@
 component:
   type: sshsftpsampler
+  testClass: org.apache.jmeter.protocol.ssh.sampler.SSHSFTPSampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: SSH SFTP Sampler
   description: "Opens an SSH session to a remote host and performs a single SFTP operation via the sftp channel. Supports file transfer (get, put), file and directory management (rm, rmdir), and directory listing (ls). Supports password and public-key authentication. Useful for moving fixtures or verifying remote files as part of a load test."
 

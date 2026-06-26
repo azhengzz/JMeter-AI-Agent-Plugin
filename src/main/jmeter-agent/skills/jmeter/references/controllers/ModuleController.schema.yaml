@@ -1,5 +1,7 @@
 component:
   type: modulecontroller
+  testClass: org.apache.jmeter.control.ModuleController
+  guiClass: org.apache.jmeter.control.gui.ModuleControllerGui
   name: Module Controller
   description: References and executes a controller defined elsewhere in the test plan (typically under a Test Fragment), enabling test plan modularity and reuse
 

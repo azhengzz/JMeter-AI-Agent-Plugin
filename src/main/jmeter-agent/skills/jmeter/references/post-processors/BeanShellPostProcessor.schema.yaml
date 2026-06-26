@@ -1,5 +1,7 @@
 component:
   type: beanshellpostprocessor
+  testClass: org.apache.jmeter.extractor.BeanShellPostProcessor
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: BeanShell Post-Processor
   description: "Executes BeanShell scripts after a sampler completes. Note: JSR223 with Groovy is recommended for better performance."
 

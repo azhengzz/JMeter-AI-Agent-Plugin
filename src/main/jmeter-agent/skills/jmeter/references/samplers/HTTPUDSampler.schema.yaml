@@ -1,5 +1,7 @@
 component:
   type: httpudsampler
+  testClass: com.gitee.qa.jmeter.protocol.httpud.sampler.HTTPUDSampler
+  guiClass: com.gitee.qa.jmeter.protocol.httpud.sampler.gui.HTTPUDSamplerGui
   name: HTTP User Defined Sampler
   description: Sends HTTP requests using a reusable configuration template defined by HTTP User Defined Element Configuration
 
@@ -11,7 +13,7 @@ properties:
 
   - name: HTTPUDArgumentsGui.HTTPUDArguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

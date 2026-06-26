@@ -1,5 +1,7 @@
 component:
   type: httpudconfigelement
+  testClass: com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDConfigElement
+  guiClass: com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDConfigElementGui
   name: HTTP User Defined Element Configuration
   description: Defines a reusable HTTP request template with custom parameters that can be referenced by HTTP User Defined Samplers
 
@@ -91,7 +93,7 @@ properties:
 
   - name: HTTPsampler.Arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -138,7 +140,7 @@ properties:
 
   - name: HTTPsampler.Files
     type: Array
-    class: org.apache.jmeter.protocol.http.util.HTTPFileArgs
+    testClass: org.apache.jmeter.protocol.http.util.HTTPFileArgs
     mountMode: TestElementProperty
     containerAddMethod: addHTTPFileArg
     required: false
@@ -165,7 +167,7 @@ properties:
 
   - name: HTTPUDConfigElement.http_header_parameters_name
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -185,7 +187,7 @@ properties:
 
   - name: HTTPUDArgumentsGui.HTTPUDArguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

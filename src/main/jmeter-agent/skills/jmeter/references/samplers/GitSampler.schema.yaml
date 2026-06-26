@@ -1,7 +1,8 @@
 component:
   type: gitsampler
   name: Git Sampler
-  class: com.gitee.qa.jmeter.protocol.git.GitSampler
+  testClass: com.gitee.qa.jmeter.protocol.git.GitSampler
+  guiClass: com.gitee.qa.jmeter.protocol.git.gui.GitSamplerGui
   description: Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP protocol
 
 properties:
@@ -47,7 +48,7 @@ properties:
     type: Array
     required: false
     description: Action-specific key-value arguments
-    class: org.apache.jmeter.config.Arguments
+    testClass: com.gitee.qa.jmeter.protocol.git.util.GitArguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     itemClass: org.apache.jmeter.config.Argument

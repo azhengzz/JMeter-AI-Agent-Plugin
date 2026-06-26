@@ -1,5 +1,7 @@
 component:
   type: parameterincludecontroller
+  testClass: com.gitee.qa.jmeter.control.ParameterIncludeController
+  guiClass: com.gitee.qa.jmeter.control.gui.ParameterIncludeControllerGui
   name: Include Controller (with Parameters)
   description: Enhanced Include Controller that passes input parameters to an included Test Fragment (ParameterTestFragmentController) and receives return values. Backs up the outer JMeterVariables, injects input parameters into the fragment scope, runs the fragment subtree, then restores the outer scope while exporting requested return variables.
 
@@ -11,7 +13,7 @@ properties:
 
   - name: ParameterIncludeController.Arguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false
@@ -56,7 +58,7 @@ properties:
 
   - name: ParameterIncludeController.ReturnValueArguments
     type: Array
-    class: org.apache.jmeter.config.Arguments
+    testClass: org.apache.jmeter.config.Arguments
     mountMode: TestElementProperty
     containerAddMethod: addArgument
     required: false

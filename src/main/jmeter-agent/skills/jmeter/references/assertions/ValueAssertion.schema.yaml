@@ -1,5 +1,7 @@
 component:
   type: valueassertion
+  testClass: com.gitee.qa.jmeter.assertions.ValueAssertion
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: Value Assertion
   description: Compares actual values against expected values with descriptions
 

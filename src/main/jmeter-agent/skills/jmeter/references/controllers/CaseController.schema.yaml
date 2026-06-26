@@ -1,5 +1,7 @@
 component:
   type: casecontroller
+  testClass: com.gitee.qa.jmeter.control.CaseController
+  guiClass: com.gitee.qa.jmeter.control.gui.CaseControlPanel
   name: Case Controller
   description: A controller for labeling and managing test cases, identified by the case_name property. Useful for API automation testing scenarios.
 

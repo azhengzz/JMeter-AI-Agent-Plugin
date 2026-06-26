@@ -1,5 +1,7 @@
 component:
   type: jsr223preprocessor
+  testClass: org.apache.jmeter.modifiers.JSR223PreProcessor
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
   name: JSR223 Pre-Processor
   description: "Executes JSR223 scripts (Groovy, JavaScript, etc.) before a sampler runs. Groovy is recommended for best performance."
 

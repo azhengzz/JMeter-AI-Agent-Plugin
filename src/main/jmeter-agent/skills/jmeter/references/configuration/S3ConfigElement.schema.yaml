@@ -1,7 +1,8 @@
 component:
   type: s3configelement
   name: S3 Connection Configuration
-  class: com.gitee.qa.jmeter.protocol.s3.config.S3ConfigElement
+  testClass: com.gitee.qa.jmeter.protocol.s3.config.S3ConfigElement
+  guiClass: com.gitee.qa.jmeter.protocol.s3.config.gui.S3ConfigGui
   description: Configure S3-compatible object storage connection credentials and endpoint
 
 properties:

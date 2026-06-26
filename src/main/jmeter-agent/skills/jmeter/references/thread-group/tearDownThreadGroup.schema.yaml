@@ -1,5 +1,7 @@
 component:
   type: teardownthreadgroup
+  testClass: org.apache.jmeter.threads.PostThreadGroup
+  guiClass: org.apache.jmeter.threads.gui.PostThreadGroupGui
   name: tearDown Thread Group
   description: Runs after main thread groups for cleanup tasks
 
@@ -27,7 +29,7 @@ properties:
 
   - name: ThreadGroup.main_controller
     type: Object
-    class: org.apache.jmeter.control.LoopController
+    testClass: org.apache.jmeter.control.LoopController
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController
