@@ -58,7 +58,7 @@ properties:
 
 **操作步骤**:
 
-1. 在 `references/{category}/` 下新建 `{ComponentName}.schema.yaml`(`{category}` 是 `controllers` / `samplers` / `assertions` / `thread-group` / `timers` / `configuration` / `pre-processors` / `post-processors` / `listeners` / `test-fragments` 之一,见 [§4](#4-文件总体结构))
+1. 在 `references/{source}/{category}/` 下新建 `{ComponentName}.schema.yaml` —— `{source}` 按来源选 `native`(Apache JMeter 原生) / `gitee-qa`(Gitee QA 扩展) / `third-party`(外部第三方插件);`{category}` 是 `controllers` / `samplers` / `assertions` / `thread-group` / `timers` / `configuration` / `pre-processors` / `post-processors` / `listeners` / `test-fragments` 之一(见 [§4](#4-文件总体结构))
 2. 把骨架里的 `type` / `name` / `description` 改成你的组件
 3. 把 `properties` 改成你组件的实际属性 —— 属性怎么发现见 [§3](#3-如何发现组件的属性)
 4. 属性里有表格/嵌套对象/数组时需要选模板,见 [§11 决策树](#11-模板决策树)
@@ -193,7 +193,17 @@ properties:
 - `component` 段:组件元信息,必填 `type`/`name`/`description`/`testClass`/`guiClass`
 - `properties` 段:属性列表,每项是一个 `PropertyDefinition`
 
-**文件位置约定**:`references/{category}/{ComponentName}.schema.yaml`,其中 `{category}` 是:
+**文件位置约定**:`references/{source}/{category}/{ComponentName}.schema.yaml`。
+
+- `{source}`(按组件**来源**区分,loader 递归扫描,放在哪个 source 目录不影响加载,仅用于人/Agent 区分原生与第三方):
+
+| source | 含义 | 判定 |
+|--------|------|------|
+| `native` | Apache JMeter 原生 | `testClass` 为 `org.apache.jmeter.*` 且真实存在于 JMeter 源码 |
+| `gitee-qa` | Gitee QA 扩展(本生态自研) | `testClass` 为 `com.gitee.qa.jmeter.*` |
+| `third-party` | 外部第三方插件(需单独安装) | 非 JMeter 原生、非本生态(如 jmeter-plugins `kg.apc.*`、SSH Sampler) |
+
+- `{category}`(按组件**功能**):
 
 | category | 组件类型 |
 |----------|---------|
