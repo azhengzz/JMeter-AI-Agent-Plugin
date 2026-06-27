@@ -151,6 +151,8 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
 
+> **Want to add new JMeter components for the Agent?** Component metadata (`testClass`/`guiClass`) is fully data-driven — adding a component requires **zero Java changes**, just a YAML Schema file. See the full authoring guide: [SCHEMA-GUIDE_en.md](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE_en.md)（[中文版](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE.md)）.
+
 ## Configuration Reference
 
 Copy the contents of `jmeter-ai-sample.properties` into `user.properties` and modify as needed. The default values in the tables below are taken from `jmeter-ai-sample.properties`; when not explicitly configured in `user.properties`, some items fall back to source-code built-in defaults (noted where applicable).

@@ -1,5 +1,7 @@
 # JMeter 组件 Schema 编写指南
 
+> 英文版：[SCHEMA-GUIDE_en.md](./SCHEMA-GUIDE_en.md)。
+
 本指南说明 `references/**/*.schema.yaml` 文件中各字段的定义、可选值与编写规则。
 
 **组件元信息(testClass/guiClass)已全部下沉为数据**,新增/补全组件**零 Java 改动**,只需写 YAML:

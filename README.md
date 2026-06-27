@@ -151,6 +151,8 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | **memory** | 记忆管理 — 双层记忆（MEMORY.md 长期记忆 + HISTORY.md 事件历史），支持 grep 检索 |
 | **skill-creator** | 技能创建 — 元技能，用于创建和更新新的 Agent 技能 |
 
+> **想为 Agent 扩充新的 JMeter 组件？** 组件元信息（`testClass`/`guiClass`）已完全数据驱动 —— 新增组件**零 Java 改动**，只需编写一个 YAML Schema 文件。完整编写指南见 [SCHEMA-GUIDE.md](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE.md)（[English](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE_en.md)）。
+
 ## 配置参考
 
 将 `jmeter-ai-sample.properties` 的内容复制到 `user.properties`，按需修改。下表中的默认值取自 `jmeter-ai-sample.properties`；若未在 `user.properties` 中显式配置，部分项将回落至源码内置默认值（已注明）。
