@@ -27,6 +27,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <jmeter.home>D:/apache-jmeter-5.6.3</jmeter.home>
+        <flexmark.version>0.64.8</flexmark.version>
     </properties>
     <repositories>
         <repository>
@@ -71,6 +72,18 @@
             <artifactId>jtokkit</artifactId>
             <version>1.1.0</version>
         </dependency>
+        <!-- Flexmark-java: markdown -> HTML renderer for the JEditorPane text/html chat path
+             (see MarkdownParserHolder.renderToHtml). -->
+        <dependency>
+            <groupId>com.vladsch.flexmark</groupId>
+            <artifactId>flexmark</artifactId>
+            <version>${flexmark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.vladsch.flexmark</groupId>
+            <artifactId>flexmark-ext-tables</artifactId>
+            <version>${flexmark.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.jmeter</groupId>
             <artifactId>ApacheJMeter_core</artifactId>
@@ -100,6 +113,20 @@
                     <groupId>org.apache.jmeter</groupId>
                     <artifactId>ApacheJMeter_http</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>net.sf.saxon</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- ApacheJMeter_http for testing HTTP-related components (HTTPArgument, Header, Cookie, HTTPFileArg)
+             Used by SchemaBasedPropertyHandlerTest. Test-scope only, does not affect runtime packaging. -->
+        <dependency>
+            <groupId>org.apache.jmeter</groupId>
+            <artifactId>ApacheJMeter_http</artifactId>
+            <version>5.6.3</version>
+            <scope>test</scope>
+            <exclusions>
                 <exclusion>
                     <groupId>net.sf.saxon</groupId>
                     <artifactId>*</artifactId>

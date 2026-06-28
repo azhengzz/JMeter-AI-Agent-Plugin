@@ -2,6 +2,9 @@ package org.gitee.jmeter.ai.gui;
 
 import javax.swing.*;
 import javax.swing.text.*;
+import javax.swing.text.html.HTMLDocument;
+import javax.swing.text.html.HTMLEditorKit;
+import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
@@ -19,6 +22,8 @@ import org.gitee.jmeter.ai.agent.model.AgentResponse;
 import org.gitee.jmeter.ai.agent.model.ProgressUpdate;
 import org.gitee.jmeter.ai.agent.model.ToolEvent;
 import org.gitee.jmeter.ai.agent.swing.AgentSwingWorker;
+import org.gitee.jmeter.ai.gui.render.MarkdownParserHolder;
+import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
 import org.gitee.jmeter.ai.selection.SelectionListener;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.selection.SelectionTracker;
@@ -181,11 +186,35 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Initialize chat area
         chatArea = new JTextPane();
         chatArea.setEditable(false);
-        // Use the system default font with larger size
+        chatArea.setContentType("text/html");
+        // Use configured font size if set, otherwise use system default font size
         Font defaultFont = UIManager.getFont("TextField.font");
-        Font largerFont = new Font(defaultFont.getFamily(), defaultFont.getStyle(), defaultFont.getSize() + 2);
-        largerFont = ensureCjkSupport(largerFont);
+        int configuredFontSize = Integer.parseInt(AiConfig.getProperty("ai.chat.font.size", "0"));
+        int fontSize = configuredFontSize > 0 ? configuredFontSize : defaultFont.getSize();
+        Font largerFont = new Font(defaultFont.getFamily(), defaultFont.getStyle(), fontSize);
+        largerFont = UiThemeUtil.ensureCjkSupport(largerFont);
         chatArea.setFont(largerFont);
+        messageProcessor.setBaseFont(largerFont);
+        chatArea.setBackground(Color.WHITE);
+
+        // Base CSS for the HTML render path (theme-aware colors via UIManager).
+        HTMLEditorKit htmlKit = (HTMLEditorKit) chatArea.getEditorKit();
+        StyleSheet ss = htmlKit.getStyleSheet();
+        Color textFg = getThemeColor("TextPane.foreground", Color.BLACK);
+        Color codeBg = UiThemeUtil.getCodeBlockBackground();
+        ss.addRule("body { font-family:" + largerFont.getFamily() + "; font-size:" + largerFont.getSize()
+                + "pt; color:" + UiThemeUtil.toHex(textFg) + "; background:#ffffff; }");
+        ss.addRule("p { margin:5px 0; }");
+        ss.addRule("div { margin:5px 0; }");
+        ss.addRule("h1,h2,h3,h4,h5,h6 { margin:6px 0; }");
+        ss.addRule("ul,ol { margin:4px 0; padding-left:22px; }");
+        ss.addRule("li { margin:1px 0; }");
+        ss.addRule("pre, code, kbd, samp { font-family: Monospaced; }");
+        ss.addRule("pre { background:" + UiThemeUtil.toHex(codeBg) + "; padding:4px 6px; margin:4px 0; }");
+        ss.addRule("table { border-collapse:collapse; margin:4px 0; }");
+        ss.addRule("th, td { border:1px solid #999; padding:2px 6px; }");
+        ss.addRule("th { background:" + UiThemeUtil.toHex(codeBg) + "; }");
+        ss.addRule("blockquote { border-left:3px solid #bbb; margin:4px 0; padding-left:8px; color:#666; }");
 
         // Store the base font size for scaling
         baseChatFontSize = largerFont.getSize2D();
@@ -751,7 +780,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Add "AI is thinking..." indicator
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "AI is thinking...", getThemeColor("Label.disabledForeground", Color.GRAY), false);
+            messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(), getThemeColor("Label.disabledForeground", Color.GRAY));
         } catch (BadLocationException e) {
             log.error("Error adding loading indicator", e);
         }
@@ -830,12 +859,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 if (response.isSuccess() && response.getContent() != null) {
                     if (response.getContent().startsWith("Message injected")) {
                         // Injection queued — show in green italic
-                        SimpleAttributeSet injectStyle = new SimpleAttributeSet();
-                        StyleConstants.setForeground(injectStyle, new Color(0, 128, 0));
-                        StyleConstants.setItalic(injectStyle, true);
-                        chatArea.getStyledDocument().insertString(
-                            chatArea.getStyledDocument().getLength(),
-                            "\n[Injected] You: " + message + "\n", injectStyle);
+                        messageProcessor.appendStyled(chatArea.getStyledDocument(),
+                            "[Injected] You: " + message, new Color(0x00, 0x80, 0x00), Font.ITALIC);
                     } else {
                         // Command dispatch result (e.g. /new, /help) — show normally
                         messageProcessor.appendMessage(chatArea.getStyledDocument(),
@@ -923,19 +948,16 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void renderThinking(String text) throws BadLocationException {
-        StyledDocument doc = chatArea.getStyledDocument();
-        SimpleAttributeSet style = new SimpleAttributeSet();
-        StyleConstants.setForeground(style, new Color(120, 120, 120));
-        StyleConstants.setItalic(style, true);
-        doc.insertString(doc.getLength(), text.stripTrailing() + "\n", style);
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        messageProcessor.appendStyled(chatArea.getStyledDocument(), text.stripTrailing(),
+                new Color(0x78, 0x78, 0x78), Font.ITALIC);
     }
 
     private void renderToolHint(String hint) throws BadLocationException {
-        StyledDocument doc = chatArea.getStyledDocument();
-        SimpleAttributeSet style = new SimpleAttributeSet();
-        StyleConstants.setForeground(style, new Color(100, 100, 150));
-        StyleConstants.setBold(style, true);
-        doc.insertString(doc.getLength(), "\n" + hint.stripTrailing() + "\n", style);
+        messageProcessor.appendStyled(chatArea.getStyledDocument(), hint.stripTrailing(),
+                new Color(0x64, 0x64, 0x96), Font.BOLD);
     }
 
     private void renderProgress(String text) throws BadLocationException {
@@ -943,20 +965,39 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void renderError(String text) throws BadLocationException {
-        StyledDocument doc = chatArea.getStyledDocument();
-        SimpleAttributeSet style = new SimpleAttributeSet();
-        StyleConstants.setForeground(style, Color.RED);
-        doc.insertString(doc.getLength(), text.stripTrailing() + "\n", style);
+        messageProcessor.appendStyled(chatArea.getStyledDocument(), text.stripTrailing(), Color.RED);
     }
 
     private void renderIntermediateResponse(String text) throws BadLocationException {
-        if (text == null || text.isEmpty()) return;
-        StyledDocument doc = chatArea.getStyledDocument();
-        SimpleAttributeSet headerStyle = new SimpleAttributeSet();
-        StyleConstants.setBold(headerStyle, true);
-        StyleConstants.setForeground(headerStyle, new Color(0, 102, 204));
-        doc.insertString(doc.getLength(), "\n🤖 ", headerStyle);
-        messageProcessor.appendMessage(doc, text, getThemeColor("TextPane.foreground", Color.BLACK), true);
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        appendBotResponse(text);
+    }
+
+    /** Append an AI (markdown) response block with the inline 🤖 marker and themed foreground. */
+    private void appendBotResponse(String markdown) throws BadLocationException {
+        String fg = UiThemeUtil.toHex(getThemeColor("TextPane.foreground", Color.BLACK));
+        messageProcessor.appendHtml(chatArea.getStyledDocument(), botHeaderHtml(fg, markdown));
+    }
+
+    /**
+     * Build the AI response HTML with the 🤖 marker injected INSIDE the first block element
+     * (e.g. {@code <p><span>🤖 </span>...}) so the bot emoji sits inline with the first line
+     * instead of on its own line above the block content.
+     */
+    private static String botHeaderHtml(String fg, String markdown) {
+        String bot = "<span style=\"font-weight:bold;color:#0066cc\">🤖: </span>";
+        String md = MarkdownParserHolder.renderToHtml(markdown);
+        String injected;
+        int gt = md.indexOf('>');
+        if (!md.isEmpty() && md.charAt(0) == '<' && gt > 0 && gt <= 4) {
+            // md starts with a short opening tag like <p> or <h1> — inject right after it
+            injected = md.substring(0, gt + 1) + bot + md.substring(gt + 1);
+        } else {
+            injected = bot + md;
+        }
+        return "<div style=\"color:" + fg + "\">" + injected + "</div>";
     }
 
     /**
@@ -976,17 +1017,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Display a single tool event with styled output.
      */
     private void displaySingleToolEvent(ToolEvent event) throws BadLocationException {
-        StyledDocument doc = chatArea.getStyledDocument();
         int maxToolResultLength = Integer.parseInt(
             org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
-
-        // Tool call header
-        SimpleAttributeSet headerStyle = new SimpleAttributeSet();
-        StyleConstants.setBold(headerStyle, true);
-        StyleConstants.setForeground(headerStyle, new Color(100, 100, 150));
-        doc.insertString(doc.getLength(), "\n🔧 ", headerStyle);
-
-        SimpleAttributeSet toolStyle = new SimpleAttributeSet();
 
         Color statusColor;
         String statusIcon;
@@ -1013,35 +1045,34 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         }
 
-        StyleConstants.setForeground(toolStyle, statusColor);
-        String toolLine = String.format("  %s %s [%dms]", statusIcon, event.getToolName(), event.getDurationMs());
-        doc.insertString(doc.getLength(), toolLine.stripTrailing() + "\n", toolStyle);
+        StringBuilder sb = new StringBuilder("<div>");
+        sb.append("<span style=\"font-weight:bold;color:#646496\">🔧</span> ");
+        sb.append("<span style=\"color:").append(UiThemeUtil.toHex(statusColor)).append("\">");
+        sb.append(MessageProcessor.escapeHtml(statusIcon + " " + event.getToolName() + " [" + event.getDurationMs() + "ms]"));
+        sb.append("</span>");
 
         if (event.getArguments() != null && !event.getArguments().isEmpty()) {
-            SimpleAttributeSet argStyle = new SimpleAttributeSet();
-            StyleConstants.setForeground(argStyle, new Color(70, 130, 180));
-            StyleConstants.setItalic(argStyle, true);
-
             String argsStr = formatArguments(event.getArguments());
             String displayArgs = argsStr.stripTrailing();
             if (argsStr.length() > maxToolResultLength) {
                 displayArgs = argsStr.substring(0, maxToolResultLength) + "...(truncated, total " + argsStr.length() + " chars)";
             }
-            doc.insertString(doc.getLength(), "    Args: " + displayArgs + "\n", argStyle);
+            sb.append("<br><span style=\"color:#4682b4;font-style:italic\">Args: ")
+              .append(MessageProcessor.escapeHtml(displayArgs)).append("</span>");
         }
 
         String detail = event.getDetail();
         if (detail != null && !detail.isEmpty()) {
-            SimpleAttributeSet detailStyle = new SimpleAttributeSet();
-            StyleConstants.setForeground(detailStyle, new Color(100, 100, 100));
-            StyleConstants.setItalic(detailStyle, true);
-
             String displayDetail = detail.stripTrailing();
             if (detail.length() > maxToolResultLength) {
                 displayDetail = detail.substring(0, maxToolResultLength) + "...(truncated, total " + detail.length() + " chars)";
             }
-            doc.insertString(doc.getLength(), "    Result: " + displayDetail + "\n\n", detailStyle);
+            sb.append("<br><span style=\"color:#646464;font-style:italic\">Result: ")
+              .append(MessageProcessor.escapeHtml(displayDetail)).append("</span>");
         }
+        sb.append("</div>");
+
+        messageProcessor.appendHtml(chatArea.getStyledDocument(), sb.toString());
     }
 
     /**
@@ -1109,23 +1140,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Removes the loading indicator from the chat area.
      */
     private void removeLoadingIndicator() {
-        log.info("Attempting to remove loading indicator");
         try {
-            StyledDocument doc = chatArea.getStyledDocument();
-
-            // Find the loading indicator text
-            String text = doc.getText(0, doc.getLength());
-            int index = text.lastIndexOf("AI is thinking...");
-
-            log.info("Loading indicator found at index: {}", index);
-
-            if (index != -1) {
-                // Remove the loading indicator
-                doc.remove(index, "AI is thinking...".length());
-                log.info("Loading indicator removed");
-            } else {
-                log.warn("Loading indicator not found in chat text");
-            }
+            messageProcessor.removeLoadingIndicator(chatArea.getStyledDocument());
         } catch (BadLocationException e) {
             log.error("Error removing loading indicator", e);
         }
@@ -1153,14 +1169,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Add the AI response to the chat
         log.info("Appending AI response to chat");
         try {
-            // AI response header
-            StyledDocument doc = chatArea.getStyledDocument();
-            SimpleAttributeSet headerStyle = new SimpleAttributeSet();
-            StyleConstants.setBold(headerStyle, true);
-            StyleConstants.setForeground(headerStyle, new Color(0, 102, 204));
-            doc.insertString(doc.getLength(), "🤖 ", headerStyle);
-
-            messageProcessor.appendMessage(doc, response, getThemeColor("TextPane.foreground", Color.BLACK), true);
+            // AI response header + markdown content as one HTML block
+            appendBotResponse(response);
         } catch (BadLocationException e) {
             log.error("Error appending AI response to chat", e);
         }
@@ -1202,6 +1212,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         float newChatSize = baseChatFontSize * scale;
         Font newChatFont = currentChatFont.deriveFont(newChatSize);
         chatArea.setFont(newChatFont);
+        messageProcessor.setBaseFont(newChatFont);
 
         // Update message field font
         Font currentMessageFont = messageField.getFont();
@@ -1233,19 +1244,5 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static Color getThemeColor(String key, Color fallback) {
         Color color = UIManager.getColor(key);
         return color != null ? color : fallback;
-    }
-
-    private static Font ensureCjkSupport(Font font) {
-        if (font.canDisplay('中')) {
-            return font;
-        }
-        String[] cjkFonts = {"Microsoft YaHei", "SimHei", "SimSun", "PingFang SC", "Dialog"};
-        for (String name : cjkFonts) {
-            Font candidate = new Font(name, font.getStyle(), font.getSize());
-            if (candidate.canDisplay('中')) {
-                return candidate;
-            }
-        }
-        return font;
     }
 }
