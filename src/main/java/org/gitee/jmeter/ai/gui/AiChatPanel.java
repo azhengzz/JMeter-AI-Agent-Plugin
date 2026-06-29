@@ -59,6 +59,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
     // UI components (kept for backward compatibility)
     private JTextPane chatArea;
+    // Wraps chatArea; held as a field so the smart-scroll helpers can read/set the vertical
+    // scrollbar (auto-scroll-to-bottom while the user is pinned to the tail).
+    private JScrollPane chatScrollPane;
     private JTextArea messageField;
     private JButton sendButton;
     private JComboBox<String> modelSelector;
@@ -303,9 +306,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
         });
 
-        JScrollPane scrollPane = new JScrollPane(chatArea);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        chatPanel.add(scrollPane, BorderLayout.CENTER);
+        chatScrollPane = new JScrollPane(chatArea);
+        chatScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        chatPanel.add(chatScrollPane, BorderLayout.CENTER);
+
+        // Wire smart auto-scroll: while the viewport is pinned to the bottom, each appended
+        // message scrolls the latest content into view; once the user scrolls up, appends leave
+        // their position untouched until they return to the bottom.
+        messageProcessor.setAutoScroll(this::isChatAtBottom, this::scrollToBottom);
 
         // Create the bottom panel with model selector and input controls
         JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
@@ -760,6 +768,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Display welcome message
         displayWelcomeMessage();
+
+        // A new chat is an explicit "back to the start" action: always re-pin to the bottom so
+        // the welcome message is in view regardless of where the previous (now-cleared) log was
+        // scrolled.
+        scrollToBottom();
     }
 
     /**
@@ -1167,6 +1180,36 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
+     * Whether the chat viewport is pinned to the bottom (within ~one line of the maximum).
+     * Used as the smart-scroll gate: auto-scroll follows new content only while the user is at
+     * the tail; scrolling up (by any means — drag, wheel, button, keyboard) leaves the view in
+     * place, and scrolling back to the bottom re-enables following. The tolerance is the
+     * scrollbar's unit increment (about one text line) so it adapts to font size / DPI instead
+     * of a brittle fixed pixel count.
+     */
+    private boolean isChatAtBottom() {
+        JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
+        int tolerance = vertical.getUnitIncrement();
+        if (tolerance <= 0) {
+            tolerance = 16;
+        }
+        return vertical.getValue() + vertical.getVisibleAmount() >= vertical.getMaximum() - tolerance;
+    }
+
+    /**
+     * Scroll the chat viewport to the very bottom. Invoked on the EDT via {@code invokeLater} so
+     * it runs after the document layout pass has updated the scrollbar's maximum for the just
+     * appended content. {@code setValue(max)} is clamped by the model to {@code max - extent}
+     * (the true bottom) since the extent (viewport height) is stable.
+     */
+    private void scrollToBottom() {
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        });
+    }
+
+    /**
      * Processes an AI response and displays it in the chat area.
      * 
      * @param response The AI response to process
@@ -1193,15 +1236,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } catch (BadLocationException e) {
             log.error("Error appending AI response to chat", e);
         }
-
-        // Scroll to the bottom of the chat area to show the latest message
-        SwingUtilities.invokeLater(() -> {
-            JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, chatArea);
-            if (scrollPane != null) {
-                JScrollBar vertical = scrollPane.getVerticalScrollBar();
-                vertical.setValue(vertical.getMaximum());
-            }
-        });
+        // Scrolling is handled inside appendHtml (smart auto-scroll: only when pinned to bottom).
     }
 
     /**

@@ -10,6 +10,7 @@ import javax.swing.text.Element;
 import javax.swing.text.StyledDocument;
 import javax.swing.text.html.HTMLDocument;
 import java.awt.*;
+import java.util.function.BooleanSupplier;
 
 /**
  * Processes and formats messages for display in the chat interface (HTML render path).
@@ -25,6 +26,25 @@ import java.awt.*;
  */
 public class MessageProcessor {
     private static final Logger log = LoggerFactory.getLogger(MessageProcessor.class);
+
+    /**
+     * Smart-scroll collaborators, wired by {@code AiChatPanel} once the chat scroll pane exists.
+     * {@code atBottomProbe} reports whether the viewport is currently pinned to the bottom
+     * (captured <em>before</em> each append); {@code scrollToBottom} is then invoked after the
+     * append so the latest content is revealed. Both are null in headless tests → no scrolling.
+     */
+    private BooleanSupplier atBottomProbe;
+    private Runnable scrollToBottom;
+
+    /**
+     * Enable smart auto-scroll: when a probe reports the viewport is pinned to the bottom at the
+     * moment content is appended, the runner is called to reveal the new content. Passing
+     * {@code null}s disables the behavior (default).
+     */
+    public void setAutoScroll(BooleanSupplier atBottomProbe, Runnable scrollToBottom) {
+        this.atBottomProbe = atBottomProbe;
+        this.scrollToBottom = scrollToBottom;
+    }
 
     /**
      * No-op on the HTML render path (colors/fonts come from the StyleSheet configured by
@@ -72,28 +92,36 @@ public class MessageProcessor {
 
     /** Append an HTML fragment to the end of the document body. */
     public void appendHtml(StyledDocument doc, String htmlFragment) throws BadLocationException {
+        // Capture "pinned to bottom" BEFORE mutating the document: the viewport's current
+        // position tells us whether the user is following the tail (→ reveal new content)
+        // or reading history (→ leave their position untouched). Reading it post-append
+        // would be useless since the new content itself pushes the viewport off the bottom.
+        boolean pinToBottom = atBottomProbe != null && atBottomProbe.getAsBoolean();
         if (!(doc instanceof HTMLDocument)) {
             // Fallback if the document is not HTML-backed: insert as plain text.
             doc.insertString(doc.getLength(), htmlFragment, null);
-            return;
+        } else {
+            HTMLDocument htmlDoc = (HTMLDocument) doc;
+            Element body = findBody(htmlDoc.getDefaultRootElement());
+            if (body == null) {
+                body = htmlDoc.getDefaultRootElement();
+            }
+            try {
+                htmlDoc.insertBeforeEnd(body, htmlFragment);
+                // HTMLDocument is born with (and re-creates after a clear) an implied empty
+                // paragraph — a lone '\n' at the very start of body. Since content is appended
+                // after it, the first message would otherwise render with a blank line above it.
+                // Strip it; safe on every call because it only removes an empty paragraph that
+                // precedes all real content (present only right after a reset).
+                stripLeadingEmptyParagraph(htmlDoc, body);
+            } catch (java.io.IOException e) {
+                log.warn("Failed to append HTML fragment to chat document", e);
+                pinToBottom = false; // nothing was appended → nothing to scroll to
+            }
         }
-        HTMLDocument htmlDoc = (HTMLDocument) doc;
-        Element body = findBody(htmlDoc.getDefaultRootElement());
-        if (body == null) {
-            body = htmlDoc.getDefaultRootElement();
+        if (pinToBottom && scrollToBottom != null) {
+            scrollToBottom.run();
         }
-        try {
-            htmlDoc.insertBeforeEnd(body, htmlFragment);
-        } catch (java.io.IOException e) {
-            log.warn("Failed to append HTML fragment to chat document", e);
-            return;
-        }
-        // HTMLDocument is born with (and re-creates after a clear) an implied empty
-        // paragraph — a lone '\n' at the very start of body. Since content is appended
-        // after it, the first message would otherwise render with a blank line above it.
-        // Strip it; safe on every call because it only removes an empty paragraph that
-        // precedes all real content (present only right after a reset).
-        stripLeadingEmptyParagraph(htmlDoc, body);
     }
 
     private static void stripLeadingEmptyParagraph(HTMLDocument doc, Element body) {

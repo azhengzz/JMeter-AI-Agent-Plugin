@@ -8,6 +8,7 @@ import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 import java.awt.Font;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -79,5 +80,28 @@ class MessageProcessorApiTest {
         // Single newlines (e.g. /status output) must become <br>, not collapse to a space.
         String html = MarkdownParserHolder.renderToHtml("line1\nline2");
         assertTrue(html.contains("<br"), "soft break should render as <br>: " + html);
+    }
+
+    @Test
+    void autoScrollRunnerFiresOnlyWhenPinnedToBottom() throws Exception {
+        // Smart-scroll: the runner (scroll-to-bottom) must fire once per appended block when the
+        // probe reports the viewport pinned to the bottom, and not at all when it does not.
+        MessageProcessor mp = new MessageProcessor();
+        StyledDocument doc = new DefaultStyledDocument(); // non-HTMLDocument → fallback insert path
+        int[] scrollCount = {0};
+
+        mp.setAutoScroll(() -> true, () -> scrollCount[0]++);
+        mp.appendHtml(doc, "<div>a</div>");
+        mp.appendHtml(doc, "<div>b</div>");
+        assertEquals(2, scrollCount[0], "runner fires once per append while pinned to bottom");
+
+        // User scrolled away from the bottom → probe reports false → runner must not fire.
+        mp.setAutoScroll(() -> false, () -> scrollCount[0]++);
+        mp.appendHtml(doc, "<div>c</div>");
+        assertEquals(2, scrollCount[0], "runner does not fire when not pinned to bottom");
+
+        // No collaborators wired → no scrolling at all (headless default).
+        MessageProcessor bare = new MessageProcessor();
+        bare.appendHtml(doc, "<div>d</div>"); // must not throw
     }
 }
