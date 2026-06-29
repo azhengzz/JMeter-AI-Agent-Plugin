@@ -202,15 +202,34 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         StyleSheet ss = htmlKit.getStyleSheet();
         Color textFg = getThemeColor("TextPane.foreground", Color.BLACK);
         Color codeBg = UiThemeUtil.getCodeBlockBackground();
-        ss.addRule("body { font-family:" + largerFont.getFamily() + "; font-size:" + largerFont.getSize()
+        int fontPt = largerFont.getSize();
+        ss.addRule("body { font-family:" + largerFont.getFamily() + "; font-size:" + fontPt
                 + "pt; color:" + UiThemeUtil.toHex(textFg) + "; background:#ffffff; }");
         ss.addRule("p { margin:5px 0; }");
         ss.addRule("div { margin:5px 0; }");
-        ss.addRule("h1,h2,h3,h4,h5,h6 { margin:6px 0; }");
+        // Headings scale with the base font size (browser-standard ratios) so they follow
+        // ai.chat.font.size instead of Swing's built-in fixed heading sizes.
+        ss.addRule("h1 { font-size:" + Math.round(fontPt * 1.50f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h2 { font-size:" + Math.round(fontPt * 1.30f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h3 { font-size:" + Math.round(fontPt * 1.17f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h4 { font-size:" + fontPt + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h5 { font-size:" + Math.round(fontPt * 0.83f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h6 { font-size:" + Math.round(fontPt * 0.67f) + "pt; font-weight:bold; margin:6px 0; }");
         ss.addRule("ul,ol { margin:4px 0; padding-left:22px; }");
         ss.addRule("li { margin:1px 0; }");
-        ss.addRule("pre, code, kbd, samp { font-family: Monospaced; }");
+        // font-size is required here: once font-family is set, Swing's CSS engine no longer
+        // inherits the body font size and would fall back to a default — the same applies
+        // to any rule that specifies a font-family.
+        ss.addRule("pre, code, kbd, samp { font-family: Monospaced; font-size:" + fontPt + "pt; }");
+        // Inline code/kbd/samp: light background + padding so they read as distinct "code chips"
+        // instead of bare monospaced text. Background reuses codeBg (theme-aware, guaranteed
+        // contrast vs the panel); font stays at fontPt so it scales with ai.chat.font.size.
+        ss.addRule("code, kbd, samp { background:" + UiThemeUtil.toHex(codeBg) + "; color:"
+                + UiThemeUtil.toHex(textFg) + "; padding:1px 3px; }");
         ss.addRule("pre { background:" + UiThemeUtil.toHex(codeBg) + "; padding:4px 6px; margin:4px 0; }");
+        // Inside <pre><code>, drop the inline "chip" so the code block stays one solid panel.
+        // Harmless even if Swing ignores the descendant selector: both backgrounds are codeBg.
+        ss.addRule("pre code { background: transparent; padding:0; }");
         ss.addRule("table { border-collapse:collapse; margin:4px 0; }");
         ss.addRule("th, td { border:1px solid #999; padding:2px 6px; }");
         ss.addRule("th { background:" + UiThemeUtil.toHex(codeBg) + "; }");
