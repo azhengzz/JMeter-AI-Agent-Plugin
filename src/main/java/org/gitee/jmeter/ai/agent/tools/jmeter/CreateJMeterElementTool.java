@@ -149,13 +149,12 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Add element to test plan
-            ToolResult addResult = addElementToTestPlan(guiPackage, newElement, parentNode);
-            if (!addResult.isSuccess()) {
-                return addResult;
-            }
+            JMeterTreeNode newNode = addElementToTestPlan(guiPackage, newElement, parentNode);
+            int elementId = System.identityHashCode(newNode);
+            log.info("New element created with elementId: {}", elementId);
 
             // Build and return success result
-            return buildSuccessResult(elementName, elementType, properties);
+            return buildSuccessResult(elementName, elementType, properties, elementId);
 
         } catch (Exception e) {
             log.error("Error creating JMeter element", e);
@@ -221,25 +220,24 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
      * @param guiPackage The GuiPackage instance
      * @param newElement The element to add
      * @param parentNode The parent node
-     * @return ToolResult indicating success or failure
+     * @return The newly created JMeterTreeNode
+     * @throws RuntimeException if the EDT operation fails
      */
-    private ToolResult addElementToTestPlan(GuiPackage guiPackage, TestElement newElement,
-                                             JMeterTreeNode parentNode) {
+    private JMeterTreeNode addElementToTestPlan(GuiPackage guiPackage, TestElement newElement,
+                                                 JMeterTreeNode parentNode) {
+        JMeterTreeNode[] newNodeHolder = new JMeterTreeNode[1];
         // The addComponent() call must be on EDT because it configures GUI components
         Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
-            guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            JMeterTreeNode newNode = guiPackage.getTreeModel().addComponent(newElement, parentNode);
+            newNodeHolder[0] = newNode;
             log.info("Successfully added element to the tree model");
 
             try {
                 guiPackage.getMainFrame().getTree()
                         .expandPath(new javax.swing.tree.TreePath(parentNode.getPath()));
-
-                if (parentNode.getChildCount() > 0) {
-                    JMeterTreeNode lastChild = (JMeterTreeNode) parentNode.getChildAt(parentNode.getChildCount() - 1);
-                    guiPackage.getTreeListener().getJTree()
-                            .setSelectionPath(new javax.swing.tree.TreePath(lastChild.getPath()));
-                    log.info("Selected newly added element: {}", lastChild.getName());
-                }
+                guiPackage.getTreeListener().getJTree()
+                        .setSelectionPath(new javax.swing.tree.TreePath(newNode.getPath()));
+                log.info("Selected newly added element: {}", newNode.getName());
             } catch (Exception e) {
                 // expandPath / setSelectionPath failure is non-fatal — element is already in tree
                 log.error("Failed to expand tree or select element on EDT", e);
@@ -247,9 +245,9 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
         });
         if (edtError != null) {
             log.error("Failed to add element to tree model on EDT", edtError);
-            return ToolResult.error("Failed to add element to tree: " + edtError.getMessage());
+            throw new RuntimeException("Failed to add element to tree: " + edtError.getMessage(), edtError);
         }
-        return ToolResult.success("");
+        return newNodeHolder[0];
     }
 
     /**
@@ -258,11 +256,15 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
      * @param elementName The element name
      * @param elementType The element type
      * @param properties  The properties that were set
+     * @param elementId   The elementId of the newly created node
      * @return ToolResult with success message
      */
-    private ToolResult buildSuccessResult(String elementName, String elementType, Map<String, Object> properties) {
+    private ToolResult buildSuccessResult(String elementName, String elementType,
+                                          Map<String, Object> properties, int elementId) {
         StringBuilder result = new StringBuilder();
-        result.append("Successfully created element: **").append(elementName).append("** (").append(elementType).append(")");
+        result.append("Successfully created element: **").append(elementName)
+                .append("** (").append(elementType).append(")");
+        result.append("\nelementId: ").append(elementId);
 
         if (properties != null && !properties.isEmpty()) {
             result.append("\n\nSet properties:\n");
