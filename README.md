@@ -4,7 +4,7 @@
 
 Gitee Ai 是一个 JMeter AI Agent 插件，通过 Agent Loop 架构驱动 LLM 调用、工具执行与结果反馈的迭代循环，在 JMeter 中实现智能化的测试计划创建、优化和调试。
 
-![Gitee Ai](./images/Gitee-AI-Agent-JMeter.png)
+![Gitee Ai](./images/JMeter-Agent-Demo.gif)
 
 ## 核心特性
 
@@ -140,6 +140,24 @@ AgentLoop（主循环）
 | `/new` | 开始新对话（清空当前会话） |
 | `/status` | 显示 Bot 状态（版本、模型、Token 用量、会话信息） |
 | `/help` | 显示可用命令列表 |
+
+### 命令行客户端 (jmeter-cli)
+
+除聊天面板外，还可通过 **jmeter-cli** 命令行驱动正在运行的 JMeter GUI 实例（经 loopback HTTP/IPC），对测试计划做组件增删改查，或向 AI Agent 推消息。CLI 参数与底层工具 schema **1:1 同名**，默认安全关闭。
+
+```bash
+# 前置:GUI 启动时开启 IPC
+jmeter -Jjmeter.ai.ipc.enabled=true
+
+# 常用命令(全局选项:--pid --token --json --jmeter-home --timeout)
+jmeter-cli list                                                 # 发现实例
+jmeter-cli health                                               # 探活
+jmeter-cli find --searchBy elementType --query testplan         # 查 TestPlan 根
+jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <id>
+jmeter-cli agent "再加一个 5 用户的线程组"
+```
+
+完整命令清单、87 条测试用例与一键回归脚本见 [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md)；实现方案见 [TODO/cli-support-plan.md](TODO/cli-support-plan.md)。
 
 ## 技能系统
 
