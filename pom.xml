@@ -252,6 +252,13 @@
                                     <exclude>net.sf.saxon:*</exclude>
                                 </excludes>
                             </artifactSet>
+                    <transformers>
+                        <!-- 设 Main-Class 让 java -jar jmeter-agent-<ver>.jar 可直接跑 CLI。
+                             不影响插件加载(JMeter 经 lib/ext + META-INF/services 加载,不看 manifest)。 -->
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                            <mainClass>org.gitee.jmeter.ai.cli.JmeterCli</mainClass>
+                        </transformer>
+                    </transformers>
                         </configuration>
                 <executions>
                     <execution>
@@ -308,6 +315,11 @@
                                     <fileset dir="${project.basedir}/src/main/resources/templates" includes="AGENTS.md,SOUL.md,TOOLS.md,USER.md"/>
                                 </copy>
 
+                                <!-- Copy CLI launch scripts to JMeter bin/ -->
+                                <copy todir="${jmeter.home}/bin">
+                                    <fileset dir="${project.basedir}/src/main/resources/bin" includes="jmeter-cli.bat,jmeter-cli.sh"/>
+                                </copy>
+                                <chmod file="${jmeter.home}/bin/jmeter-cli.sh" perm="755"/>
                             </target>
                         </configuration>
                     </execution>
@@ -315,4 +327,47 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- 仅供本地验证:`mvn install -Dlaunch.gui=true`(且 Windows)时启动 JMeter GUI。
+         默认 `mvn install` 只复制文件、不弹窗,保证跨平台与 CI 可移植。
+         osfamily="windows" 是权威平台闸:非 Windows 即便 profile 被激活,exec 也会静默跳过。 -->
+    <profiles>
+        <profile>
+            <id>launch-gui</id>
+            <activation>
+                <property>
+                    <name>launch.gui</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>launch-gui</id>
+                                <phase>install</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <exec executable="cmd.exe" dir="${jmeter.home}/bin"
+                                              osfamily="windows" spawn="true">
+                                            <arg value="/c"/>
+                                            <arg value="start"/>
+                                            <arg value="${jmeter.home}/bin/jmeter.bat"/>
+                                        </exec>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

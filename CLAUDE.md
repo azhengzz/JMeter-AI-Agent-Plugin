@@ -86,8 +86,9 @@ mvn test -Dtest=ClassNameTest
 
 **安装到本地 JMeter（修改 pom.xml 的 antrun 配置路径）：**
 ```bash
-mvn clean install
+mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
+mvn clean install -Dlaunch.gui=true  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
 
 **跳过测试构建：**

@@ -1,0 +1,7 @@
+# Windows batch files MUST use CRLF — cmd.exe misparses LF-only .bat files
+# (eats leading chars of each line, breaks setlocal/delayed expansion).
+*.bat   eol=crlf
+*.cmd   eol=crlf
+
+# Shell scripts stay LF.
+*.sh    eol=lf

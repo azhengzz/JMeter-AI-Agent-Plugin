@@ -15,14 +15,14 @@ properties:
 
   - name: ThreadGroup.num_threads
     type: Integer
-    required: true
+    required: false
     min: 1
     default: 1
     description: Number of virtual users to simulate
 
   - name: ThreadGroup.ramp_time
     type: Integer
-    required: true
+    required: false
     min: 0
     default: 1
     description: Time (seconds) to start all threads
@@ -33,12 +33,12 @@ properties:
     mountMode: TestElementProperty
     guiClass: org.apache.jmeter.control.gui.LoopControlPanel
     setterOverride: setSamplerController
-    required: true
+    required: false
     description: Main controller (LoopController) for this thread group
     properties:
       - name: LoopController.loops
         type: Integer
-        required: true
+        required: false
         min: -1
         default: 1
         description: Number of loops (-1 for infinite)
@@ -51,7 +51,7 @@ properties:
 
   - name: ThreadGroup.same_user_on_next_iteration
     type: Boolean
-    required: true
+    required: false
     default: true
     description: Same user on each iteration
 

@@ -114,43 +114,6 @@ public class AiServiceFactory {
 
     /**
      * Create an AI service for a specific provider.
-        if (modelId == null || modelId.isEmpty()) {
-            log.warn("Model ID is null or empty, using default service (OpenAI)");
-            return getCachedService("openai", "default");
-        }
-
-        // Detect provider from model ID
-        ProviderSpec spec = ProviderRegistry.detectProvider(modelId);
-        if (spec == null) {
-            log.warn("No provider detected for model: {}, using default (OpenAI)", modelId);
-            spec = ProviderRegistry.findByName("openai");
-        }
-
-        String cacheKey = spec.getName() + ":" + modelId;
-
-        // Check cache
-        if (SERVICE_CACHE.containsKey(cacheKey)) {
-            log.debug("Returning cached service for: {}", cacheKey);
-            AiService cachedService = SERVICE_CACHE.get(cacheKey);
-            // Update the model if needed
-            if (cachedService instanceof OpenAICompatibleProvider provider) {
-                provider.setModel(modelId);
-            }
-            return cachedService;
-        }
-
-        // Create new service instance
-        AiService service = createServiceForSpec(spec, modelId);
-        if (service != null) {
-            SERVICE_CACHE.put(cacheKey, service);
-            log.info("Created and cached service for: {}", cacheKey);
-        }
-
-        return service;
-    }
-
-    /**
-     * Create an AI service for a specific provider.
      *
      * @param providerName The provider name
      * @return An AI service instance
