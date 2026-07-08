@@ -32,6 +32,7 @@ public class JMeterToolRegistry {
         registry.register(new GetSelectedElementTool());
         registry.register(new GetTestPlanTreeTool());
         registry.register(new ParseJmxFileTool());
+        registry.register(new OpenJmxFileTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());

@@ -147,6 +147,8 @@ public final class JmeterCli {
                 return cmdGet(p.opts, p.json);
             case "find":
                 return cmdFind(p.opts, p.json);
+            case "open":
+                return cmdOpen(p.opts, p.json);
             case "batch":
                 return cmdBatch(p.opts, p.json);
             default:
@@ -297,6 +299,15 @@ public final class JmeterCli {
         putIntIfPresent(opts, params, "offset");
         putIntIfPresent(opts, params, "limit");
         return execTool(opts, json, "find_element", params);
+    }
+
+    private static int cmdOpen(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        params.put("filePath", require(opts, "file"));
+        putBoolIfPresent(opts, params, "merge");
+        putBoolIfPresent(opts, params, "includeProperties");
+        putIntIfPresent(opts, params, "maxDepth");
+        return execTool(opts, json, "open_jmx_file", params);
     }
 
     private static int cmdBatch(Map<String, String> opts, boolean json) throws Exception {
@@ -567,6 +578,27 @@ public final class JmeterCli {
             new String[]{
                 "jmeter-cli find --searchBy elementType --query testplan",
                 "jmeter-cli find --searchBy name --query \"HTTP Request\" --limit 10"
+            }),
+
+        new Cmd("open",
+            "Open (load) an external .jmx script into the GUI test plan.",
+            "jmeter-cli open --file <path> [--merge <bool>] [--includeProperties <bool>] [--maxDepth <n>]",
+            """
+            Loads a .jmx file into the running JMeter GUI via JMeter's own load path (SaveService.loadTree +
+            Load.insertLoadedTree). By default REPLACES the current plan (open mode); --merge merges the file
+            into the current plan instead. The full GUI tree after load is returned (same shape as
+            get_test_plan_tree), so the loaded component content is immediately readable. Requires the GUI
+            to be running (the tool runs on the EDT inside the GUI process).""",
+            new String[][]{
+                {"--file <path>", "REQUIRED. path to the .jmx file to load"},
+                {"--merge <bool>", "merge into current plan instead of replacing it (default: false)"},
+                {"--includeProperties <bool>", "include element properties in the returned tree (default: false)"},
+                {"--maxDepth <n>", "tree depth to traverse in the returned tree (-1 = unlimited)"},
+                {"--json, --pid, --token, --jmeter-home, --timeout", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli open --file /path/to/plan.jmx",
+                "jmeter-cli open --file plan.jmx --merge true --includeProperties false"
             }),
 
         new Cmd("create",

@@ -70,9 +70,10 @@ public final class IpcServer {
      * 任何未列于此的工具(含未来新增的)一律拒绝。
      * <p>exec/filesystem/web 工具本就默认不注册;即便被开启,也因不在本列表而被拒绝。
      * 测试执行类(run_test 等)与 Agent 同一信任边界(Agent 本就可调),无密钥泄露面。
-     * <p>⚠ {@code parse_jmx_file} 当前接受任意 filePath,可回读 .jmx 全部属性(HeaderManager
-     * 鉴权头、JDBC 密码等),暂未做目录限制 —— TODO:让其校验 {@code agent.tools.filesystem.allowed.dirs}
-     * 与 {@code denied.dirs},复用 read_file 的文件系统沙箱(见 {@code TODO/TODO.md})。
+     * <p>⚠ {@code parse_jmx_file} 与 {@code open_jmx_file} 均接受任意 filePath,可回读 .jmx 全部属性
+     * (HeaderManager 鉴权头、JDBC 密码等);{@code open_jmx_file} 还会把脚本加载进 GUI(替换当前计划)。
+     * 暂未做目录限制 —— TODO:让其校验 {@code agent.tools.filesystem.allowed.dirs} 与 {@code denied.dirs},
+     * 复用 read_file 的文件系统沙箱(见 {@code TODO/TODO.md})。
      */
     private static final Set<String> ALLOWED_TOOLS = Set.of(
             // CRUD(写)
@@ -84,9 +85,9 @@ public final class IpcServer {
             "get_script_info", "query_element_properties",
             // 测试执行(与 Agent 同信任边界,无密钥泄露面)
             "run_test", "get_test_status", "get_test_results",
-            // 解析外部脚本 / 读取日志面板
-            // ⚠ parse_jmx_file 待按 allowed.dirs 限制(见 TODO/TODO.md)
-            "parse_jmx_file", "get_log_panel_content"
+            // 加载/解析外部脚本 / 读取日志面板
+            // ⚠ parse_jmx_file / open_jmx_file 待按 allowed.dirs 限制(见 TODO/TODO.md)
+            "parse_jmx_file", "open_jmx_file", "get_log_panel_content"
     );
 
     private static final IpcServer INSTANCE = new IpcServer();
