@@ -1,26 +1,27 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-rem jmeter-cli 回归测试(Windows / cmd)
-rem 用法: run-cli-tests.bat [JMETER_HOME]
+rem jmeter-cli regression tests (Windows / cmd)
+rem Usage: run-cli-tests.bat [JMETER_HOME]
 rem
-rem 覆盖范围:P0 冒烟 —— 探活 / 帮助 / 用法(exit 2)/ 鉴权(HTTP 401)/ 白名单封堵(HTTP 400)。
-rem 这些用例只需 exit code + stderr 关键词,在 cmd 下可靠。
+rem Coverage (P0 smoke): probe / help / usage (exit 2) / auth (HTTP 401) /
+rem allowlist block (HTTP 400) / test-exec commands (help + idle state).
+rem These cases rely only on exit code + stderr keywords, reliable under cmd.
 rem
-rem 未覆盖:端到端 CRUD 链路(含 --properties JSON)。
-rem 原因 :cmd 对命令行 JSON 双引号的解析不可靠;且 create_jmeter_element 不直接返回 elementId,
-rem        需 find --json + jq 解析。完整端到端请用 run-cli-tests.sh(git bash / Linux / macOS),
-rem        或参考 docs\jmeter-cli-test-cases.md 第 4 节手工执行。
+rem Not covered: end-to-end CRUD (with --properties JSON).
+rem Reason: cmd quoting of JSON double-quotes is unreliable; and create_jmeter_element
+rem does not return elementId directly (needs find --json + jq). Use run-cli-tests.sh
+rem (git bash / Linux / macOS) for full end-to-end, or docs\jmeter-cli-test-cases.md section 4.
 
 set "REPO_ROOT=%~dp0.."
+set "JH=%~1"
+if "%JH%"=="" set "JH=%JMETER_HOME%"
 
-rem --- 定位 jar:优先 shade jar(含 Main-Class);排除 assembly 的 *-jar-with-dependencies.jar ---
+rem --- locate jar: prefer shade jar (has Main-Class); exclude assembly *-jar-with-dependencies.jar ---
 set "JAR="
 for /f "delims=" %%f in ('dir /b /o-d "%REPO_ROOT%\target\jmeter-agent-*.jar" 2^>nul') do (
   echo %%f | findstr "jar-with-dependencies" >nul || ( set "JAR=%REPO_ROOT%\target\%%f" & goto :gotJar )
 )
-set "JH=%~1"
-if "%JH%"=="" set "JH=%JMETER_HOME%"
 if not "%JH%"=="" for /f "delims=" %%f in ('dir /b /o-d "%JH%\lib\ext\jmeter-agent-*.jar" 2^>nul') do (
   echo %%f | findstr "jar-with-dependencies" >nul || ( set "JAR=%JH%\lib\ext\%%f" & goto :gotJar )
 )
@@ -33,15 +34,15 @@ if defined JAVA_HOME ( set "JAVACMD=%JAVA_HOME%\bin\java.exe" ) else ( set "JAVA
 set /a PASS=0
 set /a FAIL=0
 
-echo === jmeter-cli 回归测试 (Windows) ===
+echo === jmeter-cli regression tests (Windows) ===
 echo jar=!JAR!  home=!JH!  java=!JAVACMD!
 echo.
 
-rem --- 0) 探活 ---
-echo --- 0) 探活 ---
+rem --- 0) probe ---
+echo --- 0) probe ---
 "%JAVACMD%" -jar "!JAR!" list --jmeter-home "!JH!" >nul 2>&1
 if errorlevel 1 (
-  echo   [FAIL] list - 无实例?请用 -Jjmeter.ai.ipc.enabled=true 启动 JMeter
+  echo   [FAIL] list - no instance? Start JMeter with -Jjmeter.ai.ipc.enabled=true
   set /a FAIL+=1
   goto :summary
 )
@@ -49,14 +50,14 @@ echo   [OK]   list & set /a PASS+=1
 "%JAVACMD%" -jar "!JAR!" health --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 0 !errorlevel! "health"
 
-rem --- 1) 帮助与用法 (P0) ---
-echo --- 1) 帮助与用法 (P0) ---
+rem --- 1) help and usage (P0) ---
+echo --- 1) help and usage (P0) ---
 "%JAVACMD%" -jar "!JAR!" >nul 2>&1
 call :expect_exit 0 !errorlevel! "TC-EXC-01 no-args help"
 "%JAVACMD%" -jar "!JAR!" -h >nul 2>&1
 call :expect_exit 0 !errorlevel! "TC-EXC-02 -h/--help"
 "%JAVACMD%" -jar "!JAR!" help create >nul 2>&1
-call :expect_exit 0 !errorlevel! "TC-EXC-03 help ^<cmd^>"
+call :expect_exit 0 !errorlevel! "TC-EXC-03 help cmd"
 "%JAVACMD%" -jar "!JAR!" bogus >nul 2>&1
 call :expect_exit 2 !errorlevel! "TC-EXC-05 unknown command"
 "%JAVACMD%" -jar "!JAR!" create --elementName X --parentId 2 >nul 2>&1
@@ -68,15 +69,15 @@ call :expect_exit 2 !errorlevel! "TC-EXC-08 missing --properties"
 "%JAVACMD%" -jar "!JAR!" batch >nul 2>&1
 call :expect_exit 2 !errorlevel! "TC-EXC-09 missing --elementIds"
 
-rem --- 1b) 更多客户端用法/退出码用例(纯客户端,cmd 可靠)---
+rem --- 1b) more client usage / exit-code cases (pure client, reliable under cmd) ---
 "%JAVACMD%" -jar "!JAR!" --help >nul 2>&1
 call :expect_exit 0 !errorlevel! "TC-EXC-02 --help"
 "%JAVACMD%" -jar "!JAR!" help >nul 2>&1
 call :expect_exit 0 !errorlevel! "TC-EXC-02 help"
 "%JAVACMD%" -jar "!JAR!" help bogus >nul 2>&1
-call :expect_exit 2 !errorlevel! "TC-EXC-04 help <unknown cmd>"
+call :expect_exit 2 !errorlevel! "TC-EXC-04 help unknown cmd"
 "%JAVACMD%" -jar "!JAR!" create -h >nul 2>&1
-call :expect_exit 0 !errorlevel! "TC-EXC-03 <cmd> -h"
+call :expect_exit 0 !errorlevel! "TC-EXC-03 cmd -h"
 "%JAVACMD%" -jar "!JAR!" create --elementType threadgroup --elementName X --parentId abc --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 2 !errorlevel! "TC-EXC-10 non-integer parentId"
 "%JAVACMD%" -jar "!JAR!" delete --elementId abc --jmeter-home "!JH!" >nul 2>&1
@@ -84,22 +85,50 @@ call :expect_exit 2 !errorlevel! "TC-EXC-10b non-integer elementId"
 "%JAVACMD%" -jar "!JAR!" health --jmeter-home "!JH!" --json >nul 2>&1
 call :expect_exit 0 !errorlevel! "TC-ENV-06 health --json"
 
-rem --- 2) 鉴权与白名单 (P0, 安全零容忍) ---
-echo --- 2) 鉴权与白名单 (P0, 安全零容忍) ---
+rem --- 2) auth and allowlist (P0, security zero-tolerance) ---
+echo --- 2) auth and allowlist (P0, security zero-tolerance) ---
 "%JAVACMD%" -jar "!JAR!" health --jmeter-home "!JH!" --token wrong >nul 2>&1
-call :expect_exit 1 !errorlevel! "TC-EXC-11 bad token (exit)"
+call :expect_exit 1 !errorlevel! "TC-EXC-11 bad token exit"
 "%JAVACMD%" -jar "!JAR!" health --jmeter-home "!JH!" --token wrong 2>&1 | findstr /i "401" >nul && ( echo   [OK]   TC-EXC-11 msg @401 & set /a PASS+=1 ) || ( echo   [FAIL] TC-EXC-11 msg @401 & set /a FAIL+=1 )
 "%JAVACMD%" -jar "!JAR!" tool exec --params "{}" --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 1 !errorlevel! "TC-TOOL-04 exec blocked"
 "%JAVACMD%" -jar "!JAR!" tool exec --params "{}" --jmeter-home "!JH!" 2>&1 | findstr /i "not allowed" >nul && ( echo   [OK]   TC-TOOL-04 msg @not allowed & set /a PASS+=1 ) || ( echo   [FAIL] TC-TOOL-04 msg & set /a FAIL+=1 )
 "%JAVACMD%" -jar "!JAR!" tool read_file --params "{}" --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 1 !errorlevel! "TC-TOOL-05 read_file blocked"
-rem TC-TOOL-06:H1 后 run_test 已放行;改测仍被封堵的 web_search(白名单语义不变)
+rem TC-TOOL-06: run_test is now allowed (H1); test web_search which is still blocked (allowlist semantics unchanged)
 "%JAVACMD%" -jar "!JAR!" tool web_search --params "{}" --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 1 !errorlevel! "TC-TOOL-06 web_search blocked"
 
+rem --- 3) RUN test-exec commands (P0: help + idle-state error path) ---
+echo --- 3) RUN test-exec commands (P0) ---
+"%JAVACMD%" -jar "!JAR!" help run >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-01 help run"
+"%JAVACMD%" -jar "!JAR!" help stop >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-02 help stop"
+"%JAVACMD%" -jar "!JAR!" help shutdown >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-03 help shutdown"
+"%JAVACMD%" -jar "!JAR!" help status >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-04 help status"
+"%JAVACMD%" -jar "!JAR!" help results >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-05 help results"
+"%JAVACMD%" -jar "!JAR!" run -h >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-06 run -h"
+"%JAVACMD%" -jar "!JAR!" stop -h >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-07 stop -h"
+"%JAVACMD%" -jar "!JAR!" shutdown -h >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-08 shutdown -h"
+"%JAVACMD%" -jar "!JAR!" status -h >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-09 status -h"
+"%JAVACMD%" -jar "!JAR!" results -h >nul 2>&1
+call :expect_exit 0 !errorlevel! "TC-RUN-10 results -h"
+rem idle-state error path: needs server; assumes no test running in GUI session (else stop/shutdown hits a running test and returns exit 0)
+"%JAVACMD%" -jar "!JAR!" stop --jmeter-home "!JH!" >nul 2>&1
+call :expect_exit 1 !errorlevel! "TC-RUN-11 stop idle exit 1"
+"%JAVACMD%" -jar "!JAR!" shutdown --jmeter-home "!JH!" >nul 2>&1
+call :expect_exit 1 !errorlevel! "TC-RUN-12 shutdown idle exit 1"
+
 echo.
-echo --- 端到端 CRUD 链路:请用 run-cli-tests.sh(git bash)或 docs\jmeter-cli-test-cases.md §4 ---
+echo --- End-to-end CRUD: use run-cli-tests.sh (git bash) or docs\jmeter-cli-test-cases.md section 4 ---
 echo.
 
 :summary

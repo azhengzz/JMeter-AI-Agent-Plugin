@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# jmeter-cli 全用例回归:覆盖 docs/jmeter-cli-test-cases.md 的 87 条用例(按 TC-ID 逐条)。
+# jmeter-cli 全用例回归:覆盖 docs/jmeter-cli-test-cases.md 的用例(按 TC-ID 逐条),含 §9 RUN 测试执行链路。
 #
 # 用法: ./run-cli-tests.sh [JMETER_HOME]
 # 依赖: bash + grep + curl(无 jq 依赖;用 grep 从 CLI 输出提取 elementId)
@@ -301,9 +301,60 @@ skip "TC-EXC-16 他机访问" "需另一台主机验证 loopback 绑定"
 skip "TC-EXC-17 bind=0.0.0.0 拒启动" "需改 jmeter.ai.ipc.bind 重启"
 skip "TC-EXC-18 固定端口冲突" "需改端口配置重启"
 
-# ===== 9) 清理 + 残留检查 =====
-echo "--- 9) 清理 + 残留检查 ---"
+# ===== 9) RUN 测试执行(run/stop/shutdown/status/results)=====
+echo "--- 9) RUN 测试执行 ---"
+# 客户端用法(确定性)
+R $CLI help run;        ex0 "TC-RUN-01 help run exit";        out "TC-RUN-01 run 帮助" "run"
+R $CLI run -h;          ex0 "TC-RUN-02 run -h exit"
+R $CLI status -h;       ex0 "TC-RUN-03 status -h exit"
+R $CLI results -h;      ex0 "TC-RUN-04 results -h exit"
+R $CLI stop -h;         ex0 "TC-RUN-05 stop -h exit"
+R $CLI shutdown -h;     ex0 "TC-RUN-06 shutdown -h exit"
+# 空闲态错误路径(此时无测试在跑;getTestStartTime==0 → 工具层报错 exit 1)
+R $CLI stop $GH;        ex1 "TC-RUN-07 stop 空闲态 exit";      err "TC-RUN-07 文案" "No test is currently running"
+R $CLI shutdown $GH;    ex1 "TC-RUN-08 shutdown 空闲态 exit";  err "TC-RUN-08 文案" "No test is currently running"
+
+# 禁用数据准备阶段创建的其它线程组,确保 run 只跑 127.0.0.1:1(本机连接拒绝),
+# 避免对外部域名(example.com / a.com / m.com)发起请求,保持回归确定性与无副作用。
 for id in "$TG" "$TG2" "$TG_TREE" "$E_TG"; do
+    [ -n "$id" ] && $CLI toggle --elementId "$id" --action disable $GH >/dev/null 2>&1
+done
+
+# 真实运行成功链路:127.0.0.1:1 立即连接拒绝,快速且无外部网络依赖
+RUN_TG=$(mk threadgroup ZTEST_RUN_TG "$ROOT" '{"ThreadGroup.num_threads":1,"ThreadGroup.main_controller":{"LoopController.loops":1}}')
+RUN_S=$(mk httpsampler ZTEST_RUN_S "$RUN_TG" '{"HTTPSampler.domain":"127.0.0.1","HTTPSampler.port":1,"HTTPSampler.path":"/"}')
+[ -n "$RUN_S" ] && ok "TC-RUN-09 数据准备 ZTEST_RUN_S (id=$RUN_S)" || fail "TC-RUN-09 数据准备 ZTEST_RUN_S"
+R $CLI run --ignoreTimers true --wait --timeout 30000 $GH
+if [ "$RC" -eq 0 ]; then
+  ok "TC-RUN-10 run --ignoreTimers --wait exit"
+  R $CLI status $GH;  ex0 "TC-RUN-11 status exit"; out "TC-RUN-11 Completed" "Completed"
+  R $CLI results $GH; ex0 "TC-RUN-12 results exit"; out "TC-RUN-12 Total Samples" "Total Samples"
+  R $CLI results --format samples --limit 5 $GH;                    ex0 "TC-RUN-13 results samples exit"; out "TC-RUN-13 样本表" "ZTEST_RUN_S"
+  R $CLI results --format both --includeDetails true --limit 3 $GH; ex0 "TC-RUN-14 results both+details exit"
+  R $CLI results --format samples --statusFilter failure --limit 5 $GH; ex0 "TC-RUN-15 results failure 过滤 exit"; out "TC-RUN-15 含失败样本" "ZTEST_RUN_S"
+else
+  skip "TC-RUN-10..15 run 链路" "run --wait exit=$RC(GUI/启动异常?)"
+fi
+
+# stop 命中运行态:Constant Timer 60s 保证测试在 stop 调用时仍在运行(避免竞态)
+STOP_TG=$(mk threadgroup ZTEST_STOP_TG "$ROOT" '{"ThreadGroup.num_threads":1,"ThreadGroup.main_controller":{"LoopController.loops":1}}')
+STOP_S=$(mk httpsampler ZTEST_STOP_S "$STOP_TG" '{"HTTPSampler.domain":"127.0.0.1","HTTPSampler.port":1,"HTTPSampler.path":"/"}')
+STOP_TIMER=$(mk constanttimer ZTEST_STOP_TIMER "$STOP_TG" '{"ConstantTimer.delay":"60000"}')
+[ -n "$STOP_TIMER" ] && ok "TC-RUN-16 数据准备 ZTEST_STOP_TIMER (id=$STOP_TIMER)" || fail "TC-RUN-16 数据准备 ZTEST_STOP_TIMER"
+# run 不带 --ignoreTimers(让定时器生效)、不带 --wait(立即返回,测试在 60s 定时器中等待)
+R $CLI run $GH
+if [ "$RC" -eq 0 ]; then
+  ok "TC-RUN-17 run(定时器运行态)exit"
+  R $CLI stop $GH; ex0 "TC-RUN-18 stop 命中运行态 exit"; out "TC-RUN-18 文案" "Stop command sent"
+else
+  skip "TC-RUN-17..18 run+stop 链路" "run exit=$RC"
+fi
+# 等 engine 完全停止后再清理(避免删除仍在停止的元素)
+sleep 1
+
+# ===== 10) 清理 + 残留检查 =====
+echo "--- 10) 清理 + 残留检查 ---"
+for id in "$TG" "$TG2" "$TG_TREE" "$E_TG" "$RUN_TG" "$STOP_TG"; do
     [ -n "$id" ] && $CLI delete --elementId "$id" $GH >/dev/null 2>&1
 done
 RESID="$($CLI find --searchBy name --query ZTEST_ $GH 2>/dev/null)$($CLI find --searchBy name --query E2E_ $GH 2>/dev/null)"

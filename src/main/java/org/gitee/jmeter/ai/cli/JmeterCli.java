@@ -151,6 +151,16 @@ public final class JmeterCli {
                 return cmdOpen(p.opts, p.json);
             case "batch":
                 return cmdBatch(p.opts, p.json);
+            case "run":
+                return cmdRun(p.opts, p.json);
+            case "stop":
+                return cmdStop(p.opts, p.json);
+            case "shutdown":
+                return cmdShutdown(p.opts, p.json);
+            case "status":
+                return cmdStatus(p.opts, p.json);
+            case "results":
+                return cmdResults(p.opts, p.json);
             default:
                 System.err.println("Unknown command: " + p.command);
                 System.err.println("Run 'jmeter-cli help' to list available commands.");
@@ -317,6 +327,82 @@ public final class JmeterCli {
         return execTool(opts, json, "batch_update_jmeter_elements", params);
     }
 
+    private static int cmdRun(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        params.put("action", "start");
+        if (opts.get("ignoreTimers") != null) {
+            // CLI flag is camelCase; the tool param is snake_case.
+            params.put("ignore_timers", Boolean.parseBoolean(opts.get("ignoreTimers")));
+        }
+        if (!opts.containsKey("wait")) {
+            return execTool(opts, json, "run_test", params);
+        }
+        // --wait: start without printing, then poll get_test_status until the test finishes.
+        IpcResponse start = callTool(opts, "run_test", params);
+        if (start == null) {
+            return 1;
+        }
+        if (!start.isSuccess()) {
+            return printOne(start, json);
+        }
+        long deadline = System.currentTimeMillis() + timeoutOf(opts);
+        System.err.println("Test started; waiting for completion (polling status)...");
+        while (true) {
+            Thread.sleep(1000);
+            IpcResponse st = callTool(opts, "get_test_status", new HashMap<>());
+            if (st == null) {
+                return 1;
+            }
+            if (!st.isSuccess()) {
+                return printOne(st, json);
+            }
+            String c = st.getContent() == null ? "" : st.getContent();
+            if (!c.contains("**State**: Running")) {
+                System.err.println();
+                return printOne(st, json);
+            }
+            if (System.currentTimeMillis() > deadline) {
+                System.err.println();
+                System.err.println("Timeout waiting for test to finish. Last status:");
+                printOne(st, json);
+                return 1;
+            }
+            System.err.print(".");
+        }
+    }
+
+    private static int cmdStop(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        params.put("action", "stop");
+        return execTool(opts, json, "run_test", params);
+    }
+
+    private static int cmdShutdown(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        params.put("action", "shutdown");
+        return execTool(opts, json, "run_test", params);
+    }
+
+    private static int cmdStatus(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "get_test_status", new HashMap<>());
+    }
+
+    private static int cmdResults(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        if (opts.get("format") != null) {
+            params.put("format", opts.get("format"));
+        }
+        putIntIfPresent(opts, params, "limit");
+        putIntIfPresent(opts, params, "offset");
+        if (opts.get("includeDetails") != null) {
+            params.put("include_details", Boolean.parseBoolean(opts.get("includeDetails")));
+        }
+        if (opts.get("statusFilter") != null) {
+            params.put("status_filter", opts.get("statusFilter"));
+        }
+        return execTool(opts, json, "get_test_results", params);
+    }
+
     /** Passes an optional boolean opt through to the tool params under the same key. */
     private static void putBoolIfPresent(Map<String, String> opts, Map<String, Object> params, String key) {
         if (opts.get(key) != null) {
@@ -344,12 +430,21 @@ public final class JmeterCli {
 
     private static int sendToTool(Map<String, String> opts, String endpoint, IpcRequest req, boolean json)
             throws Exception {
-        InstanceInfo inst = resolveInstance(opts);
-        if (inst == null) {
+        HttpResponse<String> resp = postIpc(opts, endpoint, req);
+        if (resp == null) {
             return 1;
         }
-        long timeout = opts.get("timeout") != null
-                ? Long.parseLong(opts.get("timeout")) : 130_000L;
+        return printResp(resp, json);
+    }
+
+    /** Sends a POST IPC request and returns the raw HTTP response (null if no instance resolved). */
+    private static HttpResponse<String> postIpc(Map<String, String> opts, String endpoint, IpcRequest req)
+            throws Exception {
+        InstanceInfo inst = resolveInstance(opts);
+        if (inst == null) {
+            return null;
+        }
+        long timeout = timeoutOf(opts);
         String body = MAPPER.writeValueAsString(req);
         HttpRequest httpReq = HttpRequest.newBuilder()
                 .uri(URI.create("http://" + host(inst) + ":" + inst.getPort() + endpoint))
@@ -358,8 +453,44 @@ public final class JmeterCli {
                 .header("X-IPC-Token", tokenFor(inst, opts))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-        HttpResponse<String> resp = HTTP.send(httpReq, HttpResponse.BodyHandlers.ofString());
-        return printResp(resp, json);
+        return HTTP.send(httpReq, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** Calls an allowed IPC tool and returns the parsed response (null if no instance resolved). */
+    private static IpcResponse callTool(Map<String, String> opts, String tool, Map<String, Object> params)
+            throws Exception {
+        IpcRequest req = new IpcRequest();
+        req.setOp("tool");
+        req.setTool(tool);
+        req.setParams(params);
+        HttpResponse<String> resp = postIpc(opts, "/tool", req);
+        if (resp == null) {
+            return null;
+        }
+        return MAPPER.readValue(resp.body(), IpcResponse.class);
+    }
+
+    /** Prints a single IpcResponse. Used by {@code --wait} polling, which holds the response instead of printing inline. */
+    private static int printOne(IpcResponse ipc, boolean json) throws Exception {
+        if (json) {
+            System.out.println(MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(ipc));
+            return ipc.isSuccess() ? 0 : 1;
+        }
+        if (ipc.isSuccess()) {
+            String c = ipc.getContent();
+            if (c != null && !c.isEmpty()) {
+                System.out.println(c);
+            }
+            return 0;
+        }
+        String err = ipc.getError() != null ? ipc.getError() : ipc.getErrorMessage();
+        System.err.println("Error: " + err);
+        return 1;
+    }
+
+    private static long timeoutOf(Map<String, String> opts) {
+        return opts.get("timeout") != null
+                ? Long.parseLong(opts.get("timeout")) : 130_000L;
     }
 
     private static int printResp(HttpResponse<String> resp, boolean json) throws Exception {
@@ -698,6 +829,93 @@ public final class JmeterCli {
                 "jmeter-cli batch --elementIds 5,6,7 --properties \"{\\\"HTTPSampler.domain\\\":\\\"batch.example.com\\\"}\""
             }),
 
+        new Cmd("run",
+            "Start the current JMeter test plan.",
+            "jmeter-cli run [--ignoreTimers <bool>] [--wait] [--timeout <ms>]",
+            """
+            Starts the whole GUI test plan (cannot target a sub-tree). A result collector is injected so 'status'
+            and 'results' can report data afterwards. Returns once the engine confirms start (within a few seconds)
+            and does NOT block until the test finishes; use 'status' to monitor, or pass --wait to poll until done.
+            --ignoreTimers true skips timer delays (quick functional validation). --wait polls get_test_status
+            every 1s until the test completes; the total wait is bounded by --timeout (default 130s, raise it for
+            long runs). Progress dots go to stderr; the final status goes to stdout.""",
+            new String[][]{
+                {"--ignoreTimers <bool>", "skip timer delays during the run (default: false)"},
+                {"--wait", "block until the test finishes, polling status (bounded by --timeout)"},
+                {"--json, --pid, --token, --jmeter-home, --timeout", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli run",
+                "jmeter-cli run --ignoreTimers true --wait --timeout 30000"
+            }),
+
+        new Cmd("stop",
+            "Force-stop the running test immediately.",
+            "jmeter-cli stop",
+            """
+            Sends JMeter's ACTION_STOP: interrupts threads at once. Use when you need the test to stop right now.
+            Errors with 'No test is currently running' if nothing is running. For a graceful stop (let current
+            samples finish) use 'shutdown' instead.""",
+            new String[][]{
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli stop"
+            }),
+
+        new Cmd("shutdown",
+            "Gracefully stop the running test.",
+            "jmeter-cli shutdown",
+            """
+            Sends JMeter's ACTION_SHUTDOWN: stops initiating new samples but lets in-flight requests finish, then
+            ends the test. Errors with 'No test is currently running' if nothing is running. For an immediate stop
+            use 'stop' instead.""",
+            new String[][]{
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli shutdown"
+            }),
+
+        new Cmd("status",
+            "Show current test execution status.",
+            "jmeter-cli status",
+            """
+            Reports the running state (Running/Completed), elapsed time, thread progress (total/active/started/
+            finished), and quick sample counts (total, errors, error rate, avg response time, throughput). Safe
+            to call during or after a run. Returns 'No test is currently running and no results are available' when
+            no test has been run yet in this GUI session.""",
+            new String[][]{
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli status",
+                "jmeter-cli status --json"
+            }),
+
+        new Cmd("results",
+            "Show test results: summary stats and/or sample details.",
+            "jmeter-cli results [--format summary|samples|both] [--limit <n>] [--offset <n>] [--includeDetails <bool>] [--statusFilter all|success|failure]",
+            """
+            Returns aggregate statistics (total samples, errors, error rate, min/avg/max response time, throughput,
+            per-sampler breakdown) and optionally individual sample rows. 'samples'/'both' format lists recent
+            samples; --includeDetails adds request/response headers and bodies per sample. --statusFilter restricts
+            the samples table (summary stats always reflect the full run); pagination (limit/offset) applies after
+            filtering. Can be called during or after a run; errors with 'No test results available' before any run.""",
+            new String[][]{
+                {"--format <f>", "summary (default) | samples | both"},
+                {"--limit <n>", "recent samples to return, max 50 (default: 20)"},
+                {"--offset <n>", "samples to skip for pagination (default: 0)"},
+                {"--includeDetails <bool>", "include request/response headers and bodies (default: false)"},
+                {"--statusFilter <f>", "all (default) | success | failure"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli results",
+                "jmeter-cli results --format both --limit 10 --includeDetails true",
+                "jmeter-cli results --format samples --statusFilter failure --limit 5"
+            }),
+
         new Cmd("agent",
             "Send a natural-language message to the AI Agent.",
             "jmeter-cli agent \"<message>\" [--session <key>] [--timeout <ms>]",
@@ -723,7 +941,7 @@ public final class JmeterCli {
             "jmeter-cli tool <name> [--params \"<json>\"]",
             """
             Low-level escape hatch: builds an arbitrary tool request and POSTs it to /tool. The server enforces
-            an allowlist - exec / filesystem / web / run_test tools are BLOCKED over IPC regardless of config.
+            an allowlist - exec / filesystem / web tools are BLOCKED over IPC regardless of config.
             --params is passed verbatim as the tool's parameter map (see each tool's JSON schema for required
             fields). Use --json to inspect the full result/error structure.""",
             new String[][]{
