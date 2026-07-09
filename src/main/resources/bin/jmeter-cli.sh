@@ -17,9 +17,16 @@ if [ -z "$JAR" ]; then
     exit 1
 fi
 
-# Prefer JAVA_HOME, fall back to java on PATH.
+# Prefer JAVA_HOME (probe bin/java then root java), fall back to java on PATH.
 if [ -n "$JAVA_HOME" ]; then
-    JAVACMD="$JAVA_HOME/bin/java"
+    if [ -x "$JAVA_HOME/bin/java" ]; then
+        JAVACMD="$JAVA_HOME/bin/java"
+    elif [ -x "$JAVA_HOME/java" ]; then
+        JAVACMD="$JAVA_HOME/java"
+    else
+        echo "Warning: java not found in JAVA_HOME, fallback to PATH" >&2
+        JAVACMD="java"
+    fi
 else
     JAVACMD="java"
 fi
