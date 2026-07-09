@@ -159,6 +159,8 @@ jmeter-cli agent "再加一个 5 用户的线程组"
 
 完整命令清单、87 条测试用例与一键回归脚本见 [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md)；实现方案见 [TODO/cli-support-plan.md](TODO/cli-support-plan.md)。
 
+`skills/jmeter-cli/` 是面向**第三方 Agent**（如 OpenClaw、Hermes、Codex 等外部自动化工具）使用的 skill 文档，指导它们通过 `jmeter-cli` 命令操作运行中的 JMeter GUI 实例。它不在插件内加载，而是由外部 Agent 的 skill 系统读取。
+
 ## 技能系统
 
 Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md` 定义和可选的 `references/` 参考文档。

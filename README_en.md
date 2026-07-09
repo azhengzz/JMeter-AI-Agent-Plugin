@@ -141,6 +141,29 @@ Slash commands for session management:
 | `/status` | Show bot status (version, model, token usage, session info) |
 | `/help` | Show available commands |
 
+### Command-Line Client (jmeter-cli)
+
+In addition to the chat panel, you can drive a running JMeter GUI instance via **jmeter-cli** over loopback HTTP/IPC — performing CRUD operations on the test plan or delegating natural-language tasks to the AI Agent. CLI flags match underlying tool schema keys 1:1. Disabled by default for security.
+
+```bash
+# Prerequisite: start JMeter GUI with IPC enabled
+jmeter -Jjmeter.ai.ipc.enabled=true
+
+# Common commands (global options: --pid --token --json --jmeter-home --timeout)
+jmeter-cli list                                                 # discover instances
+jmeter-cli health                                               # health check
+jmeter-cli run --ignoreTimers true --wait                       # run test and wait for completion
+jmeter-cli status                                               # check test progress
+jmeter-cli results --format both --limit 10                     # view test results
+jmeter-cli find --searchBy elementType --query testplan         # find TestPlan root
+jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <id>
+jmeter-cli agent "add a thread group with 5 users"
+```
+
+See [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md) for the full command reference and regression scripts.
+
+`skills/jmeter-cli/` is a skill intended for **third-party agents** (such as OpenClaw, Hermes, Codex, and other external automation tools). It teaches them how to operate a running JMeter GUI through `jmeter-cli`. It is not loaded by the plugin — external agents read it through their own skill systems.
+
 ## Skills System
 
 The Agent dynamically loads skill modules from the filesystem. Each skill contains a `SKILL.md` definition and optional `references/` documentation.
