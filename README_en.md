@@ -164,6 +164,38 @@ See [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md) for the full 
 
 `skills/jmeter-cli/` is a skill intended for **third-party agents** (such as OpenClaw, Hermes, Codex, and other external automation tools). It teaches them how to operate a running JMeter GUI through `jmeter-cli`. It is not loaded by the plugin — external agents read it through their own skill systems.
 
+#### Wiring jmeter-cli into External Agents
+
+`skills/jmeter-cli/` follows the [Agent Skills](https://agentskills.io/) open standard (`SKILL.md` + YAML frontmatter), which Claude Code, Codex, OpenClaw, and Hermes all support natively — **the same skill folder is read by all four; only the target directory differs.**
+
+**Prerequisites** (common to all agents):
+
+1. Start the JMeter GUI with IPC enabled: `jmeter -Jjmeter.ai.ipc.enabled=true` (or set the parameter to `true` in the configuration file)
+2. Make `jmeter-cli` invokable: add `$JMETER_HOME/bin` to `PATH`, or set the `JMETER_HOME` environment variable (the CLI uses it to locate `jmeter-cli.bat` / `jmeter-cli.sh`)
+
+**Installation per agent:**
+
+| Agent | Skill directory | How to install |
+|-------|-----------------|----------------|
+| Claude Code | `~/.claude/skills/` (global) or `<project>/.claude/skills/` (project) | Copy `skills/jmeter-cli/` into the directory |
+| Codex | `~/.codex/skills/` (global) or `.agents/skills/` (project) | Copy `skills/jmeter-cli/` into the directory; the project-level dir must be a **real directory**, not a symlink |
+| OpenClaw | `~/.openclaw/skills/` (global) or workspace `./skills/` | `openclaw skills install ./skills/jmeter-cli --global` (drop `--global` for workspace install) |
+| Hermes | `~/.hermes/skills/` | Copy `skills/jmeter-cli/` into the directory |
+
+Example (global install for Claude Code):
+
+```bash
+# Linux / macOS
+cp -r skills/jmeter-cli ~/.claude/skills/
+
+# Windows (PowerShell)
+Copy-Item -Recurse skills/jmeter-cli $HOME\.claude\skills\
+```
+
+Once installed, the agent uses the `description` in `SKILL.md` to decide when to invoke `jmeter-cli`, then follows its workflow: `list → health → get/find → create/update → run → results`. See [skills/jmeter-cli/references/cli-reference.md](skills/jmeter-cli/references/cli-reference.md) for the full command reference.
+
+> **Optional:** If you want the agent to reference JMeter component property names and schemas directly, also copy the component skill `src/main/jmeter-agent/skills/jmeter/` into the same skills directory (the cli skill points to it via `../jmeter/SKILL.md`).
+
 ## Skills System
 
 The Agent dynamically loads skill modules from the filesystem. Each skill contains a `SKILL.md` definition and optional `references/` documentation.
