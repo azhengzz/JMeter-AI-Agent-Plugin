@@ -1,0 +1,218 @@
+component:
+  type: httpudconfigelement
+  testClass: com.gitee.qa.jmeter.protocol.httpud.config.HTTPUDConfigElement
+  guiClass: com.gitee.qa.jmeter.protocol.httpud.config.gui.HTTPUDConfigElementGui
+  name: HTTP User Defined Element Configuration
+  description: Defines a reusable HTTP request template with custom parameters that can be referenced by HTTP User Defined Samplers
+
+properties:
+  - name: HTTPUDConfigElement.variable_name
+    type: String
+    required: true
+    description: Unique identifier name for this configuration. HTTP User Defined Samplers reference this name to inherit the request settings. Must be globally unique.
+
+  - name: HTTPSampler.protocol
+    type: String
+    required: false
+    enum: ["http", "https"]
+    description: HTTP protocol. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.domain
+    type: String
+    required: false
+    description: Server domain name or IP address. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.port
+    type: String
+    required: false
+    description: Port number. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.method
+    type: String
+    required: false
+    enum: ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"]
+    description: HTTP method. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.path
+    type: String
+    required: false
+    description: Request path. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.contentEncoding
+    type: String
+    required: false
+    description: Content encoding for request body. Supports parameter substitution via @{param_name}.
+
+  - name: HTTPSampler.connect_timeout
+    type: Integer
+    required: false
+    min: 0
+    description: Connection timeout in milliseconds
+
+  - name: HTTPSampler.response_timeout
+    type: Integer
+    required: false
+    min: 0
+    description: Response timeout in milliseconds
+
+  - name: HTTPSampler.follow_redirects
+    type: Boolean
+    required: false
+    default: true
+    description: Follow HTTP redirects
+
+  - name: HTTPSampler.auto_redirects
+    type: Boolean
+    required: false
+    default: false
+    description: Auto-follow redirects at protocol level
+
+  - name: HTTPSampler.use_keepalive
+    type: Boolean
+    required: false
+    default: true
+    description: Use keep-alive connections
+
+  - name: HTTPSampler.DO_MULTIPART_POST
+    type: Boolean
+    required: false
+    default: false
+    description: Use multipart/form-data for POST requests
+
+  - name: HTTPSampler.BROWSER_COMPATIBLE_MULTIPART
+    type: Boolean
+    required: false
+    default: false
+    description: Use browser-compatible multipart mode
+
+  - name: HTTPSampler.postBodyRaw
+    type: Boolean
+    required: false
+    default: false
+    description: Send raw body content
+
+  - name: HTTPsampler.Arguments
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    default: []
+    description: HTTP request query parameters. Supports parameter substitution via @{param_name}. MUST be provided when HTTPSampler.postBodyRaw=true (raw body lives as a single Argument with empty name).
+    itemClass: org.apache.jmeter.protocol.http.util.HTTPArgument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: false
+        default: ""
+        description: Parameter name. Required for parameter mode, omit for postBodyRaw mode.
+
+      - name: Argument.value
+        type: String
+        required: true
+        description: Parameter value
+
+      - name: HTTPArgument.use_equals
+        type: Boolean
+        required: false
+        default: true
+        description: Whether to use '=' between name and value
+
+      - name: HTTPArgument.always_encode
+        type: Boolean
+        required: false
+        default: false
+        setterOverride: setAlwaysEncoded
+        description: Whether to always URL-encode the parameter
+
+      - name: Argument.metadata
+        type: String
+        required: false
+        default: "="
+        setterOverride: setMetaData
+        description: Metadata character (typically '=')
+
+      - name: HTTPArgument.content_type
+        type: String
+        required: false
+        default: "text/plain"
+        description: Content type for the parameter
+
+  - name: HTTPsampler.Files
+    type: Array
+    testClass: org.apache.jmeter.protocol.http.util.HTTPFileArgs
+    mountMode: TestElementProperty
+    containerAddMethod: addHTTPFileArg
+    required: false
+    description: File upload parameters for multipart/form-data requests. Supports parameter substitution via @{param_name}.
+    itemClass: org.apache.jmeter.protocol.http.util.HTTPFileArg
+    itemProperties:
+      - name: File.path
+        type: String
+        required: true
+        description: File path to upload
+
+      - name: File.paramname
+        type: String
+        required: true
+        setterOverride: setParamName
+        description: HTTP parameter name for the file upload
+
+      - name: File.mimetype
+        type: String
+        required: false
+        default: "application/octet-stream"
+        setterOverride: setMimeType
+        description: MIME type of the file
+
+  - name: HTTPUDConfigElement.http_header_parameters_name
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    default: []
+    description: HTTP headers to include in requests. Does NOT support parameter substitution.
+    itemClass: org.apache.jmeter.config.Argument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Header name
+
+      - name: Argument.value
+        type: String
+        required: true
+        description: Header value
+
+  - name: HTTPUDArgumentsGui.HTTPUDArguments
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    description: Custom parameter definitions with default values that can be overridden by samplers
+    itemClass: com.gitee.qa.jmeter.protocol.httpud.util.HTTPUDArgument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Parameter name, referenced as @{param_name} in URL, path, body, etc.
+
+      - name: Argument.value
+        type: String
+        required: false
+        default: ""
+        description: Default parameter value
+
+      - name: Argument.desc
+        type: String
+        required: true
+        setterOverride: setDescription
+        description: Parameter description
+
+      - name: HTTPUDArgument.required
+        type: Boolean
+        required: false
+        default: false
+        description: Whether the parameter must be provided by the sampler

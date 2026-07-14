@@ -1,350 +1,212 @@
 package org.gitee.jmeter.ai.gui;
 
-import javax.swing.*;
-import javax.swing.text.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import javax.swing.Timer; // Added missing import
-
+import org.gitee.jmeter.ai.gui.render.MarkdownParserHolder;
+import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Element;
+import javax.swing.text.StyledDocument;
+import javax.swing.text.html.HTMLDocument;
+import java.awt.*;
+import java.util.function.BooleanSupplier;
+
 /**
- * Processes and formats messages for display in the chat interface.
- * This class is responsible for handling markdown formatting and code blocks.
+ * Processes and formats messages for display in the chat interface (HTML render path).
+ *
+ * <p>The chat area runs with content type {@code "text/html"}. Markdown is converted to
+ * HTML via Flexmark's {@link com.vladsch.flexmark.html.HtmlRenderer} (see
+ * {@link MarkdownParserHolder#renderToHtml(String)}) and appended to the document body.
+ * Plain text is HTML-escaped and wrapped in a styled {@code <div>}.
+ *
+ * <p>Base font/colors come from the {@link javax.swing.text.html.StyleSheet} configured by
+ * {@code AiChatPanel}; {@link #setBaseFont(Font)} is retained for API compatibility but is
+ * not used by the HTML path.
  */
 public class MessageProcessor {
     private static final Logger log = LoggerFactory.getLogger(MessageProcessor.class);
-    
-    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```([\\w-]*)\\s*([\\s\\S]*?)```");
-    private final Map<String, String> codeSnippets = new HashMap<>();
-    
+
     /**
-     * Processes a markdown message and applies formatting to the document.
-     * 
-     * @param doc The document to apply formatting to
-     * @param message The markdown message to process
-     * @throws BadLocationException If there is an error with the document location
+     * Smart-scroll collaborators, wired by {@code AiChatPanel} once the chat scroll pane exists.
+     * {@code atBottomProbe} reports whether the viewport is currently pinned to the bottom
+     * (captured <em>before</em> each append); {@code scrollToBottom} is then invoked after the
+     * append so the latest content is revealed. Both are null in headless tests → no scrolling.
      */
-    public void processMarkdownMessage(StyledDocument doc, String message) throws BadLocationException {
-        log.info("Processing markdown message");
-        
-        // Extract code blocks first
-        Matcher matcher = CODE_BLOCK_PATTERN.matcher(message);
-        StringBuffer sb = new StringBuffer();
-        int codeBlockCount = 0;
-        
-        while (matcher.find()) {
-            codeBlockCount++;
-            String language = matcher.group(1).trim();
-            String code = matcher.group(2);
-            
-            // Store the code snippet for potential reuse
-            String snippetKey = "snippet_" + codeBlockCount;
-            codeSnippets.put(snippetKey, code);
-            
-            // Replace the code block with a placeholder
-            // Add extra newlines before and after for better spacing
-            String placeholder = "\n[CODE_BLOCK:" + snippetKey + ":" + language + "]\n";
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(placeholder));
-        }
-        matcher.appendTail(sb);
-        
-        // Process the text without code blocks
-        String processedText = sb.toString();
-        processBasicMarkdown(doc, processedText);
-    }
-    
+    private BooleanSupplier atBottomProbe;
+    private Runnable scrollToBottom;
+
     /**
-     * Processes basic markdown formatting and code block placeholders.
-     * 
-     * @param doc The document to apply formatting to
-     * @param text The text to process
-     * @throws BadLocationException If there is an error with the document location
+     * Enable smart auto-scroll: when a probe reports the viewport is pinned to the bottom at the
+     * moment content is appended, the runner is called to reveal the new content. Passing
+     * {@code null}s disables the behavior (default).
      */
-    private void processBasicMarkdown(StyledDocument doc, String text) throws BadLocationException {
-        // Split the text by lines to process each line separately
-        String[] lines = text.split("\n");
-        
-        // Define styles
-        SimpleAttributeSet normal = new SimpleAttributeSet();
-        StyleConstants.setFontFamily(normal, "SansSerif");
-        
-        SimpleAttributeSet bold = new SimpleAttributeSet(normal);
-        StyleConstants.setBold(bold, true);
-        
-        SimpleAttributeSet italic = new SimpleAttributeSet(normal);
-        StyleConstants.setItalic(italic, true);
-        
-        SimpleAttributeSet heading1 = new SimpleAttributeSet(bold);
-        StyleConstants.setFontSize(heading1, StyleConstants.getFontSize(normal) + 6);
-        
-        SimpleAttributeSet heading2 = new SimpleAttributeSet(bold);
-        StyleConstants.setFontSize(heading2, StyleConstants.getFontSize(normal) + 4);
-        
-        SimpleAttributeSet heading3 = new SimpleAttributeSet(bold);
-        StyleConstants.setFontSize(heading3, StyleConstants.getFontSize(normal) + 2);
-        
-        SimpleAttributeSet codeStyle = new SimpleAttributeSet();
-        StyleConstants.setFontFamily(codeStyle, "Monospaced");
-        StyleConstants.setBackground(codeStyle, getCodeBlockBackground());
-        
-        // Process each line
-        for (String line : lines) {
-            // Check for code block placeholder
-            if (line.trim().startsWith("[CODE_BLOCK:") && line.trim().endsWith("]")) {
-                // Extract snippet key and language
-                String[] parts = line.trim().substring(12, line.trim().length() - 1).split(":");
-                String snippetKey = parts[0];
-                String language = parts.length > 1 ? parts[1] : "";
-                
-                // Get the code snippet
-                String code = codeSnippets.get(snippetKey);
-                
-                if (code != null) {
-                    // Add extra spacing before the code block
-                    doc.insertString(doc.getLength(), "\n", normal);
-                    
-                    // Create a direct text-based code block with styling
-                    renderCodeBlock(doc, code, language, codeStyle);
-                    
-                    // Add extra spacing after the code block
-                    doc.insertString(doc.getLength(), "\n", normal);
-                }
-                continue;
-            }
-            
-            // Check for headings
-            if (line.startsWith("# ")) {
-                doc.insertString(doc.getLength(), line.substring(2) + "\n", heading1);
-            } else if (line.startsWith("## ")) {
-                doc.insertString(doc.getLength(), line.substring(3) + "\n", heading2);
-            } else if (line.startsWith("### ")) {
-                doc.insertString(doc.getLength(), line.substring(4) + "\n", heading3);
-            } else {
-                // Process inline formatting
-                StringBuilder currentText = new StringBuilder();
-                AttributeSet currentStyle = normal;
-                
-                for (int i = 0; i < line.length(); i++) {
-                    char c = line.charAt(i);
-                    
-                    // Check for bold (**text**)
-                    if (c == '*' && i + 1 < line.length() && line.charAt(i + 1) == '*') {
-                        // Insert accumulated text with current style
-                        doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
-                        currentText.setLength(0);
-                        
-                        // Toggle bold style
-                        if (currentStyle == bold) {
-                            currentStyle = normal;
-                        } else {
-                            currentStyle = bold;
-                        }
-                        
-                        // Skip the second asterisk
-                        i++;
-                    }
-                    // Check for italic (*text*)
-                    else if (c == '*') {
-                        // Insert accumulated text with current style
-                        doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
-                        currentText.setLength(0);
-                        
-                        // Toggle italic style
-                        if (currentStyle == italic) {
-                            currentStyle = normal;
-                        } else {
-                            currentStyle = italic;
-                        }
-                    }
-                    // Check for inline code (`text`)
-                    else if (c == '`') {
-                        // Insert accumulated text with current style
-                        doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
-                        currentText.setLength(0);
-                        
-                        // Toggle code style
-                        if (currentStyle == codeStyle) {
-                            currentStyle = normal;
-                        } else {
-                            currentStyle = codeStyle;
-                        }
-                    }
-                    // Regular character
-                    else {
-                        currentText.append(c);
-                    }
-                }
-                
-                // Insert any remaining text
-                doc.insertString(doc.getLength(), currentText.toString() + "\n", currentStyle);
-            }
-        }
+    public void setAutoScroll(BooleanSupplier atBottomProbe, Runnable scrollToBottom) {
+        this.atBottomProbe = atBottomProbe;
+        this.scrollToBottom = scrollToBottom;
     }
-    
+
     /**
-     * Renders a code block directly as text with styling.
-     * 
-     * @param doc The document to render the code block in
-     * @param code The code to render
-     * @param language The language of the code
-     * @param codeStyle The style to apply to the code
-     * @throws BadLocationException If there is an error with the document location
+     * No-op on the HTML render path (colors/fonts come from the StyleSheet configured by
+     * AiChatPanel). Retained for API compatibility with existing call sites.
      */
-    private void renderCodeBlock(StyledDocument doc, String code, String language, SimpleAttributeSet codeStyle) throws BadLocationException {
-        // Create a panel for the code block with a border layout
-        JPanel codePanel = new JPanel(new BorderLayout());
-        codePanel.setBackground(getCodeBlockBackground());
-        codePanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
-        
-        // Create a header panel for language and copy button
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(getCodeBlockBackground());
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
-        
-        // Add language label if present
-        if (!language.isEmpty()) {
-            JLabel languageLabel = new JLabel(language);
-            languageLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
-            headerPanel.add(languageLabel, BorderLayout.WEST);
-        }
-        
-        // Create a copy button
-        JButton copyButton = new JButton("Copy");
-        copyButton.setToolTipText("Copy code to clipboard");
-        copyButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Copy code to clipboard
-                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
-                    new java.awt.datatransfer.StringSelection(code), null);
-                
-                // Provide visual feedback
-                copyButton.setText("Copied!");
-                Timer timer = new Timer(1500, event -> copyButton.setText("Copy"));
-                timer.setRepeats(false);
-                timer.start();
-            }
-        });
-        
-        // Add the copy button to the header
-        headerPanel.add(copyButton, BorderLayout.EAST);
-        
-        // Add the header panel to the code panel
-        codePanel.add(headerPanel, BorderLayout.NORTH);
-        
-        // Create a text area for the code
-        JTextArea codeArea = new JTextArea(code.trim()); // Trim to remove extra lines
-        Font codeFont = UIManager.getFont("TextField.font");
-        codeFont = ensureCjkSupport(codeFont);
-        codeArea.setFont(codeFont);
-        codeArea.setEditable(false);
-        codeArea.setBackground(getCodeBlockBackground());
-        codeArea.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        
-        // Add the code area to the panel
-        codePanel.add(codeArea, BorderLayout.CENTER);
-        
-        // Insert the code panel into the document
-        SimpleAttributeSet panelStyle = new SimpleAttributeSet();
-        StyleConstants.setComponent(panelStyle, codePanel);
-        doc.insertString(doc.getLength(), " ", panelStyle);
-        
-        // Add extra spacing after the code block
-        doc.insertString(doc.getLength(), "\n", codeStyle);
+    public void setBaseFont(Font font) {
+        // intentionally empty
     }
-    
+
     /**
-     * Gets the stored code snippets.
-     * 
-     * @return The map of code snippets
-     */
-    public Map<String, String> getCodeSnippets() {
-        return codeSnippets;
-    }
-    
-    /**
-     * Adds a message to the document with the specified color and formatting.
-     * 
-     * @param doc The document to add the message to
-     * @param message The message to add
-     * @param color The color of the message
-     * @param parseMarkdown Whether to parse markdown in the message
-     * @throws BadLocationException If there is an error with the document location
+     * Append a message. When {@code parseMarkdown} is true the text is rendered as markdown
+     * (Flexmark → HTML); otherwise it is appended as HTML-escaped styled text.
      */
     public void appendMessage(StyledDocument doc, String message, Color color, boolean parseMarkdown) throws BadLocationException {
-        // Create a style for the message
-        SimpleAttributeSet messageStyle = new SimpleAttributeSet();        
-        StyleConstants.setForeground(messageStyle, color);
-        
         if (parseMarkdown) {
-            // Process markdown formatting
-            processMarkdownMessage(doc, message);
+            appendMarkdown(doc, message, color);
         } else {
-            // Check if the message starts with "You: " to make it bold
-            if (message.startsWith("You: ")) {
-                // Create a bold style for "You:"
-                SimpleAttributeSet boldStyle = new SimpleAttributeSet(messageStyle);
-                StyleConstants.setBold(boldStyle, true);
-                
-                // Insert "You:" with bold style
-                doc.insertString(doc.getLength(), "You:", boldStyle);
-                
-                // Insert the rest of the message with regular style
-                doc.insertString(doc.getLength(), message.substring(4) + "\n", messageStyle);
-            } else {
-                // Add the message without formatting
-                doc.insertString(doc.getLength(), message + "\n", messageStyle);
+            appendStyled(doc, message, color);
+        }
+    }
+
+    /** Render markdown to HTML and append it to the document body. */
+    public void appendMarkdown(StyledDocument doc, String markdown, Color fg) throws BadLocationException {
+        String html = MarkdownParserHolder.renderToHtml(markdown);
+        appendHtml(doc, "<div style=\"color:" + UiThemeUtil.toHex(fg) + "\">" + html + "</div>");
+    }
+
+    /** Append plain styled text (HTML-escaped; newlines become {@code <br>}). */
+    public void appendStyled(StyledDocument doc, String text, Color fg) throws BadLocationException {
+        appendHtml(doc, "<div style=\"color:" + UiThemeUtil.toHex(fg) + "\">"
+                + escapeHtml(text).replace("\n", "<br>") + "</div>");
+    }
+
+    /** Append plain styled text with a Swing font style bit ({@link Font#BOLD}/{@link Font#ITALIC}). */
+    public void appendStyled(StyledDocument doc, String text, Color fg, int fontStyle) throws BadLocationException {
+        StringBuilder style = new StringBuilder("color:").append(UiThemeUtil.toHex(fg)).append(";");
+        if ((fontStyle & Font.BOLD) != 0) {
+            style.append("font-weight:bold;");
+        }
+        if ((fontStyle & Font.ITALIC) != 0) {
+            style.append("font-style:italic;");
+        }
+        appendHtml(doc, "<div style=\"" + style + "\">" + escapeHtml(text).replace("\n", "<br>") + "</div>");
+    }
+
+    /** Append an HTML fragment to the end of the document body. */
+    public void appendHtml(StyledDocument doc, String htmlFragment) throws BadLocationException {
+        // Capture "pinned to bottom" BEFORE mutating the document: the viewport's current
+        // position tells us whether the user is following the tail (→ reveal new content)
+        // or reading history (→ leave their position untouched). Reading it post-append
+        // would be useless since the new content itself pushes the viewport off the bottom.
+        boolean pinToBottom = atBottomProbe != null && atBottomProbe.getAsBoolean();
+        if (!(doc instanceof HTMLDocument)) {
+            // Fallback if the document is not HTML-backed: insert as plain text.
+            doc.insertString(doc.getLength(), htmlFragment, null);
+        } else {
+            HTMLDocument htmlDoc = (HTMLDocument) doc;
+            Element body = findBody(htmlDoc.getDefaultRootElement());
+            if (body == null) {
+                body = htmlDoc.getDefaultRootElement();
+            }
+            try {
+                htmlDoc.insertBeforeEnd(body, htmlFragment);
+                // HTMLDocument is born with (and re-creates after a clear) an implied empty
+                // paragraph — a lone '\n' at the very start of body. Since content is appended
+                // after it, the first message would otherwise render with a blank line above it.
+                // Strip it; safe on every call because it only removes an empty paragraph that
+                // precedes all real content (present only right after a reset).
+                stripLeadingEmptyParagraph(htmlDoc, body);
+            } catch (java.io.IOException e) {
+                log.warn("Failed to append HTML fragment to chat document", e);
+                pinToBottom = false; // nothing was appended → nothing to scroll to
             }
         }
-        
-        // Scroll to the bottom of the document
-        // This is handled by the caller
+        if (pinToBottom && scrollToBottom != null) {
+            scrollToBottom.run();
+        }
+    }
+
+    private static void stripLeadingEmptyParagraph(HTMLDocument doc, Element body) {
+        if (body == null || body.getElementCount() == 0) {
+            return;
+        }
+        Element first = body.getElement(0);
+        if (first == null || first.getName() == null
+                || !first.getName().toLowerCase().startsWith("p")) {
+            return;
+        }
+        int start = first.getStartOffset();
+        int len = first.getEndOffset() - start;
+        if (len <= 0) {
+            return;
+        }
+        try {
+            if (doc.getText(start, len).trim().isEmpty()) {
+                doc.remove(start, len);
+            }
+        } catch (BadLocationException e) {
+            log.debug("Skipping leading empty paragraph strip: {}", e.getMessage());
+        }
+    }
+
+    private static Element findBody(Element e) {
+        if (e == null) {
+            return null;
+        }
+        if ("body".equalsIgnoreCase(e.getName())) {
+            return e;
+        }
+        for (int i = 0; i < e.getElementCount(); i++) {
+            Element found = findBody(e.getElement(i));
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    public static String escapeHtml(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /** Append the "AI is thinking..." loading indicator with a stable id for later removal. */
+    public void appendLoadingIndicator(StyledDocument doc, Color fg) throws BadLocationException {
+        appendHtml(doc, "<div id=\"ai-loading\" style=\"color:" + UiThemeUtil.toHex(fg)
+                + ";font-style:italic;margin:0\">AI is thinking...</div>");
     }
 
     /**
-     * Gets a code block background color that is slightly different from the
-     * panel background, providing visual distinction in both light and dark themes.
-     *
-     * @return A color suitable for code block backgrounds
+     * Remove the loading indicator by its id. Uses {@link HTMLDocument#getElement(String)} +
+     * clearing inner HTML, which is reliable regardless of the element's position in the document
+     * (unlike text-search + remove, which is fragile near the document end on HTMLDocument).
      */
-    private static Color getCodeBlockBackground() {
-        Color panelBg = UIManager.getColor("Panel.background");
-        if (panelBg == null) {
-            return new Color(240, 240, 240);
+    public void removeLoadingIndicator(StyledDocument doc) throws BadLocationException {
+        // Locate the literal indicator text and remove that range. This mirrors the original
+        // StyledDocument behaviour and works on HTMLDocument too (which extends
+        // DefaultStyledDocument). setInnerHTML(elem,"") turned out to be a no-op visually under
+        // HTMLEditorKit, so plain remove is used instead. Length is clamped to document bounds
+        // to avoid HTMLDocument's trailing-implied-char boundary error.
+        String full = doc.getText(0, doc.getLength());
+        int idx = full.lastIndexOf("AI is thinking...");
+        if (idx < 0) {
+            log.info("Loading indicator text not found in document");
+            return;
         }
-        // Slightly shift the panel background for visual distinction
-        int r = panelBg.getRed();
-        int g = panelBg.getGreen();
-        int b = panelBg.getBlue();
-        // Detect dark vs light theme by luminance
-        double luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
-        if (luminance < 0.5) {
-            // Dark theme: lighten slightly
-            return new Color(Math.min(r + 20, 255), Math.min(g + 20, 255), Math.min(b + 20, 255));
-        } else {
-            // Light theme: darken slightly
-            return new Color(Math.max(r - 15, 0), Math.max(g - 15, 0), Math.max(b - 15, 0));
+        int end = idx + "AI is thinking...".length();
+        // Also remove trailing newline(s) left by the indicator block so no blank gap remains.
+        while (end < full.length() && (full.charAt(end) == '\n' || full.charAt(end) == '\r')) {
+            end++;
         }
-    }
-
-    private static Font ensureCjkSupport(Font font) {
-        if (font.canDisplay('中')) {
-            return font;
+        int len = Math.min(end - idx, doc.getLength() - idx);
+        if (len <= 0) {
+            return;
         }
-        String[] cjkFonts = {"Microsoft YaHei", "SimHei", "SimSun", "PingFang SC", "Dialog"};
-        for (String name : cjkFonts) {
-            Font candidate = new Font(name, font.getStyle(), font.getSize());
-            if (candidate.canDisplay('中')) {
-                return candidate;
-            }
+        try {
+            doc.remove(idx, len);
+            log.info("Loading indicator removed at offset {} len {}", idx, len);
+        } catch (BadLocationException ex) {
+            log.warn("Loading indicator remove failed at {} len {}: {}", idx, len, ex.getMessage());
         }
-        return font;
     }
 }

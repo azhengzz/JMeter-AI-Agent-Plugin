@@ -1,0 +1,24 @@
+component:
+  type: ifcontroller
+  testClass: org.apache.jmeter.control.IfController
+  guiClass: org.apache.jmeter.control.gui.IfControllerPanel
+  name: If Controller
+  description: Allows conditional execution of its child elements
+
+properties:
+  - name: IfController.condition
+    type: String
+    required: true
+    description: Condition expression to evaluate
+
+  - name: IfController.useExpression
+    type: Boolean
+    required: false
+    default: true
+    description: Use expression instead of JavaScript evaluation
+
+  - name: IfController.evaluateAll
+    type: Boolean
+    required: false
+    default: false
+    description: Evaluate all child elements even if condition is false

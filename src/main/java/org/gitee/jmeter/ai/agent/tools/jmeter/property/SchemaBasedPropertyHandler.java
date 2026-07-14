@@ -1,11 +1,18 @@
 package org.gitee.jmeter.ai.agent.tools.jmeter.property;
 
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.CollectionProperty;
+import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.ObjectProperty;
+import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.gitee.jmeter.ai.agent.validation.ComponentSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,35 +80,8 @@ public class SchemaBasedPropertyHandler {
                 break;
 
             case ARRAY:
-                // Special handling for HTTPsampler.Arguments
-                if ("HTTPsampler.Arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleHttpArgumentsProperty(element, propName, propValue);
-                } else if ("HTTPsampler.Files".equals(propName) && propDef.hasItemProperties()) {
-                    handleHttpFileArgsProperty(element, propName, propValue);
-                } else if ("Arguments.arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleArgumentsProperty(element, propName, propValue);
-                } else if ("SystemSampler.arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleSystemSamplerArgumentsProperty(element, propName, propValue);
-                } else if ("SystemSampler.environment".equals(propName) && propDef.hasItemProperties()) {
-                    handleSystemSamplerEnvironmentProperty(element, propName, propValue);
-                } else if ("HeaderManager.headers".equals(propName) && propDef.hasItemProperties()) {
-                    handleHeaderManagerProperty(element, propName, propValue);
-                } else if ("CookieManager.cookies".equals(propName) && propDef.hasItemProperties()) {
-                    handleCookieManagerProperty(element, propName, propValue);
-                } else if ("ultimatethreadgroupdata".equals(propName)) {
-                    handleUltimateThreadGroupData(element, propName, propValue);
-                } else if ("ParameterTestFragmentController.arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
-                } else if ("ParameterTestFragmentController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleParameterTestFragmentReturnValueProperty(element, propName, propValue);
-                } else if ("ParameterIncludeController.Arguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleParameterTestFragmentArgumentsProperty(element, propName, propValue);
-                } else if ("ParameterIncludeController.ReturnValueArguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleParameterIncludeControllerReturnValueProperty(element, propName, propValue);
-                } else if ("HTTPUDConfigElement.http_header_parameters_name".equals(propName) && propDef.hasItemProperties()) {
-                    handleHttpudHeaderParametersProperty(element, propName, propValue);
-                } else if ("HTTPUDArgumentsGui.HTTPUDArguments".equals(propName) && propDef.hasItemProperties()) {
-                    handleHttpudArgumentsProperty(element, propName, propValue);
+                if (propDef.getClassName() != null) {
+                    handleContainerItemsProperty(element, propName, propValue, propDef);
                 } else if (propDef.hasItemClass() && propDef.hasItemProperties()) {
                     handleTestBeanTableProperty(element, propName, propValue, propDef);
                 } else {
@@ -110,12 +90,352 @@ public class SchemaBasedPropertyHandler {
                 break;
 
             case ARRAY_2D:
-                handleNestedArrayProperty(element, propName, propValue);
+                handleNestedArrayProperty(element, propName, propValue, propDef);
                 break;
 
             default:
                 handleSimpleProperty(element, propName, propValue);
                 break;
+        }
+    }
+
+    // =================================================================================
+    // Phase 1: Schema-driven container-items template (replaces 11 legacy container methods)
+    // =================================================================================
+
+    /**
+     * Handle container-driven array properties using no-arg constructor + setter strategy.
+     * Merges handleHttpArgumentsProperty / handleHttpFileArgsProperty / handleArgumentsProperty /
+     * handleHeaderManagerProperty / handleCookieManagerProperty / handleSystemSamplerArgumentsProperty /
+     * handleSystemSamplerEnvironmentProperty / handleParameterTestFragmentArgumentsProperty /
+     * handleParameterTestFragmentReturnValueProperty / handleParameterIncludeControllerReturnValueProperty /
+     * handleHttpudHeaderParametersProperty / handleHttpudArgumentsProperty.
+     *
+     * Schema fields used:
+     * - class: FQN of container (Arguments, HTTPFileArgs, etc.)
+     * - mountMode: TEST_ELEMENT_PROPERTY (nested) / SELF (parent is container) / OBJECT_PROPERTY
+     * - containerAddMethod: container's add method (addArgument / add / addHTTPFileArg)
+     * - itemClass: FQN of item class
+     * - itemProperties: item field definitions (drives setter invocation order)
+     * - setterOverride (optional, per-field): overrides default setter name derivation
+     *
+     * Semantics (matches legacy code):
+     * - Empty input → clear container
+     * - Non-empty input but all items failed to parse → skip (parse-failure protection)
+     * - Otherwise: clear + add
+     */
+    private void handleContainerItemsProperty(TestElement element, String propName, Object propValue,
+                                              ComponentSchema.PropertyDefinition propDef) {
+        String containerClassName = propDef.getClassName();
+        String itemClassName = propDef.getItemClass();
+        if (containerClassName == null || itemClassName == null) {
+            log.warn("Property {} missing class or itemClass, fallback to generic", propName);
+            handleGenericCollectionProperty(element, propName, propValue);
+            return;
+        }
+
+        List<Object> items = convertToList(propValue);
+        List<Object> builtItems = new ArrayList<>();
+
+        try {
+            Class<?> itemClass = Class.forName(itemClassName);
+            for (Object item : items) {
+                if (!(item instanceof Map)) {
+                    log.warn("Item must be a Map for property {}, got: {}", propName, item.getClass());
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> itemProps = (Map<String, Object>) item;
+                Object builtItem = buildItemViaNoArgCtorAndSetters(itemClass, itemProps, propDef);
+                if (builtItem != null) {
+                    builtItems.add(builtItem);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to build items for property {}", propName, e);
+        }
+
+        // Parse-failure protection: input non-empty but all failed → skip
+        if (builtItems.isEmpty() && !items.isEmpty()) {
+            log.warn("All items failed to parse, skipping update to preserve existing data: {}", propName);
+            return;
+        }
+
+        ComponentSchema.MountMode mountMode = propDef.getMountMode();
+        if (mountMode == null) {
+            log.warn("Property {} has no mountMode declared, defaulting to TEST_ELEMENT_PROPERTY", propName);
+            mountMode = ComponentSchema.MountMode.TEST_ELEMENT_PROPERTY;
+        }
+
+        try {
+            switch (mountMode) {
+                case SELF:
+                    mountItemsOnSelfContainer(element, propName, propDef, builtItems);
+                    break;
+                case OBJECT_PROPERTY:
+                    log.warn("mountMode=OBJECT_PROPERTY not expected for container-items, skipping: {}", propName);
+                    break;
+                case TEST_ELEMENT_PROPERTY:
+                default:
+                    mountItemsOnNestedContainer(element, propName, propDef, builtItems);
+                    break;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to mount items for property {}", propName, e);
+        }
+    }
+
+    /**
+     * Build item instance via no-arg constructor + setter invocation.
+     * Setters are invoked in itemProperties declared order.
+     */
+    private Object buildItemViaNoArgCtorAndSetters(Class<?> itemClass, Map<String, Object> itemProps,
+                                                    ComponentSchema.PropertyDefinition propDef) throws Exception {
+        Constructor<?> ctor = itemClass.getDeclaredConstructor();
+        Object item = ctor.newInstance();
+
+        if (propDef.hasItemProperties()) {
+            for (ComponentSchema.PropertyDefinition fieldDef : propDef.getItemProperties()) {
+                String fieldName = fieldDef.getName();
+                Object value = itemProps.get(fieldName);
+                // Fall back to schema-declared default when user did not provide value
+                // (e.g., Argument.name default="" for postBodyRaw mode)
+                if (value == null && fieldDef.getDefaultValue() != null) {
+                    value = fieldDef.getDefaultValue();
+                }
+                if (value == null) {
+                    continue;
+                }
+                applySetter(item, fieldName, value, fieldDef.getSetterOverride());
+            }
+        }
+        return item;
+    }
+
+    /**
+     * Apply a single setter on target object.
+     * Tries value's natural type first, then String fallback.
+     */
+    private void applySetter(Object target, String fieldName, Object value, String override) {
+        String setterName = resolveSetterName(fieldName, override);
+        Class<?> targetClass = target.getClass();
+
+        Class<?>[] candidateTypes = resolveCandidateParamTypes(value);
+        for (Class<?> paramType : candidateTypes) {
+            try {
+                Method setter = targetClass.getMethod(setterName, paramType);
+                Object coerced = coerceValue(value, setter.getParameterTypes()[0]);
+                setter.invoke(target, coerced);
+                return;
+            } catch (NoSuchMethodException ignored) {
+                // try next candidate type
+            } catch (Exception e) {
+                log.warn("Failed to invoke {}({}) on {}", setterName, paramType.getSimpleName(),
+                        targetClass.getSimpleName(), e);
+                return;
+            }
+        }
+        log.warn("No setter {} matching value type {} on {}", setterName, value.getClass().getSimpleName(),
+                targetClass.getSimpleName());
+    }
+
+    /**
+     * Resolve setter method name.
+     * Order: 1) field-level setterOverride; 2) default derivation.
+     * Default: strip namespace prefix (after last '.') + snake_case→camelCase + "set" prefix.
+     * e.g., "Argument.name" → "setName", "HTTPArgument.use_equals" → "setUseEquals".
+     * Non-derivable names (desc/description, metadata/MetaData, always_encode/setAlwaysEncoded, xml/setAsXml)
+     * MUST be declared via setterOverride on the field's schema entry.
+     */
+    private String resolveSetterName(String fieldName, String override) {
+        if (override != null && !override.isEmpty()) {
+            return override;
+        }
+        String shortName = fieldName.contains(".")
+                ? fieldName.substring(fieldName.lastIndexOf('.') + 1)
+                : fieldName;
+
+        StringBuilder sb = new StringBuilder("set");
+        boolean nextUpper = true;
+        for (char c : shortName.toCharArray()) {
+            if (c == '_') {
+                nextUpper = true;
+                continue;
+            }
+            if (nextUpper) {
+                sb.append(Character.toUpperCase(c));
+                nextUpper = false;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Candidate parameter types to try when invoking setter, ordered by value's natural type.
+     */
+    private Class<?>[] resolveCandidateParamTypes(Object value) {
+        if (value instanceof Boolean) return new Class<?>[]{boolean.class, Boolean.class, String.class};
+        if (value instanceof Integer) return new Class<?>[]{int.class, Integer.class, long.class, Long.class, String.class};
+        if (value instanceof Long) return new Class<?>[]{long.class, Long.class, int.class, Integer.class, String.class};
+        if (value instanceof Number) return new Class<?>[]{double.class, Double.class, String.class};
+        return new Class<?>[]{String.class};
+    }
+
+    /**
+     * Coerce value to the target parameter type (primitive boxing, String parsing).
+     */
+    private Object coerceValue(Object value, Class<?> paramType) {
+        if (paramType == boolean.class || paramType == Boolean.class) {
+            if (value instanceof Boolean) return value;
+            if (value instanceof String) return Boolean.parseBoolean((String) value);
+        }
+        if (paramType == int.class || paramType == Integer.class) {
+            if (value instanceof Number) return ((Number) value).intValue();
+            if (value instanceof String) return Integer.parseInt((String) value);
+        }
+        if (paramType == long.class || paramType == Long.class) {
+            if (value instanceof Number) return ((Number) value).longValue();
+            if (value instanceof String) return Long.parseLong((String) value);
+        }
+        if (paramType == double.class || paramType == Double.class) {
+            if (value instanceof Number) return ((Number) value).doubleValue();
+            if (value instanceof String) return Double.parseDouble((String) value);
+        }
+        if (paramType == String.class) {
+            return value.toString();
+        }
+        return value;
+    }
+
+    /**
+     * Find add method on container class. Tries exact param match first, then searches
+     * for method with single param assignable from itemClass (handles HTTPArgument → addArgument(Argument)).
+     */
+    private Method findAddMethod(Class<?> containerClass, String addMethod, Class<?> itemClass)
+            throws NoSuchMethodException {
+        try {
+            return containerClass.getMethod(addMethod, itemClass);
+        } catch (NoSuchMethodException exactMiss) {
+            for (Method m : containerClass.getMethods()) {
+                if (m.getName().equals(addMethod) && m.getParameterCount() == 1) {
+                    Class<?> paramType = m.getParameterTypes()[0];
+                    if (paramType.isAssignableFrom(itemClass)) {
+                        return m;
+                    }
+                }
+            }
+            throw new NoSuchMethodException(addMethod + "(" + itemClass.getSimpleName() + ") on "
+                    + containerClass.getSimpleName());
+        }
+    }
+
+    /**
+     * Mount items on element itself (mountMode=SELF, e.g., HeaderManager.headers).
+     */
+    private void mountItemsOnSelfContainer(TestElement element, String propName,
+                                            ComponentSchema.PropertyDefinition propDef,
+                                            List<Object> builtItems) throws Exception {
+        String addMethod = propDef.getContainerAddMethod();
+        if (addMethod == null) {
+            log.warn("mountMode=SELF but no containerAddMethod declared, skipping: {}", propName);
+            return;
+        }
+
+        // Clear existing collection on element
+        JMeterProperty existing = element.getProperty(propName);
+        if (existing instanceof CollectionProperty) {
+            ((CollectionProperty) existing).clear();
+        }
+
+        if (builtItems.isEmpty()) {
+            log.info("Cleared self-container property: {}", propName);
+            return;
+        }
+
+        Class<?> itemClass = Class.forName(propDef.getItemClass());
+        Method add = findAddMethod(element.getClass(), addMethod, itemClass);
+        for (Object item : builtItems) {
+            add.invoke(element, item);
+        }
+        log.info("Set self-container property: {} with {} items via {}", propName, builtItems.size(), addMethod);
+    }
+
+    /**
+     * Mount items on a nested container, then wrap as TestElementProperty on parent.
+     * Strategy: reuse existing container only when propName-precisely-matched or uniquely-typed-matched.
+     * - "HTTPsampler.Arguments" on HTTPSamplerProxy → propName exact match → reuse
+     * - "Arguments.arguments" on BackendListener → short-name "arguments" → reuse
+     * - HTTPUDConfigElement's 3 Arguments containers (HTTPsampler.Arguments / http_header_parameters_name /
+     *   HTTPUDArguments) → propName not match, multiple type matches → return null → create new each
+     */
+    private void mountItemsOnNestedContainer(TestElement element, String propName,
+                                              ComponentSchema.PropertyDefinition propDef,
+                                              List<Object> builtItems) throws Exception {
+        String containerClassName = propDef.getClassName();
+        String addMethod = propDef.getContainerAddMethod();
+        if (addMethod == null) addMethod = "addArgument";
+
+        Class<?> containerClass = Class.forName(containerClassName);
+        Object container = findExistingContainer(element, propName, containerClass);
+        boolean isNewContainer = (container == null);
+
+        if (isNewContainer) {
+            container = containerClass.getDeclaredConstructor().newInstance();
+        } else {
+            clearContainerCollectionProperty(container);
+        }
+
+        if (!builtItems.isEmpty()) {
+            Class<?> itemClass = Class.forName(propDef.getItemClass());
+            Method add = findAddMethod(containerClass, addMethod, itemClass);
+            for (Object item : builtItems) {
+                add.invoke(container, item);
+            }
+        }
+
+        if (isNewContainer) {
+            if (container instanceof TestElement) {
+                element.setProperty(new TestElementProperty(propName, (TestElement) container));
+            } else {
+                element.setProperty(new ObjectProperty(propName, container));
+            }
+        }
+        log.info("Set nested-container property: {} with {} items ({} container)",
+                propName, builtItems.size(), isNewContainer ? "new" : "reused");
+    }
+
+    /**
+     * Find existing container on element by propName exact match.
+     *
+     * No fallback: propName MUST be the actual property key on element.
+     * No type-based fallback: HTTPUDConfigElement has 3 Arguments containers
+     * (HTTPsampler.Arguments / http_header_parameters_name / HTTPUDArgumentsGui.HTTPUDArguments),
+     * any type-based fallback would mis-route subsequent properties to the first container.
+     */
+    private Object findExistingContainer(TestElement element, String propName, Class<?> containerClass) {
+        JMeterProperty prop = element.getProperty(propName);
+        return extractContainerFromProperty(prop, containerClass);
+    }
+
+    /** Extract container value from a JMeterProperty if it's a TestElementProperty wrapping the expected containerClass. */
+    private Object extractContainerFromProperty(JMeterProperty prop, Class<?> containerClass) {
+        if (!(prop instanceof TestElementProperty)) return null;
+        Object value = ((TestElementProperty) prop).getObjectValue();
+        return (value != null && containerClass.isInstance(value)) ? value : null;
+    }
+
+    /** Clear all CollectionProperty items in container (items list reset before adding new). */
+    private void clearContainerCollectionProperty(Object container) {
+        if (!(container instanceof TestElement)) return;
+        TestElement te = (TestElement) container;
+        org.apache.jmeter.testelement.property.PropertyIterator iter = te.propertyIterator();
+        while (iter.hasNext()) {
+            JMeterProperty p = iter.next();
+            if (p instanceof CollectionProperty) {
+                ((CollectionProperty) p).clear();
+            }
         }
     }
 
@@ -139,9 +459,10 @@ public class SchemaBasedPropertyHandler {
             return;
         }
 
-        // Special handling for SampleSaveConfiguration (not a TestElement)
-        if (className.contains("SampleSaveConfiguration")) {
-            handleSampleSaveConfiguration(element, propName, nestedProps);
+        // Phase 1.4: route by mountMode for non-TestElement objects (e.g., SampleSaveConfiguration)
+        ComponentSchema.MountMode mountMode = propDef.getMountMode();
+        if (mountMode == ComponentSchema.MountMode.OBJECT_PROPERTY) {
+            handleNonTestElementObject(element, propName, nestedProps, propDef);
             return;
         }
 
@@ -151,7 +472,7 @@ public class SchemaBasedPropertyHandler {
             TestElement nestedElement = (TestElement) nestedClass.getDeclaredConstructor().newInstance();
 
             nestedElement.setProperty(TestElement.TEST_CLASS, className);
-            String guiClassName = deriveGuiClassName(className);
+            String guiClassName = deriveGuiClassName(className, propDef);
             if (guiClassName != null) {
                 nestedElement.setProperty(TestElement.GUI_CLASS, guiClassName);
             }
@@ -175,7 +496,7 @@ public class SchemaBasedPropertyHandler {
             }
 
             // Set nested object on parent
-            setNestedObjectOnParent(element, propName, nestedElement, className);
+            setNestedObjectOnParent(element, propName, nestedElement, className, propDef);
 
             log.info("Successfully set nested object property: {}", propName);
 
@@ -185,401 +506,37 @@ public class SchemaBasedPropertyHandler {
     }
 
     /**
-     * Handle SampleSaveConfiguration property.
-     * SampleSaveConfiguration is not a TestElement, so it needs special handling.
+     * Handle non-TestElement nested object via no-arg constructor + setter strategy.
+     * Phase 1.4: schema-driven replacement for hardcoded handleSampleSaveConfiguration.
+     * Triggered by mountMode=OBJECT_PROPERTY. Uses per-field setterOverride.
      */
-    @SuppressWarnings("unchecked")
-    private void handleSampleSaveConfiguration(TestElement element, String propName,
-                                               Map<String, Object> configProps) {
+    private void handleNonTestElementObject(TestElement element, String propName,
+                                             Map<String, Object> propValue,
+                                             ComponentSchema.PropertyDefinition propDef) {
+        String className = propDef.getClassName();
+        if (className == null) {
+            log.warn("Property {} has mountMode=OBJECT_PROPERTY but no class declared", propName);
+            return;
+        }
         try {
-            Class<?> saveConfigClass = Class.forName("org.apache.jmeter.samplers.SampleSaveConfiguration");
-            Object saveConfig = saveConfigClass.getDeclaredConstructor().newInstance();
+            Class<?> objClass = Class.forName(className);
+            Object obj = objClass.getDeclaredConstructor().newInstance();
 
-            // Map of property names to actual setter method names for non-standard naming
-            java.util.Map<String, String> setterNameMap = new java.util.HashMap<>();
-            setterNameMap.put("xml", "setAsXml");
-            setterNameMap.put("saveAssertionResultsFailureMessage", "setAssertionResultsFailureMessage");
-            // Note: responseDataOnError and assertionsResultsToSave have no setters (read-only or final)
-
-            // Set boolean properties using reflection
-            for (Map.Entry<String, Object> entry : configProps.entrySet()) {
-                String configPropName = entry.getKey();
-                Object configPropValue = entry.getValue();
-
-                if (configPropValue == null) {
-                    continue;
-                }
-
-                // Skip read-only properties
-                if ("responseDataOnError".equals(configPropName) || "assertionsResultsToSave".equals(configPropName)) {
-                    log.debug("Skipping read-only property: {}", configPropName);
-                    continue;
-                }
-
-                // Convert to Boolean if needed
-                Boolean boolValue = null;
-                if (configPropValue instanceof Boolean) {
-                    boolValue = (Boolean) configPropValue;
-                } else if (configPropValue instanceof String) {
-                    boolValue = Boolean.parseBoolean((String) configPropValue);
-                }
-
-                if (boolValue != null) {
-                    try {
-                        // Use mapped setter name if available, otherwise build standard name
-                        String setterName = setterNameMap.get(configPropName);
-                        if (setterName == null) {
-                            setterName = "set" + configPropName.substring(0, 1).toUpperCase()
-                                    + configPropName.substring(1);
-                        }
-                        java.lang.reflect.Method setter = saveConfigClass.getMethod(setterName, boolean.class);
-                        setter.invoke(saveConfig, boolValue);
-                        log.info("Set SampleSaveConfiguration.{} = {}", configPropName, boolValue);
-                    } catch (NoSuchMethodException e) {
-                        log.warn("No setter found for SampleSaveConfiguration property: {}", configPropName);
+            if (propDef.hasNestedProperties()) {
+                for (ComponentSchema.PropertyDefinition fieldDef : propDef.getNestedProperties()) {
+                    String fieldName = fieldDef.getName();
+                    Object value = propValue.get(fieldName);
+                    if (value == null) {
+                        continue;
                     }
+                    applySetter(obj, fieldName, value, fieldDef.getSetterOverride());
                 }
             }
 
-            // Use ObjectProperty to wrap SampleSaveConfiguration (not TestElementProperty)
-            element.setProperty(new org.apache.jmeter.testelement.property.ObjectProperty(propName, saveConfig));
-            log.info("Successfully set SampleSaveConfiguration with {} properties", configProps.size());
-
+            element.setProperty(new ObjectProperty(propName, obj));
+            log.info("Set non-TestElement object {} via mountMode=OBJECT_PROPERTY", propName);
         } catch (Exception e) {
-            log.warn("Failed to create/set SampleSaveConfiguration", e);
-        }
-    }
-
-    /**
-     * Handle HTTPsampler.Arguments property with itemProperties schema.
-     * Only supports array format.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHttpArgumentsProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        // Only support array format
-        if (propValue instanceof List || propValue.getClass().isArray()) {
-            handleHttpArgumentsArray(convertToList(propValue), args);
-        } else {
-            log.warn("HTTPsampler.Arguments must be an array, got: {}", propValue.getClass());
-            return;
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set HTTPsampler.Arguments with {} arguments", args.getArguments().size());
-    }
-
-    /**
-     * Handle HTTPsampler.Files property for file uploads.
-     * Creates HTTPFileArgs containing HTTPFileArg objects via reflection.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHttpFileArgsProperty(TestElement element, String propName, Object propValue) {
-        try {
-            Class<?> httpFileArgsClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPFileArgs");
-            Class<?> httpFileArgClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPFileArg");
-
-            Object httpFileArgs = httpFileArgsClass.getDeclaredConstructor().newInstance();
-
-            List<Object> items = convertToList(propValue);
-            for (Object item : items) {
-                if (!(item instanceof Map)) {
-                    log.warn("HTTPFileArg item must be a map, got: {}", item.getClass());
-                    continue;
-                }
-
-                Map<String, Object> fileProps = (Map<String, Object>) item;
-                String path = getStringValue(fileProps, "File.path");
-                String paramname = getStringValue(fileProps, "File.paramname", "");
-                String mimetype = getStringValue(fileProps, "File.mimetype", "application/octet-stream");
-
-                if (path == null) {
-                    log.warn("Missing required property File.path in: {}", fileProps);
-                    continue;
-                }
-
-                Object httpFileArg = httpFileArgClass
-                        .getConstructor(String.class, String.class, String.class)
-                        .newInstance(path, paramname, mimetype);
-
-                httpFileArgsClass.getMethod("addHTTPFileArg", httpFileArgClass)
-                        .invoke(httpFileArgs, httpFileArg);
-            }
-
-            element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, (TestElement) httpFileArgs));
-            log.info("Set HTTPsampler.Files with {} file(s)", items.size());
-
-        } catch (Exception e) {
-            log.warn("Failed to create HTTPFileArgs for property: {}", propName, e);
-        }
-    }
-
-    /**
-     * Handle Arguments.arguments property with itemProperties schema.
-     * Supports two storage patterns:
-     * 1. Element IS Arguments (e.g., UserDefinedVariables) - CollectionProperty on the element itself
-     * 2. Element HAS Arguments (e.g., BackendListener) - TestElementProperty wrapping an Arguments object
-     */
-    @SuppressWarnings("unchecked")
-    private void handleArgumentsProperty(TestElement element, String propName, Object propValue) {
-        List<Object> items = convertToList(propValue);
-        List<org.apache.jmeter.config.Argument> newArgs = new ArrayList<>();
-
-        for (Object argItem : items) {
-            if (!(argItem instanceof Map)) {
-                continue;
-            }
-
-            Map<String, Object> argProps = (Map<String, Object>) argItem;
-            String argName = getStringValue(argProps, "Argument.name");
-            if (argName == null) {
-                continue;
-            }
-
-            String argValue = getStringValue(argProps, "Argument.value", "");
-            String argDesc = getStringValue(argProps, "Argument.desc");
-            String metadata = getStringValue(argProps, "Argument.metadata", "=");
-
-            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(argName, argValue, metadata);
-            if (argDesc != null && !argDesc.isEmpty()) {
-                argument.setDescription(argDesc);
-            }
-            newArgs.add(argument);
-        }
-
-        if (newArgs.isEmpty()) {
-            log.warn("No valid arguments provided, skipping Arguments.arguments update");
-            return;
-        }
-
-        // Build first, then replace to prevent data loss
-        org.apache.jmeter.config.Arguments targetArgs = resolveArgumentsTarget(element, propName);
-        if (targetArgs == null) {
-            log.error("Cannot find Arguments object on element: {}", element.getClass().getSimpleName());
-            return;
-        }
-
-        // Clear existing arguments
-        org.apache.jmeter.testelement.property.JMeterProperty existing = targetArgs.getProperty("Arguments.arguments");
-        if (existing instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
-            ((org.apache.jmeter.testelement.property.CollectionProperty) existing).clear();
-        }
-
-        for (org.apache.jmeter.config.Argument arg : newArgs) {
-            targetArgs.addArgument(arg);
-        }
-
-        log.info("Set Arguments.arguments with {} arguments on {}", newArgs.size(), element.getClass().getSimpleName());
-    }
-
-    /**
-     * Resolve the Arguments object to modify.
-     * - If element is Arguments (e.g., UserDefinedVariables), return element directly.
-     * - If element has Arguments as a TestElementProperty (e.g., BackendListener with "arguments" key),
-     *   return the nested Arguments object.
-     */
-    private org.apache.jmeter.config.Arguments resolveArgumentsTarget(TestElement element, String propName) {
-        if (element instanceof org.apache.jmeter.config.Arguments) {
-            return (org.apache.jmeter.config.Arguments) element;
-        }
-
-        // Search for a TestElementProperty wrapping Arguments
-        org.apache.jmeter.testelement.property.PropertyIterator iter = element.propertyIterator();
-        while (iter.hasNext()) {
-            org.apache.jmeter.testelement.property.JMeterProperty prop = iter.next();
-            if (prop instanceof org.apache.jmeter.testelement.property.TestElementProperty) {
-                TestElement nested = ((org.apache.jmeter.testelement.property.TestElementProperty) prop).getElement();
-                if (nested instanceof org.apache.jmeter.config.Arguments) {
-                    return (org.apache.jmeter.config.Arguments) nested;
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Handle HTTPsampler.Arguments in array format: [{"Argument.name": "name", "Argument.value": "zhangsan"}]
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHttpArgumentsArray(List<Object> argList, org.apache.jmeter.config.Arguments args) {
-        try {
-            Class<?> httpArgClass = Class.forName("org.apache.jmeter.protocol.http.util.HTTPArgument");
-
-            for (Object argItem : argList) {
-                if (!(argItem instanceof Map)) {
-                    log.warn("Array item must be a map, got: {}", argItem.getClass());
-                    continue;
-                }
-
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String argName = getStringValue(argProps, "Argument.name");
-                String argValue = getStringValue(argProps, "Argument.value");
-                Boolean useEquals = getBooleanValue(argProps, "HTTPArgument.use_equals", true);
-                Boolean alwaysEncode = getBooleanValue(argProps, "HTTPArgument.always_encode", false);
-                String metadata = getStringValue(argProps, "Argument.metadata", "=");
-
-                if (argName == null) {
-                    // In postBodyRaw mode, the body data argument has no name
-                    argName = "";
-                    log.info("Argument.name not provided, defaulting to empty string (postBodyRaw mode)");
-                }
-
-                Object httpArg = httpArgClass
-                        .getConstructor(String.class, String.class, boolean.class)
-                        .newInstance(argName, argValue != null ? argValue : "", useEquals);
-
-                if (alwaysEncode != null) {
-                    java.lang.reflect.Method setAlwaysEncoded = httpArg.getClass().getMethod("setAlwaysEncoded", boolean.class);
-                    setAlwaysEncoded.invoke(httpArg, alwaysEncode);
-                }
-                if (metadata != null) {
-                    java.lang.reflect.Method setMetaData = httpArg.getClass().getMethod("setMetaData", String.class);
-                    setMetaData.invoke(httpArg, metadata);
-                }
-
-                args.addArgument((org.apache.jmeter.config.Argument) httpArg);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create HTTPArgument from array", e);
-        }
-    }
-
-    /**
-     * Handle HeaderManager.headers property with itemProperties schema.
-     * Creates Header objects and adds them to the HeaderManager via reflection.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHeaderManagerProperty(TestElement element, String propName, Object propValue) {
-        List<Object> items = convertToList(propValue);
-
-        // Build new headers first, only clear existing if new items are valid
-        List<Object> newHeaders = new ArrayList<>();
-        try {
-            Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
-
-            for (Object item : items) {
-                if (!(item instanceof Map)) {
-                    log.warn("Header item must be a map, got: {}", item.getClass());
-                    continue;
-                }
-
-                Map<String, Object> headerProps = (Map<String, Object>) item;
-                String headerName = getStringValue(headerProps, "Header.name");
-                String headerValue = getStringValue(headerProps, "Header.value");
-
-                if (headerName == null) {
-                    log.warn("Missing required property Header.name in: {}", headerProps);
-                    continue;
-                }
-
-                Object header = headerClass
-                        .getConstructor(String.class, String.class)
-                        .newInstance(headerName, headerValue != null ? headerValue : "");
-                newHeaders.add(header);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create Header objects for {}", propName, e);
-        }
-
-        if (newHeaders.isEmpty() && !items.isEmpty()) {
-            log.warn("No valid headers created, skipping update to preserve existing data");
-            return;
-        }
-
-        // Clear existing then add new
-        org.apache.jmeter.testelement.property.JMeterProperty existingHeaders = element.getProperty(propName);
-        if (existingHeaders instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
-            ((org.apache.jmeter.testelement.property.CollectionProperty) existingHeaders).clear();
-        }
-
-        try {
-            Class<?> headerClass = Class.forName("org.apache.jmeter.protocol.http.control.Header");
-            java.lang.reflect.Method addMethod = element.getClass().getMethod("add", headerClass);
-            for (Object header : newHeaders) {
-                addMethod.invoke(element, header);
-            }
-            log.info("Set HeaderManager.headers with {} header(s)", newHeaders.size());
-        } catch (Exception e) {
-            log.warn("Failed to add headers to HeaderManager", e);
-        }
-    }
-
-    /**
-     * Handle CookieManager.cookies property with itemProperties schema.
-     * Creates Cookie objects and adds them to the CookieManager via reflection.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleCookieManagerProperty(TestElement element, String propName, Object propValue) {
-        List<Object> items = convertToList(propValue);
-
-        // Build new cookies first, only clear existing if new items are valid
-        List<Object> newCookies = new ArrayList<>();
-        try {
-            Class<?> cookieClass = Class.forName("org.apache.jmeter.protocol.http.control.Cookie");
-
-            for (Object item : items) {
-                if (!(item instanceof Map)) {
-                    log.warn("Cookie item must be a map, got: {}", item.getClass());
-                    continue;
-                }
-
-                Map<String, Object> cookieProps = (Map<String, Object>) item;
-                // Cookie name is stored as TestElement.name in JMeter, not as Cookie.name
-                String cookieName = getStringValue(cookieProps, "Cookie.name");
-                if (cookieName == null) {
-                    cookieName = getStringValue(cookieProps, "TestElement.name");
-                }
-                String cookieValue = getStringValue(cookieProps, "Cookie.value");
-                String domain = getStringValue(cookieProps, "Cookie.domain");
-                String path = getStringValue(cookieProps, "Cookie.path", "/");
-                Boolean secure = getBooleanValue(cookieProps, "Cookie.secure", false);
-                Long expires = getLongValue(cookieProps, "Cookie.expires", 0L);
-                Boolean pathSpecified = getBooleanValue(cookieProps, "Cookie.path_specified", true);
-                Boolean domainSpecified = getBooleanValue(cookieProps, "Cookie.domain_specified", true);
-
-                if (cookieName == null) {
-                    log.warn("Missing required property Cookie.name in: {}", cookieProps);
-                    continue;
-                }
-
-                Object cookie = cookieClass
-                        .getConstructor(String.class, String.class, String.class, String.class,
-                                boolean.class, long.class, boolean.class, boolean.class)
-                        .newInstance(cookieName,
-                                cookieValue != null ? cookieValue : "",
-                                domain,
-                                path,
-                                secure,
-                                expires,
-                                pathSpecified,
-                                domainSpecified);
-                newCookies.add(cookie);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create Cookie objects for {}", propName, e);
-        }
-
-        if (newCookies.isEmpty() && !items.isEmpty()) {
-            log.warn("No valid cookies created, skipping update to preserve existing data");
-            return;
-        }
-
-        // Clear existing then add new
-        org.apache.jmeter.testelement.property.JMeterProperty existingCookies = element.getProperty(propName);
-        if (existingCookies instanceof org.apache.jmeter.testelement.property.CollectionProperty) {
-            ((org.apache.jmeter.testelement.property.CollectionProperty) existingCookies).clear();
-        }
-
-        try {
-            Class<?> cookieClass = Class.forName("org.apache.jmeter.protocol.http.control.Cookie");
-            java.lang.reflect.Method addMethod = element.getClass().getMethod("add", cookieClass);
-            for (Object cookie : newCookies) {
-                addMethod.invoke(element, cookie);
-            }
-            log.info("Set CookieManager.cookies with {} cookie(s)", newCookies.size());
-        } catch (Exception e) {
-            log.warn("Failed to add cookies to CookieManager", e);
+            log.warn("Failed to handle non-TestElement object for {}", propName, e);
         }
     }
 
@@ -679,113 +636,50 @@ public class SchemaBasedPropertyHandler {
     }
 
     /**
-     * Handle ultimatethreadgroupdata: convert list of Maps to 2D CollectionProperty.
-     * Each row is [Start Threads Count, Initial Delay, Startup Time, Hold Load For, Shutdown Time].
+     * Handle nested array properties (Array of Array) for UserParameters.thread_values / ultimatethreadgroupdata.
+     * Phase 1.4: supports both List-of-List and List-of-Map input.
+     * Map input extracts values by itemProperties declared order (replaces UltimateThreadGroup hardcoded fieldOrder).
      */
     @SuppressWarnings("unchecked")
-    private void handleUltimateThreadGroupData(TestElement element, String propName, Object propValue) {
+    private void handleNestedArrayProperty(TestElement element, String propName, Object propValue,
+                                            ComponentSchema.PropertyDefinition propDef) {
         try {
-            Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
-            Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
-            Class<?> jMeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
-
-            List<Object> rows = convertToList(propValue);
-
-            Object outerCollectionProp = collectionPropClass
-                    .getConstructor(String.class, java.util.Collection.class)
-                    .newInstance(propName, new ArrayList<>());
-
-            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jMeterPropClass);
-
-            String[] fieldOrder = {"Start Threads Count", "Initial Delay", "Startup Time", "Hold Load For", "Shutdown Time"};
-
-            for (int i = 0; i < rows.size(); i++) {
-                Object row = rows.get(i);
-                List<String> values;
-
-                if (row instanceof Map) {
-                    Map<String, Object> rowMap = (Map<String, Object>) row;
-                    values = new ArrayList<>();
-                    for (String field : fieldOrder) {
-                        Object val = rowMap.get(field);
-                        values.add(val != null ? val.toString() : "0");
-                    }
-                } else if (row instanceof List) {
-                    List<Object> listRow = (List<Object>) row;
-                    values = new ArrayList<>();
-                    for (Object item : listRow) {
-                        values.add(item != null ? item.toString() : "0");
-                    }
-                } else {
-                    log.warn("Row {} is neither Map nor List, skipping", i);
-                    continue;
-                }
-
-                Object innerCollectionProp = collectionPropClass
-                        .getConstructor(String.class, java.util.Collection.class)
-                        .newInstance(String.valueOf(System.currentTimeMillis() + i), new ArrayList<>());
-
-                for (int j = 0; j < values.size(); j++) {
-                    String uniqueName = String.valueOf(System.currentTimeMillis() + i + j);
-                    Object stringProp = stringPropClass
-                            .getConstructor(String.class, String.class)
-                            .newInstance(uniqueName, values.get(j));
-                    addPropertyMethod.invoke(innerCollectionProp, stringProp);
-                }
-
-                addPropertyMethod.invoke(outerCollectionProp, innerCollectionProp);
-            }
-
-            element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) outerCollectionProp);
-            log.info("Set UltimateThreadGroup data: {} with {} rows", propName, rows.size());
-
-        } catch (Exception e) {
-            log.error("Failed to create CollectionProperty for {}", propName, e);
-        }
-    }
-
-    /**
-     * Handle nested array properties (Array of Array) for UserParameters.thread_values.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleNestedArrayProperty(TestElement element, String propName, Object propValue) {
-        try {
-            Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
-            Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");
-            Class<?> jMeterPropClass = Class.forName("org.apache.jmeter.testelement.property.JMeterProperty");
-
             List<Object> outerList = convertToList(propValue);
 
-            Object outerCollectionProp = collectionPropClass
-                    .getConstructor(String.class, java.util.Collection.class)
-                    .newInstance(propName, new ArrayList<>());
-
-            java.lang.reflect.Method addPropertyMethod = collectionPropClass.getMethod("addProperty", jMeterPropClass);
+            CollectionProperty outer = new CollectionProperty(propName, new ArrayList<>());
 
             for (int i = 0; i < outerList.size(); i++) {
                 Object innerItem = outerList.get(i);
-                if (!(innerItem instanceof List)) {
-                    log.warn("Nested array item {} is not a list, skipping", i);
+                List<String> values;
+
+                if (innerItem instanceof Map && propDef != null && propDef.hasItemProperties()) {
+                    // Map input: extract values by itemProperties declared order
+                    Map<String, Object> rowMap = (Map<String, Object>) innerItem;
+                    values = new ArrayList<>();
+                    for (ComponentSchema.PropertyDefinition fieldDef : propDef.getItemProperties()) {
+                        Object val = rowMap.get(fieldDef.getName());
+                        values.add(val != null ? val.toString() : "");
+                    }
+                } else if (innerItem instanceof List) {
+                    // List input: by position
+                    values = new ArrayList<>();
+                    for (Object item : (List<Object>) innerItem) {
+                        values.add(item != null ? item.toString() : "");
+                    }
+                } else {
+                    log.warn("Nested array item {} is neither Map nor List, skipping", i);
                     continue;
                 }
 
-                List<Object> innerList = (List<Object>) innerItem;
-                Object innerCollectionProp = collectionPropClass
-                        .getConstructor(String.class, java.util.Collection.class)
-                        .newInstance(String.valueOf(System.currentTimeMillis() + i), new ArrayList<>());
-
-                for (int j = 0; j < innerList.size(); j++) {
-                    String uniqueName = String.valueOf(System.currentTimeMillis() + i + j);
-                    Object stringProp = stringPropClass
-                            .getConstructor(String.class, String.class)
-                            .newInstance(uniqueName, innerList.get(j).toString());
-                    addPropertyMethod.invoke(innerCollectionProp, stringProp);
+                CollectionProperty inner = new CollectionProperty(
+                        String.valueOf(System.currentTimeMillis() + i), new ArrayList<>());
+                for (String v : values) {
+                    inner.addItem(v);
                 }
-
-                addPropertyMethod.invoke(outerCollectionProp, innerCollectionProp);
+                outer.addItem(inner);
             }
 
-            element.setProperty((org.apache.jmeter.testelement.property.JMeterProperty) outerCollectionProp);
+            element.setProperty(outer);
             log.info("Set nested array property: {} with {} inner arrays", propName, outerList.size());
 
         } catch (Exception e) {
@@ -866,44 +760,39 @@ public class SchemaBasedPropertyHandler {
     }
 
     /**
-     * Derive GUI class name from model class name.
+     * Derive GUI class name from schema-declared guiClass.
      */
-    private String deriveGuiClassName(String className) {
-        if (className.contains("LoopController")) {
-            return "org.apache.jmeter.control.gui.LoopControlPanel";
-        } else if (className.contains("ThreadGroup")) {
-            return "org.apache.jmeter.threads.gui.ThreadGroupGui";
-        } else if (className.contains("GenericController")) {
-            return "org.apache.jmeter.control.gui.GenericControllerGui";
-        } else if (className.contains("DurationAssertion")) {
-            return "org.apache.jmeter.assertions.gui.DurationAssertionGui";
-        } else if (className.contains("ResponseAssertion")) {
-            return "org.apache.jmeter.assertions.gui.ResponseAssertionGui";
-        } else if (className.contains("JSONPathAssertion")) {
-            return "org.apache.jmeter.assertions.gui.JSONPathAssertionGui";
-        } else if (className.contains("ConstantTimer")) {
-            return "org.apache.jmeter.timers.gui.ConstantTimerGui";
+    private String deriveGuiClassName(String className, ComponentSchema.PropertyDefinition propDef) {
+        if (propDef != null && propDef.getGuiClass() != null) {
+            return propDef.getGuiClass();
         }
         return null;
     }
 
     /**
      * Set a nested object on its parent element.
+     * Phase 1.4: prefer setterOverride-declared parent setter (e.g., main_controller → setSamplerController).
      */
     private void setNestedObjectOnParent(TestElement parent, String propName,
-                                         TestElement nested, String nestedClassName) {
+                                         TestElement nested, String nestedClassName,
+                                         ComponentSchema.PropertyDefinition propDef) {
         try {
-            // Special handling for ThreadGroup.main_controller -> setSamplerController
-            if (parent instanceof org.apache.jmeter.threads.ThreadGroup
-                    && nestedClassName.contains("LoopController")) {
-                ((org.apache.jmeter.threads.ThreadGroup) parent).setSamplerController(
-                    (org.apache.jmeter.control.LoopController) nested);
-                log.info("Set ThreadGroup.samplerController (main_controller)");
-                return;
+            // Check propDef's own setterOverride for parent-level setter
+            String parentSetter = propDef != null ? propDef.getSetterOverride() : null;
+
+            if (parentSetter != null) {
+                Method setter = findSingleParamMethod(parent.getClass(), parentSetter, nested.getClass());
+                if (setter != null) {
+                    setter.invoke(parent, nested);
+                    log.info("Set nested object {} via parent setter {}", propName, parentSetter);
+                    return;
+                }
+                log.warn("Parent setter {}({}) not found on {}", parentSetter,
+                        nested.getClass().getSimpleName(), parent.getClass().getSimpleName());
             }
 
             // Default: use TestElementProperty
-            parent.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, nested));
+            parent.setProperty(new TestElementProperty(propName, nested));
             log.info("Set nested property {} using TestElementProperty", propName);
 
         } catch (Exception e) {
@@ -912,29 +801,22 @@ public class SchemaBasedPropertyHandler {
     }
 
     /**
-     * Check if the request is in raw body mode.
+     * Find a single-parameter method by name on clazz, where the parameter is assignable from valueClass.
+     * Tries exact match first, then searches for assignable parameter.
      */
-    private boolean isRawBodyMode(TestElement element, Map<String, Object> allProperties) {
-        String postBodyRaw = element.getPropertyAsString("HTTPSampler.postBodyRaw", null);
-        if ("true".equals(postBodyRaw)) {
-            return true;
-        }
-
-        if (allProperties != null) {
-            for (Map.Entry<String, Object> prop : allProperties.entrySet()) {
-                if ("HTTPSampler.postBodyRaw".equals(prop.getKey())) {
-                    Object propVal = prop.getValue();
-                    if (propVal instanceof Boolean && (Boolean) propVal) {
-                        return true;
-                    }
-                    if (propVal instanceof String && "true".equalsIgnoreCase((String) propVal)) {
-                        return true;
+    private Method findSingleParamMethod(Class<?> clazz, String methodName, Class<?> valueClass) {
+        try {
+            return clazz.getMethod(methodName, valueClass);
+        } catch (NoSuchMethodException exactMiss) {
+            for (Method m : clazz.getMethods()) {
+                if (m.getName().equals(methodName) && m.getParameterCount() == 1) {
+                    if (m.getParameterTypes()[0].isAssignableFrom(valueClass)) {
+                        return m;
                     }
                 }
             }
+            return null;
         }
-
-        return false;
     }
 
     /**
@@ -986,302 +868,4 @@ public class SchemaBasedPropertyHandler {
         return defaultValue;
     }
 
-    /**
-     * Handle ParameterTestFragmentController.arguments property.
-     * Creates ParameterIncludeControllerArgument objects with name, value, desc, required, notNull.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleParameterTestFragmentArgumentsProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        try {
-            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterIncludeControllerArgument");
-
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) {
-                    continue;
-                }
-
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) {
-                    continue;
-                }
-
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                Boolean required = getBooleanValue(argProps, "ParameterIncludeControllerArgument.required", false);
-                Boolean notNull = getBooleanValue(argProps, "ParameterIncludeControllerArgument.notNull", false);
-
-                Object arg = argClass
-                        .getConstructor(String.class, String.class, String.class, boolean.class, boolean.class)
-                        .newInstance(name, value, desc, notNull, required);
-
-                args.addArgument((org.apache.jmeter.config.Argument) arg);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create ParameterIncludeControllerArgument, falling back to standard Argument", e);
-            // Fallback to standard Argument
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) continue;
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) continue;
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
-                args.addArgument(argument);
-            }
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set {} with {} arguments", propName, args.getArguments().size());
-    }
-
-    /**
-     * Handle ParameterTestFragmentController.ReturnValueArguments property.
-     * Creates ParameterTestFragmentReturnValueArgument objects with name and desc.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleParameterTestFragmentReturnValueProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        try {
-            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterTestFragmentReturnValueArgument");
-
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) {
-                    continue;
-                }
-
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) {
-                    continue;
-                }
-
-                String desc = getStringValue(argProps, "Argument.desc", "");
-
-                Object arg = argClass
-                        .getConstructor(String.class, String.class)
-                        .newInstance(name, desc);
-
-                args.addArgument((org.apache.jmeter.config.Argument) arg);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create ParameterTestFragmentReturnValueArgument, falling back to standard Argument", e);
-            // Fallback to standard Argument
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) continue;
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) continue;
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, "", "=", desc);
-                args.addArgument(argument);
-            }
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set {} with {} arguments", propName, args.getArguments().size());
-    }
-
-    /**
-     * Handle ParameterIncludeController.ReturnValueArguments property.
-     * Creates ParameterIncludeControllerReturnValueArgument objects with name, value, desc.
-     * Wraps them in an Arguments TestElement via TestElementProperty so the GUI's
-     * configure() cast (Arguments) getObjectValue() succeeds.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleParameterIncludeControllerReturnValueProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        try {
-            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.control.util.ParameterIncludeControllerReturnValueArgument");
-
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) {
-                    continue;
-                }
-
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) {
-                    continue;
-                }
-
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-
-                Object arg = argClass
-                        .getConstructor(String.class, String.class, String.class)
-                        .newInstance(name, value, desc);
-
-                args.addArgument((org.apache.jmeter.config.Argument) arg);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create ParameterIncludeControllerReturnValueArgument, falling back to standard Argument", e);
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) continue;
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) continue;
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
-                args.addArgument(argument);
-            }
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set {} with {} arguments", propName, args.getArguments().size());
-    }
-
-    /**
-     * Handle HTTPUDConfigElement.http_header_parameters_name property.
-     * Stores Argument objects (name/value) inside an Arguments wrapper as TestElementProperty.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHttpudHeaderParametersProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        for (Object argItem : convertToList(propValue)) {
-            if (!(argItem instanceof Map)) {
-                continue;
-            }
-
-            Map<String, Object> argProps = (Map<String, Object>) argItem;
-            String name = getStringValue(argProps, "Argument.name");
-            if (name == null) {
-                log.warn("Missing Argument.name in header: {}", argProps);
-                continue;
-            }
-
-            String value = getStringValue(argProps, "Argument.value", "");
-            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value);
-            args.addArgument(argument);
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set {} with {} header(s)", propName, args.getArguments().size());
-    }
-
-    /**
-     * Handle HTTPUDArgumentsGui.HTTPUDArguments property.
-     * Stores HTTPUDArgument objects (name/value/desc/required) inside an Arguments wrapper as TestElementProperty.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleHttpudArgumentsProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        try {
-            Class<?> argClass = Class.forName("com.gitee.qa.jmeter.protocol.httpud.util.HTTPUDArgument");
-
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) {
-                    continue;
-                }
-
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) {
-                    continue;
-                }
-
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                Boolean required = getBooleanValue(argProps, "HTTPUDArgument.required", false);
-
-                Object arg = argClass
-                        .getConstructor(String.class, String.class, String.class, boolean.class)
-                        .newInstance(name, value, desc, required);
-
-                args.addArgument((org.apache.jmeter.config.Argument) arg);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to create HTTPUDArgument, falling back to standard Argument", e);
-            for (Object argItem : convertToList(propValue)) {
-                if (!(argItem instanceof Map)) continue;
-                Map<String, Object> argProps = (Map<String, Object>) argItem;
-                String name = getStringValue(argProps, "Argument.name");
-                if (name == null) continue;
-                String value = getStringValue(argProps, "Argument.value", "");
-                String desc = getStringValue(argProps, "Argument.desc", "");
-                org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(name, value, "=", desc);
-                args.addArgument(argument);
-            }
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set {} with {} argument(s)", propName, args.getArguments().size());
-    }
-
-    /**
-     * Handle SystemSampler.arguments property with itemProperties schema.
-     * Supports both array of strings and array of objects with Argument.value.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleSystemSamplerArgumentsProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments args = new org.apache.jmeter.config.Arguments();
-
-        for (Object argItem : convertToList(propValue)) {
-            if (argItem == null) {
-                continue;
-            }
-
-            String argValue;
-            if (argItem instanceof Map) {
-                // Array of objects format: [{"Argument.value": "-c"}, {"Argument.value": "echo hello"}]
-                argValue = getStringValue((Map<String, Object>) argItem, "Argument.value");
-                if (argValue == null) {
-                    log.warn("Missing Argument.value in: {}", argItem);
-                    continue;
-                }
-            } else if (argItem instanceof String) {
-                // Simple array format: ["-c", "echo hello"]
-                argValue = (String) argItem;
-            } else {
-                log.warn("Unsupported argument type: {}, expected String or Map", argItem.getClass());
-                continue;
-            }
-
-            // For SystemSampler, arguments are value-only (like command line args)
-            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument();
-            argument.setValue(argValue);
-            args.addArgument(argument);
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, args));
-        log.info("Set SystemSampler.arguments with {} arguments", args.getArguments().size());
-    }
-
-    /**
-     * Handle SystemSampler.environment property with itemProperties schema.
-     * Environment variables are name-value pairs.
-     */
-    @SuppressWarnings("unchecked")
-    private void handleSystemSamplerEnvironmentProperty(TestElement element, String propName, Object propValue) {
-        org.apache.jmeter.config.Arguments envVars = new org.apache.jmeter.config.Arguments();
-
-        for (Object envItem : convertToList(propValue)) {
-            if (!(envItem instanceof Map)) {
-                log.warn("Environment item must be a map, got: {}", envItem.getClass());
-                continue;
-            }
-
-            Map<String, Object> envProps = (Map<String, Object>) envItem;
-            String envName = getStringValue(envProps, "Argument.name");
-            if (envName == null) {
-                log.warn("Missing Argument.name in: {}", envProps);
-                continue;
-            }
-
-            String envValue = getStringValue(envProps, "Argument.value", "");
-            org.apache.jmeter.config.Argument argument = new org.apache.jmeter.config.Argument(envName, envValue);
-            envVars.addArgument(argument);
-        }
-
-        element.setProperty(new org.apache.jmeter.testelement.property.TestElementProperty(propName, envVars));
-        log.info("Set SystemSampler.environment with {} variables", envVars.getArguments().size());
-    }
 }

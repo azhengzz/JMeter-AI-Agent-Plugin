@@ -1,0 +1,38 @@
+component:
+  type: s3configelement
+  name: S3 Connection Configuration
+  testClass: com.gitee.qa.jmeter.protocol.s3.config.S3ConfigElement
+  guiClass: com.gitee.qa.jmeter.protocol.s3.config.gui.S3ConfigGui
+  description: Configure S3-compatible object storage connection credentials and endpoint
+
+properties:
+
+  - name: S3ConfigElement.s3UidName
+    type: String
+    required: true
+    default: ""
+    description: Unique identifier name for this S3 connection (must be globally unique)
+
+  - name: S3ConfigElement.s3EndPoint
+    type: String
+    required: true
+    default: ""
+    description: S3 endpoint URL (e.g. http://127.0.0.1:9000)
+
+  - name: S3ConfigElement.s3Region
+    type: String
+    required: false
+    default: ""
+    description: S3 region name
+
+  - name: S3ConfigElement.s3AccessKeyId
+    type: String
+    required: true
+    default: ""
+    description: S3 access key ID
+
+  - name: S3ConfigElement.s3SecretAccessKey
+    type: String
+    required: true
+    default: ""
+    description: S3 secret access key

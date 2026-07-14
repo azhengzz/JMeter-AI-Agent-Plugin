@@ -1,0 +1,48 @@
+component:
+  type: precisethroughputTimer
+  testClass: org.apache.jmeter.timers.poissonarrivals.PreciseThroughputTimer
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+  name: Precise Throughput Timer
+  description: "Generates Poisson arrivals with constant throughput. Ensures exact sample count for specified duration by controlling throughput across all affected samplers."
+
+properties:
+  - name: throughput
+    type: Double
+    required: true
+    default: 60
+    min: 0
+    description: "Target number of samples per throughputPeriod. Example: throughput=60 with period=60 gives 60 samples per 60 seconds (1 sample/second). Affects all threads in the group."
+
+  - name: throughputPeriod
+    type: Integer
+    required: true
+    default: 60
+    min: 1
+    description: "Time period in seconds for the throughput calculation. Example: throughput=42, period=21 means 2 samples per second. Combined actual rate = throughput / throughputPeriod."
+
+  - name: duration
+    type: Long
+    required: true
+    default: 0
+    min: 0
+    description: "Test duration in seconds. Timer ensures throughput*duration samples occur during this timeframe for accurate reporting (e.g., exactly 100 samples per hour). Set to 0 for no duration constraint."
+
+  - name: batchSize
+    type: Integer
+    required: true
+    default: 1
+    min: 1
+    description: "Number of threads that depart simultaneously in each batch. If > 1, multiple threads leave at once while maintaining average throughput. Example: batchSize=3 means 3 threads depart together."
+
+  - name: batchThreadDelay
+    type: Integer
+    required: true
+    default: 0
+    min: 0
+    description: "Delay in milliseconds between thread departures within a batch. Example: delay=42 with batchSize=3 means threads depart at x, x+42ms, x+84ms. Only applies when batchSize > 1."
+
+  - name: randomSeed
+    type: Long
+    required: true
+    default: 0
+    description: "Seed for random number generator to reproduce identical delay sequences. Use same seed for repeatable test results. Use 0 for truly random (non-repeatable) delays. Different timers should use different seeds."

@@ -9,7 +9,7 @@ import java.util.Map;
 
 public class YamlDebugTest {
     public static void main(String[] args) throws Exception {
-        String yamlPath = "src/main/jmeter-agent/skills/jmeter/references/configuration/HeaderManager.schema.yaml";
+        String yamlPath = "src/main/jmeter-agent/skills/jmeter/references/native/configuration/HeaderManager.schema.yaml";
         String content = Files.readString(Paths.get(yamlPath));
 
         Yaml yaml = new Yaml();

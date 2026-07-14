@@ -1,0 +1,17 @@
+component:
+  type: modulecontroller
+  testClass: org.apache.jmeter.control.ModuleController
+  guiClass: org.apache.jmeter.control.gui.ModuleControllerGui
+  name: Module Controller
+  description: References and executes a controller defined elsewhere in the test plan (typically under a Test Fragment), enabling test plan modularity and reuse
+
+properties:
+  - name: ModuleController.node_path
+    type: Array
+    required: false
+    default: "[]"
+    description: |
+      The node path to the target controller in the test plan tree, stored as a collection
+      of tree node names from root to the target controller. This property is typically set
+      automatically when selecting a module in the GUI. Renaming any node in this path will
+      break the reference.

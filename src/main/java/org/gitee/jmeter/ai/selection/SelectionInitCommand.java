@@ -40,7 +40,22 @@ public class SelectionInitCommand implements Command {
             return;
         }
         log.info("SelectionInitCommand received ADD_ALL, scheduling SelectionTracker.install()");
-        EventQueue.invokeLater(SelectionTracker::install);
+        EventQueue.invokeLater(() -> {
+            SelectionTracker.install();
+            if (org.gitee.jmeter.ai.utils.AiConfig.isIpcEnabled()) {
+                // IPC start() 含 bind + 写端口文件等 IO,放普通线程避免短暂卡 EDT
+                // (SelectionTracker.install 必须留在 EDT 装监听器)。
+                Thread t = new Thread(() -> {
+                    try {
+                        org.gitee.jmeter.ai.ipc.IpcServer.getInstance().start();
+                    } catch (Exception ex) {
+                        log.error("IPC server failed to start", ex);
+                    }
+                }, "ipc-start");
+                t.setDaemon(true);
+                t.start();
+            }
+        });
     }
 
     @Override

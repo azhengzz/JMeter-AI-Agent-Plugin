@@ -86,8 +86,9 @@ mvn test -Dtest=ClassNameTest
 
 **安装到本地 JMeter（修改 pom.xml 的 antrun 配置路径）：**
 ```bash
-mvn clean install
+mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
+mvn clean install -Dlaunch.gui=true  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
 
 **跳过测试构建：**
@@ -271,94 +272,34 @@ mvn clean package -DskipTests
 
 **部署位置：** 构建时复制到 `{JMETER_HOME}/bin/jmeter-agent/skills/jmeter/references/`
 
-**Schema 目录结构：**
+**Schema 目录结构：**（按**来源**分 3 个顶层目录，其下按**功能类别**分子目录；`ComponentSchemaLoader` 递归扫描，文件放在哪个 `source` 目录不影响加载，仅用于区分原生与第三方）
 ```
 references/
-├── assertions/          # 断言组件 (9)
-│   ├── BeanShellAssertion.schema.yaml
-│   ├── JSONPathAssertion.schema.yaml
-│   ├── JSR223Assertion.schema.yaml
-│   ├── JsonAutoAssertion.schema.yaml
-│   ├── ResponseAssertion.schema.yaml
-│   ├── ValueAssertion.schema.yaml
-│   ├── VariableAssertion.schema.yaml
-│   ├── XMLAssertion.schema.yaml
-│   └── XPathAssertion.schema.yaml
-├── configuration/       # 配置元件 (10)
-│   ├── CSVDataSet.schema.yaml
-│   ├── CookieManager.schema.yaml
-│   ├── ExcelDataConfig.schema.yaml
-│   ├── HTTPRequestDefaults.schema.yaml
-│   ├── HTTPUDConfigElement.schema.yaml
-│   ├── HTTPUDIncludeConfig.schema.yaml
-│   ├── HeaderManager.schema.yaml
-│   ├── JDBCConnectionConfiguration.schema.yaml
-│   ├── S3ConfigElement.schema.yaml
-│   └── UserDefinedVariables.schema.yaml
-├── controllers/         # 逻辑控制器 (15)
-│   ├── CaseController.schema.yaml
-│   ├── DoWhileController.schema.yaml
-│   ├── ForeachController.schema.yaml
-│   ├── IfController.schema.yaml
-│   ├── IncludeController.schema.yaml
-│   ├── LoopController.schema.yaml
-│   ├── ModuleController.schema.yaml
-│   ├── OnceOnlyController.schema.yaml
-│   ├── ParameterIncludeController.schema.yaml
-│   ├── ProbabilityController.schema.yaml
-│   ├── RandomController.schema.yaml
-│   ├── SimpleController.schema.yaml
-│   ├── TransactionController.schema.yaml
-│   ├── VariableLoopController.schema.yaml
-│   └── WhileController.schema.yaml
-├── functions/           # JMeter 函数参考 (58 个 .md 文档)
-├── listeners/           # 监听器 (4)
-│   ├── AggregateReport.schema.yaml
-│   ├── BackendListener.schema.yaml
-│   ├── SummaryReport.schema.yaml
-│   └── ViewResultsTree.schema.yaml
-├── post-processors/    # 后置处理器 (6)
-│   ├── BeanShellPostProcessor.schema.yaml
-│   ├── DebugPostProcessor.schema.yaml
-│   ├── HtmlExtractor.schema.yaml
-│   ├── JSONPostProcessor.schema.yaml
-│   ├── JSR223PostProcessor.schema.yaml
-│   └── RegexExtractor.schema.yaml
-├── pre-processors/     # 前置处理器 (3)
-│   ├── BeanShellPreProcessor.schema.yaml
-│   ├── JSR223PreProcessor.schema.yaml
-│   └── UserParameters.schema.yaml
-├── samplers/           # 采样器 (12)
-│   ├── BeanShellSampler.schema.yaml
-│   ├── DebugSampler.schema.yaml
-│   ├── FlowControlAction.schema.yaml
-│   ├── GitSampler.schema.yaml
-│   ├── HTTPRequest.schema.yaml
-│   ├── HTTPUDSampler.schema.yaml
-│   ├── JDBCSampler.schema.yaml
-│   ├── JSR223Sampler.schema.yaml
-│   ├── OSProcessSampler.schema.yaml
-│   ├── S3Sampler.schema.yaml
-│   ├── SSHCommandSampler.schema.yaml
-│   └── SSHSFTPSampler.schema.yaml
-├── thread-group/       # 线程组 (8)
-│   ├── PerforAutoSteppingThreadGroup.schema.yaml
-│   ├── PerforAutoThreadGroup.schema.yaml
-│   ├── PerforAutoUltimateThreadGroup.schema.yaml
-│   ├── SteppingThreadGroup.schema.yaml
-│   ├── ThreadGroup.schema.yaml
-│   ├── UltimateThreadGroup.schema.yaml
-│   ├── setUpThreadGroup.schema.yaml
-│   └── tearDownThreadGroup.schema.yaml
-├── test-fragments/     # 测试片段 (2)
-│   ├── ParameterTestFragmentController.schema.yaml
-│   └── TestFragmentController.schema.yaml
-└── timers/             # 定时器 (4)
-    ├── ConstantThroughputTimer.schema.yaml
-    ├── ConstantTimer.schema.yaml
-    ├── PreciseThroughputTimer.schema.yaml
-    └── UniformRandomTimer.schema.yaml
+├── native/              # Apache JMeter 原生 (50) — org.apache.jmeter.*，随 JMeter 自带
+│   ├── assertions/      (6)  Response/JSONPath/XPath/JSR223/BeanShell/XML Assertion
+│   ├── configuration/   (6)  CSVDataSet/CookieManager/HTTPRequestDefaults/HeaderManager/JDBCConnectionConfiguration/UserDefinedVariables
+│   ├── controllers/     (10) Loop/If/While/Foreach/Transaction/Simple/OnceOnly/Random/Module/Include
+│   ├── listeners/       (4)  ViewResultsTree/SummaryReport/AggregateReport/BackendListener
+│   ├── post-processors/ (6)  Regex/JSON/Html/JSR223/BeanShell/Debug PostProcessor
+│   ├── pre-processors/  (3)  JSR223/BeanShell PreProcessor, UserParameters
+│   ├── samplers/        (7)  HTTPRequest/JDBC/JSR223/BeanShell/FlowControlAction/Debug/OSProcess
+│   ├── test-fragments/  (1)  TestFragmentController
+│   ├── thread-group/    (3)  ThreadGroup/setUpThreadGroup/tearDownThreadGroup
+│   └── timers/          (4)  Constant/UniformRandom/ConstantThroughput/PreciseThroughput
+├── gitee-qa/            # Gitee QA 扩展 (19) — com.gitee.qa.jmeter.*，本生态自研
+│   ├── assertions/      (3)  JsonAuto/Value/Variable Assertion
+│   ├── configuration/   (4)  ExcelDataConfig/S3ConfigElement/HTTPUDConfigElement/HTTPUDIncludeConfig
+│   ├── controllers/     (5)  Case/DoWhile/VariableLoop/Probability/ParameterInclude
+│   ├── samplers/        (3)  Git/HTTPUD/S3 Sampler
+│   ├── test-fragments/  (1)  ParameterTestFragmentController
+│   └── thread-group/    (3)  PerforAuto/PerforAutoStepping/PerforAutoUltimate ThreadGroup
+├── third-party/         # 外部第三方插件 (4) — 需单独安装
+│   ├── samplers/        (2)  SSHCommandSampler/SSHSFTPSampler (SSH Sampler 插件)
+│   └── thread-group/    (2)  SteppingThreadGroup/UltimateThreadGroup (jmeter-plugins「Custom Thread Groups」)
+└── functions/           # JMeter 函数参考 (58 个 .md 文档)
 ```
+
+**来源判定**：`testClass` 为 `org.apache.jmeter.*` 且真实存在于 JMeter 源码 → `native`；为 `com.gitee.qa.jmeter.*` → `gitee-qa`；其余（如 jmeter-plugins `kg.apc.*`、SSH Sampler）→ `third-party`。
 
 ### 技能系统 (`src/main/jmeter-agent/skills/`)
 Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` 和可选的 `references/` 目录：
@@ -468,10 +409,12 @@ D:\WorkHome\git\github\jmeter-5.6.3
 
 ### 1. 新建参考文档（英文）
 
-在 `src/main/jmeter-agent/skills/jmeter/references/{category}/` 下新建：
+在 `src/main/jmeter-agent/skills/jmeter/references/{source}/{category}/` 下新建：
 
 - `{ComponentName}.md` — 使用文档（描述、参数、示例、最佳实践、注意事项）
 - `{ComponentName}.schema.yaml` — 参数 schema 定义（类型、必填、枚举、范围等）
+
+`{source}` 按来源选：`native`（Apache JMeter 原生）/ `gitee-qa`（Gitee QA 扩展）/ `third-party`（外部第三方插件）。
 
 `{category}` 对应子目录：`controllers`、`samplers`、`assertions`、`thread-group`、`timers`、`configuration`、`pre-processors`、`post-processors`、`listeners`、`test-fragments`
 
@@ -492,8 +435,8 @@ D:\WorkHome\git\github\jmeter-5.6.3
 
 | 步骤 | 操作 | 文件 |
 |------|------|------|
-| 新建 | 使用文档 | `references/{category}/{Name}.md` |
-| 新建 | 参数 schema | `references/{category}/{Name}.schema.yaml` |
+| 新建 | 使用文档 | `references/{source}/{category}/{Name}.md` |
+| 新建 | 参数 schema | `references/{source}/{category}/{Name}.schema.yaml` |
 | 追加 | 组件索引表 | `skills/jmeter/SKILL.md` |
 | 追加 | 类映射 | `JMeterElementManager.java` → `ELEMENT_CLASS_MAP` |
 | 追加 | 默认名称 | `JMeterElementManager.java` → `getDefaultNameForElement` |

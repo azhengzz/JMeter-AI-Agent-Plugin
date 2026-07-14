@@ -1,0 +1,8 @@
+component:
+  type: testfragmentcontroller
+  testClass: org.apache.jmeter.control.TestFragmentController
+  guiClass: org.apache.jmeter.control.gui.TestFragmentControllerGui
+  name: Test Fragment
+  description: A non-executable container for organizing reusable test modules that can be referenced by Module Controllers or Include Controllers
+
+properties: []

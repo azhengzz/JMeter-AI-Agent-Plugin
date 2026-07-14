@@ -50,7 +50,7 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
                             "additionalProperties": true
                         }
                     },
-                    "required": ["elementId"]
+                    "required": ["elementId", "properties"]
                 }
                 """;
     }

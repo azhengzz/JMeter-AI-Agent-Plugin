@@ -1,0 +1,81 @@
+component:
+  type: xpathassertion
+  testClass: org.apache.jmeter.assertions.XPathAssertion
+  guiClass: org.apache.jmeter.assertions.gui.XPathAssertionGui
+  name: XPath Assertion
+  description: "Validates XML or HTML responses using XPath expressions."
+
+properties:
+  - name: Assertion.scope
+    type: String
+    required: false
+    enum: ["parent", "all", "children", "variable"]
+    default: "parent"
+    description: "Scope: parent=main sample only, all=main+sub-samples, children=sub-samples only, variable=JMeter variable"
+
+  - name: Scope.variable
+    type: String
+    required: false
+    description: "Name of JMeter variable to validate (only used when scope=variable)"
+
+  - name: XPath.tolerant
+    type: Boolean
+    required: true
+    default: false
+    description: "Use tolerant Tidy parser for HTML/XML (handles malformed HTML). Required: true"
+
+  - name: XPath.xpath
+    type: String
+    required: true
+    default: "/"
+    description: "XPath expression to match. Required: true"
+
+  - name: XPath.negate
+    type: Boolean
+    required: false
+    default: false
+    description: "Invert assertion (fail if XPath IS found, pass if NOT found)"
+
+  # Tidy parser options (only apply when tolerant=true)
+  - name: XPath.quiet
+    type: Boolean
+    required: false
+    default: false
+    description: "Tidy quiet flag (suppress Tidy warnings). Only applies when tolerant=true"
+
+  - name: XPath.report_errors
+    type: Boolean
+    required: false
+    default: false
+    description: "Report Tidy parsing errors as assertion failures. Only applies when tolerant=true"
+
+  - name: XPath.show_warnings
+    type: Boolean
+    required: false
+    default: false
+    description: "Show Tidy warnings in assertion result. Only applies when tolerant=true"
+
+  # Standard XML parser options (only apply when tolerant=false)
+  - name: XPath.namespace
+    type: Boolean
+    required: false
+    default: false
+    description: "Enable namespace-aware parsing. Only applies when tolerant=false"
+
+  - name: XPath.validate
+    type: Boolean
+    required: false
+    default: false
+    description: "Validate XML against DTD/schema. Only applies when tolerant=false"
+
+  - name: XPath.whitespace
+    type: Boolean
+    required: false
+    default: false
+    description: "Ignore element whitespace in XML. Only applies when tolerant=false"
+
+  - name: XPath.download_dtds
+    type: Boolean
+    required: false
+    default: false
+    description: "Download external DTDs during validation. Only applies when tolerant=false"

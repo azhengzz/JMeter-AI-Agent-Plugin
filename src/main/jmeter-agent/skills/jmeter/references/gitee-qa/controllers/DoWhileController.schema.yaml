@@ -1,0 +1,12 @@
+component:
+  type: dowhilecontroller
+  testClass: com.gitee.qa.jmeter.control.DoWhileController
+  guiClass: com.gitee.qa.jmeter.control.gui.DoWhileControllerGui
+  name: DoWhile Controller
+  description: Executes child elements at least once, then repeats while the condition is true. Unlike While Controller, it guarantees at least one execution.
+
+properties:
+  - name: DoWhileController.condition
+    type: String
+    required: false
+    description: Condition expression. Blank or LAST checks last sampler status. Loop continues while expression is not "false".

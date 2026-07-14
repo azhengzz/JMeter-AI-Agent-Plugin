@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that drives iterative cycles of LLM calls, tool execution, and result feedback — enabling intelligent test plan creation, optimization, and debugging within JMeter.
 
-![Gitee Ai](./images/Gitee-AI-Agent-JMeter.png)
+![Gitee Ai](./images/JMeter-Agent-Demo-EN.gif)
 
 ## Key Features
 
@@ -141,6 +141,61 @@ Slash commands for session management:
 | `/status` | Show bot status (version, model, token usage, session info) |
 | `/help` | Show available commands |
 
+### Command-Line Client (jmeter-cli)
+
+In addition to the chat panel, you can drive a running JMeter GUI instance via **jmeter-cli** over loopback HTTP/IPC — performing CRUD operations on the test plan or delegating natural-language tasks to the AI Agent. CLI flags match underlying tool schema keys 1:1. Disabled by default for security.
+
+```bash
+# Prerequisite: start JMeter GUI with IPC enabled
+jmeter -Jjmeter.ai.ipc.enabled=true
+
+# Common commands (global options: --pid --token --json --jmeter-home --timeout)
+jmeter-cli list                                                 # discover instances
+jmeter-cli health                                               # health check
+jmeter-cli run --ignoreTimers true --wait                       # run test and wait for completion
+jmeter-cli status                                               # check test progress
+jmeter-cli results --format both --limit 10                     # view test results
+jmeter-cli find --searchBy elementType --query testplan         # find TestPlan root
+jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <id>
+jmeter-cli agent "add a thread group with 5 users"
+```
+
+See [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md) for the full command reference and regression scripts.
+
+`skills/jmeter-cli/` is a skill intended for **third-party agents** (such as OpenClaw, Hermes, Codex, and other external automation tools). It teaches them how to operate a running JMeter GUI through `jmeter-cli`. It is not loaded by the plugin — external agents read it through their own skill systems.
+
+#### Wiring jmeter-cli into External Agents
+
+`skills/jmeter-cli/` follows the [Agent Skills](https://agentskills.io/) open standard (`SKILL.md` + YAML frontmatter), which Claude Code, Codex, OpenClaw, and Hermes all support natively — **the same skill folder is read by all four; only the target directory differs.**
+
+**Prerequisites** (common to all agents):
+
+1. Start the JMeter GUI with IPC enabled: `jmeter -Jjmeter.ai.ipc.enabled=true` (or set the parameter to `true` in the configuration file)
+2. Make `jmeter-cli` invokable: add `$JMETER_HOME/bin` to `PATH`, or set the `JMETER_HOME` environment variable (the CLI uses it to locate `jmeter-cli.bat` / `jmeter-cli.sh`)
+
+**Installation per agent:**
+
+| Agent | Skill directory | How to install |
+|-------|-----------------|----------------|
+| Claude Code | `~/.claude/skills/` (global) or `<project>/.claude/skills/` (project) | Copy `skills/jmeter-cli/` into the directory |
+| Codex | `~/.codex/skills/` (global) or `.agents/skills/` (project) | Copy `skills/jmeter-cli/` into the directory; the project-level dir must be a **real directory**, not a symlink |
+| OpenClaw | `~/.openclaw/skills/` (global) or workspace `./skills/` | `openclaw skills install ./skills/jmeter-cli --global` (drop `--global` for workspace install) |
+| Hermes | `~/.hermes/skills/` | Copy `skills/jmeter-cli/` into the directory |
+
+Example (global install for Claude Code):
+
+```bash
+# Linux / macOS
+cp -r skills/jmeter-cli ~/.claude/skills/
+
+# Windows (PowerShell)
+Copy-Item -Recurse skills/jmeter-cli $HOME\.claude\skills\
+```
+
+Once installed, the agent uses the `description` in `SKILL.md` to decide when to invoke `jmeter-cli`, then follows its workflow: `list → health → get/find → create/update → run → results`. See [skills/jmeter-cli/references/cli-reference.md](skills/jmeter-cli/references/cli-reference.md) for the full command reference.
+
+> **Optional:** If you want the agent to reference JMeter component property names and schemas directly, also copy the component skill `src/main/jmeter-agent/skills/jmeter/` into the same skills directory (the cli skill points to it via `../jmeter/SKILL.md`).
+
 ## Skills System
 
 The Agent dynamically loads skill modules from the filesystem. Each skill contains a `SKILL.md` definition and optional `references/` documentation.
@@ -150,6 +205,8 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 | **jmeter** | Core JMeter skill — 73 component references, 73 parameter schemas, 58 JMeter function references, coding standards, anti-patterns |
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
+
+> **Want to add new JMeter components for the Agent?** Component metadata (`testClass`/`guiClass`) is fully data-driven — adding a component requires **zero Java changes**, just a YAML Schema file. See the full authoring guide: [SCHEMA-GUIDE_en.md](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE_en.md)（[中文版](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE.md)）.
 
 ## Configuration Reference
 
@@ -357,3 +414,12 @@ This project drew inspiration and implementation references from the following o
 ## License
 
 MIT License
+
+<br>
+<p align="center">
+  Thanks for visiting ✨ <b>JMeter Ai Agent Plugin</b>
+</p>
+<p align="center">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=azhengzz.JMeter-AI-Agent-Plugin" alt="visitors"/>
+</p>
+

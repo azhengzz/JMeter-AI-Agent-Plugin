@@ -1,0 +1,25 @@
+component:
+  type: debugsampler
+  testClass: org.apache.jmeter.sampler.DebugSampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+  name: Debug Sampler
+  description: Samples JMeter variables, JMeter properties and System Properties for debugging purposes
+
+properties:
+  - name: displayJMeterProperties
+    type: Boolean
+    required: false
+    default: true
+    description: Whether to display JMeter properties
+
+  - name: displayJMeterVariables
+    type: Boolean
+    required: false
+    default: true
+    description: Whether to display JMeter variables
+
+  - name: displaySystemProperties
+    type: Boolean
+    required: false
+    default: false
+    description: Whether to display system properties

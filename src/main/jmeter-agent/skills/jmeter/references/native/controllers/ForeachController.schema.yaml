@@ -1,0 +1,41 @@
+component:
+  type: foreachcontroller
+  testClass: org.apache.jmeter.control.ForeachController
+  guiClass: org.apache.jmeter.control.gui.ForeachControlPanel
+  name: ForEach Controller
+  description: Iterates over a list of variables and executes its children for each variable
+
+properties:
+  - name: ForeachController.inputVal
+    type: String
+    required: true
+    description: Prefix for the variable names to be used as input. Defaults to an empty string as prefix.
+
+  - name: ForeachController.returnVal
+    type: String
+    required: true
+    description: |
+      Name of the variable to store the current value. For each iteration, the value
+      from the current input variable is stored in this variable.
+
+  - name: ForeachController.startIndex
+    type: String
+    required: false
+    default: ""
+    description: Start index (exclusive) for loop over variables (first element is at start index + 1)
+
+  - name: ForeachController.endIndex
+    type: String
+    required: false
+    default: ""
+    description: |
+      The ending index for the loop. Leave empty to iterate through all available variables.
+      The loop stops when a variable with the current index cannot be found.
+
+  - name: ForeachController.useSeparator
+    type: Boolean
+    required: false
+    default: true
+    description: |
+      If true, uses "_" separator between variable name and index (e.g., var_1).
+      If false, no separator is used (e.g., var1).

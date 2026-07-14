@@ -1,0 +1,25 @@
+component:
+  type: variableloopcontroller
+  testClass: com.gitee.qa.jmeter.control.LoopController
+  guiClass: com.gitee.qa.jmeter.control.gui.LoopControlPanel
+  name: Variable Loop Controller
+  description: Enhanced Loop Controller with a configurable loop counter variable exposed as a JMeter variable for child elements.
+
+properties:
+  - name: LoopController.loops
+    type: Integer
+    required: true
+    min: -1
+    default: 1
+    description: Number of iterations (-1 for infinite loop)
+
+  - name: LoopController.loop_counter_name
+    type: String
+    required: false
+    description: Variable name for the loop counter. When set, the counter value is accessible in child elements as a JMeter variable.
+
+  - name: LoopController.loop_counter_start_num
+    type: String
+    required: false
+    default: "1"
+    description: Starting number for the loop counter. Counter value equals currentIterationIndex + this value.

@@ -1,0 +1,13 @@
+component:
+  type: constanttimer
+  testClass: org.apache.jmeter.timers.ConstantTimer
+  guiClass: org.apache.jmeter.timers.gui.ConstantTimerGui
+  name: Constant Timer
+  description: "Pauses execution for a fixed delay before each affected sampler. Simulates constant user think time or pacing between requests."
+
+properties:
+  - name: ConstantTimer.delay
+    type: String
+    required: true
+    default: "300"
+    description: "Constant delay in milliseconds applied before each sampler. Example: 1000 means pause for 1 second before each request. Can be a variable reference like ${thinkTime}."

@@ -1,0 +1,47 @@
+component:
+  type: jsonpostprocessor
+  testClass: org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor
+  guiClass: org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui
+  name: JSON Post Processor
+  description: "Extracts data from JSON responses using JSONPath expressions. Supports extracting single or multiple values."
+
+properties:
+  - name: Sample.scope
+    type: String
+    required: false
+    enum: ["parent", "all", "children", "variable"]
+    default: "parent"
+    description: "Scope: parent=main sample only, all=main+sub-samples, children=sub-samples only, variable=JMeter variable"
+
+  - name: Scope.variable
+    type: String
+    required: false
+    description: "Extraction is to be applied to the contents of the named variable, (only used when scope=variable)"
+
+  - name: JSONPostProcessor.referenceNames
+    type: String
+    required: true
+    description: "Variable names for extracted values. Multiple names can be separated by ';'."
+
+  - name: JSONPostProcessor.jsonPathExprs
+    type: String
+    required: true
+    description: "JSONPath expressions to extract data. Multiple expressions can be separated by ';'."
+
+  - name: JSONPostProcessor.match_numbers
+    type: String
+    required: false
+    default: "1"
+    description: "Which match to use. 0=random, 1=first, -1=all matches. Separate with ';' for multiple extractors."
+
+  - name: JSONPostProcessor.defaultValues
+    type: String
+    required: false
+    default: ""
+    description: "Default values if no match found. Separate with ';' for multiple extractors."
+
+  - name: JSONPostProcessor.compute_concat
+    type: Boolean
+    required: false
+    default: false
+    description: "Concatenate all matches into a variable with '_ALL' suffix."

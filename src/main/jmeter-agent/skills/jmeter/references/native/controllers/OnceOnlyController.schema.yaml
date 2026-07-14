@@ -1,0 +1,8 @@
+component:
+  type: onceonlycontroller
+  name: Once Only Controller
+  testClass: org.apache.jmeter.control.OnceOnlyController
+  guiClass: org.apache.jmeter.control.gui.OnceOnlyControllerGui
+  description: Execute its children only once per test cycle (first iteration of each thread)
+
+properties: []

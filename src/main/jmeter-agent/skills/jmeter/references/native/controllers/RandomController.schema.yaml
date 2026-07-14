@@ -1,0 +1,15 @@
+component:
+  type: randomcontroller
+  testClass: org.apache.jmeter.control.RandomController
+  guiClass: org.apache.jmeter.control.gui.RandomControlGui
+  name: Random Controller
+  description: Randomly selects one of its child elements to execute during each iteration
+
+properties:
+
+  - name: InterleaveControl.style
+    type: Integer
+    enum: [0, 1]
+    required: false
+    default: 1
+    description: 0-checked 1-unchecked, If checked, the interleave controller will treat sub-controllers like single request elements and only allow one request per controller at a time.

@@ -7,6 +7,7 @@ import org.gitee.jmeter.ai.agent.tools.ValidationResult;
 import org.gitee.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.gitee.jmeter.ai.agent.validation.ComponentSchemaLoader;
 import org.gitee.jmeter.ai.agent.validation.ComponentValidator;
+import org.gitee.jmeter.ai.utils.ElementRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +43,9 @@ public abstract class AbstractJMeterElementTool extends AbstractTool {
             Path skillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
             ComponentSchemaLoader schemaLoader = new ComponentSchemaLoader(skillsDir);
             this.componentValidator = new ComponentValidator(schemaLoader);
+            // Populate ElementRegistry from same skills directory.
+            // Idempotent: subsequent Tool instances skip reloading.
+            ElementRegistry.getInstance().loadFromSkillsDir(skillsDir);
         } else {
             Logger log = LoggerFactory.getLogger(getClass());
             log.warn("JMeter home not found, component validation will be disabled");

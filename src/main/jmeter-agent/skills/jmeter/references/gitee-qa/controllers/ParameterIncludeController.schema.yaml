@@ -1,0 +1,90 @@
+component:
+  type: parameterincludecontroller
+  testClass: com.gitee.qa.jmeter.control.ParameterIncludeController
+  guiClass: com.gitee.qa.jmeter.control.gui.ParameterIncludeControllerGui
+  name: Include Controller (with Parameters)
+  description: Enhanced Include Controller that passes input parameters to an included Test Fragment (ParameterTestFragmentController) and receives return values. Backs up the outer JMeterVariables, injects input parameters into the fragment scope, runs the fragment subtree, then restores the outer scope while exporting requested return variables.
+
+properties:
+  - name: ParameterIncludeController.includepath
+    type: String
+    required: true
+    description: Path to the JMX file containing a ParameterTestFragmentController. Relative paths resolve against the JMeter base directory (FileServer). Loaded via SaveService.loadTree; the first TestFragmentController found in the file is used.
+
+  - name: ParameterIncludeController.Arguments
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    description: Input parameters passed into the fragment. Before the fragment runs, each entry is written to JMeterVariables (overriding the fragment's defaults). Required and notNull flags declared on the matching ParameterTestFragmentController arguments are enforced against this set.
+    itemClass: com.gitee.qa.jmeter.control.util.ParameterIncludeControllerArgument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Parameter name. Must match an argument declared in the referenced ParameterTestFragmentController for required/notNull checks to apply.
+
+      - name: Argument.value
+        type: String
+        required: false
+        default: ""
+        description: Parameter value injected into the fragment scope.
+
+      - name: Argument.desc
+        type: String
+        required: false
+        setterOverride: setDescription
+        description: Parameter description (display only).
+
+      - name: Argument.metadata
+        type: String
+        required: false
+        default: "="
+        setterOverride: setMetaData
+        description: Metadata character (typically '=').
+
+      - name: ParameterIncludeControllerArgument.required
+        type: Boolean
+        required: false
+        default: false
+        description: Reserved for symmetry with the fragment argument; the required-check is driven by the ParameterTestFragmentController declaration, not by this flag on the Include side.
+
+      - name: ParameterIncludeControllerArgument.notNull
+        type: Boolean
+        required: false
+        default: false
+        description: Reserved for symmetry with the fragment argument; the notNull-check is driven by the ParameterTestFragmentController declaration, not by this flag on the Include side.
+
+  - name: ParameterIncludeController.ReturnValueArguments
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    description: Return value mappings read from the fragment scope after execution. For each entry, the variable named by Argument.name is read from the fragment's JMeterVariables and re-published into the outer scope under Argument.value. If Argument.value is empty, that return value is skipped.
+    itemClass: com.gitee.qa.jmeter.control.util.ParameterIncludeControllerReturnValueArgument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Source variable name produced inside the fragment scope.
+
+      - name: Argument.value
+        type: String
+        required: false
+        default: ""
+        description: Target variable name to set in the outer JMeterVariables. Empty value means the return value is not exported.
+
+      - name: Argument.desc
+        type: String
+        required: false
+        setterOverride: setDescription
+        description: Return value description (display only).
+
+      - name: Argument.metadata
+        type: String
+        required: false
+        default: "="
+        setterOverride: setMetaData
+        description: Metadata character (typically '=').

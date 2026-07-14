@@ -1,0 +1,8 @@
+component:
+  type: simplecontroller
+  testClass: org.apache.jmeter.control.GenericController
+  guiClass: org.apache.jmeter.control.gui.LogicControllerGui
+  name: Simple Controller
+  description: Organizes and executes its child elements in sequential order without any special logic
+
+properties: []

@@ -1,0 +1,88 @@
+component:
+  type: osprocesssampler
+  testClass: org.apache.jmeter.protocol.system.SystemSampler
+  guiClass: org.apache.jmeter.protocol.system.gui.SystemSamplerGui
+  name: OS Process Sampler
+  description: "Executes system commands or native executables. Supports setting working directory, command-line arguments, environment variables, and I/O stream redirection. Useful for running shell scripts, batch files, or any native application during load testing."
+
+properties:
+  - name: SystemSampler.checkReturnCode
+    type: Boolean
+    required: false
+    default: false
+    description: "Whether to validate the process exit code against expectedReturnCode. When true, sampler fails if return code doesn't match. When false, any return code is considered successful."
+
+  - name: SystemSampler.expectedReturnCode
+    type: String
+    required: false
+    default: "0"
+    description: "Expected process exit code when checkReturnCode is true. Standard Unix convention: 0 = success, non-zero = error. Windows programs may use other codes (e.g., 0 for success)."
+
+  - name: SystemSampler.command
+    type: String
+    required: true
+    description: "Executable command or program to run. Can be a full path (e.g., '/bin/bash', 'C:\\Windows\\System32\\cmd.exe') or command available in PATH. Examples: 'python', 'java', 'curl', './script.sh'."
+
+  - name: SystemSampler.directory
+    type: String
+    required: false
+    default: ""
+    description: "Working directory for command execution. If empty, uses JMeter's default base directory. Use relative or absolute paths (e.g., '/home/user/scripts', 'C:\\tools\\bin')."
+
+  - name: SystemSampler.arguments
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    description: "Command-line arguments passed to the executable. Specify as array of objects: [{'Argument.value': '-c'}, {'Argument.value': 'echo hello'}] for bash -c 'echo hello'."
+    itemClass: org.apache.jmeter.config.Argument
+    itemProperties:
+      - name: Argument.value
+        type: String
+        required: true
+        description: "Command-line argument value (e.g., '-c', 'filename.txt', '--verbose')."
+
+  - name: SystemSampler.environment
+    type: Array
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    required: false
+    description: "Environment variables to set for command execution. Specify as array of name-value pairs. Example: [{'Argument.name': 'PATH', 'Argument.value': '/usr/bin:/bin'}, {'Argument.name': 'JAVA_HOME', 'Argument.value': '/usr/lib/jvm/java-8'}]."
+    itemClass: org.apache.jmeter.config.Argument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: "Environment variable name (e.g., 'PATH', 'JAVA_HOME', 'HOME')."
+
+      - name: Argument.value
+        type: String
+        required: true
+        description: "Environment variable value (e.g., '/usr/bin:/bin', '/usr/lib/jvm/java-8')."
+
+  - name: SystemSampler.stdin
+    type: String
+    required: false
+    default: ""
+    description: "File path to redirect as standard input (stdin) for the process. The process reads from this file instead of keyboard input. Empty means no redirection."
+
+  - name: SystemSampler.stdout
+    type: String
+    required: false
+    default: ""
+    description: "File path to redirect standard output (stdout) to. The process output is written to this file instead of console. If empty, output is captured in sampler response data."
+
+  - name: SystemSampler.stderr
+    type: String
+    required: false
+    default: ""
+    description: "File path to redirect standard error (stderr) to. Error messages are written to this file. If empty, stderr is captured in sampler response data."
+
+  - name: SystemSampler.timeout
+    type: Long
+    required: false
+    default: 0
+    min: 0
+    description: "Maximum time in milliseconds to wait for process completion before terminating. Value of 0 means no timeout (wait indefinitely). Example: 30000 = 30 seconds timeout."

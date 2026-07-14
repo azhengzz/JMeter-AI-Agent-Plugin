@@ -2,7 +2,6 @@ package org.gitee.jmeter.ai.agent.validation;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -14,6 +13,8 @@ public class ComponentSchema {
     private String componentName;
     private String description;
     private List<String> aliases;
+    private String testClass;
+    private String guiClass;
     private final List<PropertyDefinition> properties = new ArrayList<>();
 
     public String getComponentType() {
@@ -46,6 +47,22 @@ public class ComponentSchema {
 
     public void setAliases(List<String> aliases) {
         this.aliases = aliases;
+    }
+
+    public String getTestClass() {
+        return testClass;
+    }
+
+    public void setTestClass(String testClass) {
+        this.testClass = testClass;
+    }
+
+    public String getGuiClass() {
+        return guiClass;
+    }
+
+    public void setGuiClass(String guiClass) {
+        this.guiClass = guiClass;
     }
 
     public List<PropertyDefinition> getProperties() {
@@ -104,6 +121,10 @@ public class ComponentSchema {
         private String itemClass;  // Fully qualified class name for collection item (e.g., "com.gitee.qa.jmeter.assertions.ValueAssertionTableElement")
         private List<PropertyDefinition> itemProperties;  // Item property definitions for collection properties
         private PropertyType innerItemType;  // Inner element type for ARRAY_2D (e.g., STRING for UserParameters.thread_values)
+        private MountMode mountMode;  // How container is mounted to parent element
+        private String containerAddMethod;  // Container's add method name (e.g., addArgument / addHTTPFileArg / add)
+        private String setterOverride;  // Override default setter derivation for THIS property
+        private String guiClass;  // GUI class FQN for nested-object (replaces deriveGuiClassName hardcoded map)
 
         public String getName() {
             return name;
@@ -258,6 +279,42 @@ public class ComponentSchema {
         public void setInnerItemType(String innerItemTypeStr) {
             this.innerItemType = PropertyType.fromString(innerItemTypeStr);
         }
+
+        public MountMode getMountMode() {
+            return mountMode;
+        }
+
+        public void setMountMode(MountMode mountMode) {
+            this.mountMode = mountMode;
+        }
+
+        public void setMountMode(String mountModeStr) {
+            this.mountMode = MountMode.fromString(mountModeStr);
+        }
+
+        public String getContainerAddMethod() {
+            return containerAddMethod;
+        }
+
+        public void setContainerAddMethod(String containerAddMethod) {
+            this.containerAddMethod = containerAddMethod;
+        }
+
+        public String getSetterOverride() {
+            return setterOverride;
+        }
+
+        public void setSetterOverride(String setterOverride) {
+            this.setterOverride = setterOverride;
+        }
+
+        public String getGuiClass() {
+            return guiClass;
+        }
+
+        public void setGuiClass(String guiClass) {
+            this.guiClass = guiClass;
+        }
     }
 
     /**
@@ -294,6 +351,35 @@ public class ComponentSchema {
                 return valueOf(typeStr.toUpperCase());
             } catch (IllegalArgumentException e) {
                 return STRING;
+            }
+        }
+    }
+
+    /**
+     * How a container (Arguments, HTTPFileArgs, etc.) is mounted onto its parent element.
+     * Drives handleContainerItemsProperty's wrapping strategy.
+     */
+    public enum MountMode {
+        /** Container is a standalone TestElement wrapped as TestElementProperty on parent. e.g., HTTPsampler.Arguments */
+        TEST_ELEMENT_PROPERTY,
+        /** Parent element itself is the container; items added via container's add method directly. e.g., HeaderManager.headers */
+        SELF,
+        /** Container is a non-TestElement object wrapped as ObjectProperty. e.g., SampleSaveConfiguration */
+        OBJECT_PROPERTY;
+
+        public static MountMode fromString(String str) {
+            if (str == null) {
+                return null;
+            }
+            // Normalize camelCase/PascalCase → UNDER_SCORE, then uppercase
+            String normalized = str.trim()
+                    .replaceAll("([a-z0-9])([A-Z])", "$1_$2")
+                    .toUpperCase()
+                    .replace("-", "_");
+            try {
+                return valueOf(normalized);
+            } catch (IllegalArgumentException e) {
+                return null;
             }
         }
     }

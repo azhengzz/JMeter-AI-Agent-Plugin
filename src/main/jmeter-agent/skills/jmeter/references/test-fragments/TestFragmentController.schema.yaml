@@ -1,6 +1,0 @@
-component:
-  type: testfragmentcontroller
-  name: Test Fragment
-  description: A non-executable container for organizing reusable test modules that can be referenced by Module Controllers or Include Controllers
-
-properties: []

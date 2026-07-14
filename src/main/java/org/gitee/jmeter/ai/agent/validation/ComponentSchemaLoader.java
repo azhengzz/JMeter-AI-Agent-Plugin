@@ -119,6 +119,8 @@ public class ComponentSchemaLoader {
             schema.setComponentType(getStringValue(componentData, "type"));
             schema.setComponentName(getStringValue(componentData, "name"));
             schema.setDescription(getStringValue(componentData, "description"));
+            schema.setTestClass(getStringValue(componentData, "testClass"));
+            schema.setGuiClass(getStringValue(componentData, "guiClass"));
 
             // Parse aliases
             if (componentData.containsKey("aliases")) {
@@ -181,8 +183,13 @@ public class ComponentSchemaLoader {
             propDef.setDescription(getStringValue(propData, "description"));
             propDef.setPattern(getStringValue(propData, "pattern"));
 
-            // Parse class name for Object type
-            propDef.setClassName(getStringValue(propData, "class"));
+            // Parse class name for Object/Array type.
+            // "testClass" mirrors JMX's testclass attribute (TestElement nested-object / Array container);
+            // fall back to legacy "class" key for non-TestElement ObjectProperty beans (e.g. SampleSaveConfiguration,
+            // which JMX serializes with a "class" attribute, not testclass).
+            String testClassValue = getStringValue(propData, "testClass");
+            propDef.setClassName(testClassValue != null && !testClassValue.isEmpty()
+                    ? testClassValue : getStringValue(propData, "class"));
 
             // Parse nested properties for Object type
             if (propData.containsKey("properties")) {
@@ -209,6 +216,24 @@ public class ComponentSchemaLoader {
 
             // Parse inner item type for ARRAY_2D properties
             propDef.setInnerItemType(getStringValue(propData, "innerItemType"));
+
+            // Parse container-driven template fields.
+            // Note: "testClass"/"class" YAML key maps to className (shared between Object's nested-object and Array's container-items).
+            String mountModeStr = getStringValue(propData, "mountMode");
+            if (mountModeStr != null) {
+                propDef.setMountMode(mountModeStr);
+            }
+            propDef.setContainerAddMethod(getStringValue(propData, "containerAddMethod"));
+            propDef.setGuiClass(getStringValue(propData, "guiClass"));
+            propDef.setSetterOverride(getStringValue(propData, "setterOverride"));
+
+            // Schema validation: Array property with class (container) requires itemProperties
+            if (propDef.getClassName() != null
+                    && propDef.getType() == ComponentSchema.PropertyType.ARRAY
+                    && !propDef.hasItemProperties()) {
+                log.warn("Property '{}' declares class='{}' for Array but has no itemProperties — "
+                        + "container template requires item field definitions", propDef.getName(), propDef.getClassName());
+            }
 
             // Parse item properties for collection properties
             if (propData.containsKey("itemProperties")) {

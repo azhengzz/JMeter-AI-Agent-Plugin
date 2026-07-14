@@ -59,127 +59,129 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 
 ## Component Reference
 
+> **Source legend**: `Native` Apache JMeter built-in (ships with JMeter) · `Gitee QA` in-house Gitee QA extension (`com.gitee.qa.jmeter`, requires plugin) · `3rd-party` external third-party plugin (e.g. jmeter-plugins "Custom Thread Groups", SSH Sampler; install separately)
+
 ### Thread Groups
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `threadgroup` | Basic thread group for virtual users | [Thread Group](./references/thread-group/ThreadGroup.md) | [Schema](./references/thread-group/ThreadGroup.schema.yaml) |
-| `setupthreadgroup` | Runs before regular thread groups | (see Thread Group) | [Schema](./references/thread-group/setUpThreadGroup.schema.yaml) |
-| `teardownthreadgroup` | Runs after regular thread groups | (see Thread Group) | [Schema](./references/thread-group/tearDownThreadGroup.schema.yaml) |
-| `steppingthreadgroup` | Step-based load ramp-up/ramp-down (Custom Thread Groups plugin) | [Stepping Thread Group](./references/thread-group/SteppingThreadGroup.md) | [Schema](./references/thread-group/SteppingThreadGroup.schema.yaml) |
-| `ultimatethreadgroup` | Per-row schedule control with flexible thread batches (Custom Thread Groups plugin) | [Ultimate Thread Group](./references/thread-group/UltimateThreadGroup.md) | [Schema](./references/thread-group/UltimateThreadGroup.schema.yaml) |
-| `perforautothreadgroup` | Performance automation thread group with scenario tracking and record output | [PerforAuto Thread Group](./references/thread-group/PerforAutoThreadGroup.md) | [Schema](./references/thread-group/PerforAutoThreadGroup.schema.yaml) |
-| `perforautosteppingthreadgroup` | Stepping thread group with automation tracking | [PerforAuto Stepping Thread Group](./references/thread-group/PerforAutoSteppingThreadGroup.md) | [Schema](./references/thread-group/PerforAutoSteppingThreadGroup.schema.yaml) |
-| `perforautoultimatethreadgroup` | Ultimate thread group with per-row schedule and automation tracking | [PerforAuto Ultimate Thread Group](./references/thread-group/PerforAutoUltimateThreadGroup.md) | [Schema](./references/thread-group/PerforAutoUltimateThreadGroup.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `threadgroup` | Native | Basic thread group for virtual users | [Thread Group](./references/native/thread-group/ThreadGroup.md) | [Schema](./references/native/thread-group/ThreadGroup.schema.yaml) |
+| `setupthreadgroup` | Native | Runs before regular thread groups | (see Thread Group) | [Schema](./references/native/thread-group/setUpThreadGroup.schema.yaml) |
+| `teardownthreadgroup` | Native | Runs after regular thread groups | (see Thread Group) | [Schema](./references/native/thread-group/tearDownThreadGroup.schema.yaml) |
+| `steppingthreadgroup` | 3rd-party | Step-based load ramp-up/ramp-down (Custom Thread Groups plugin) | [Stepping Thread Group](./references/third-party/thread-group/SteppingThreadGroup.md) | [Schema](./references/third-party/thread-group/SteppingThreadGroup.schema.yaml) |
+| `ultimatethreadgroup` | 3rd-party | Per-row schedule control with flexible thread batches (Custom Thread Groups plugin) | [Ultimate Thread Group](./references/third-party/thread-group/UltimateThreadGroup.md) | [Schema](./references/third-party/thread-group/UltimateThreadGroup.schema.yaml) |
+| `perforautothreadgroup` | Gitee QA | Performance automation thread group with scenario tracking and record output | [PerforAuto Thread Group](./references/gitee-qa/thread-group/PerforAutoThreadGroup.md) | [Schema](./references/gitee-qa/thread-group/PerforAutoThreadGroup.schema.yaml) |
+| `perforautosteppingthreadgroup` | Gitee QA | Stepping thread group with automation tracking | [PerforAuto Stepping Thread Group](./references/gitee-qa/thread-group/PerforAutoSteppingThreadGroup.md) | [Schema](./references/gitee-qa/thread-group/PerforAutoSteppingThreadGroup.schema.yaml) |
+| `perforautoultimatethreadgroup` | Gitee QA | Ultimate thread group with per-row schedule and automation tracking | [PerforAuto Ultimate Thread Group](./references/gitee-qa/thread-group/PerforAutoUltimateThreadGroup.md) | [Schema](./references/gitee-qa/thread-group/PerforAutoUltimateThreadGroup.schema.yaml) |
 
 
 ### Samplers
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `httpsampler` | Make HTTP/HTTPS requests | [HTTP Request](./references/samplers/HTTPRequest.md) | [Schema](./references/samplers/HTTPRequest.schema.yaml) |
-| `jdbcsampler` | Execute database queries | [JDBC Sampler](./references/samplers/JDBCSampler.md) | [Schema](./references/samplers/JDBCSampler.schema.yaml) |
-| `jsr223sampler` | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/samplers/JSR223Sampler.md) | [Schema](./references/samplers/JSR223Sampler.schema.yaml) |
-| `beanshellsampler` | Execute BeanShell scripts | [BeanShell Sampler](./references/samplers/BeanShellSampler.md) | [Schema](./references/samplers/BeanShellSampler.schema.yaml) |
-| `flowcontrolaction` | Pause/stop test or control loops | [Flow Control Action](./references/samplers/FlowControlAction.md) | [Schema](./references/samplers/FlowControlAction.schema.yaml) |
-| `debugsampler` | Display JMeter variables/properties for debugging | [Debug Sampler](./references/samplers/DebugSampler.md) | [Schema](./references/samplers/DebugSampler.schema.yaml) |
-| `osprocesssampler` | Execute system commands or native executables | [OS Process Sampler](./references/samplers/OSProcessSampler.md) | [Schema](./references/samplers/OSProcessSampler.schema.yaml) |
-| `s3sampler` | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/samplers/S3Sampler.md) | [Schema](./references/samplers/S3Sampler.schema.yaml) |
-| `gitsampler` | Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP | [Git Sampler](./references/samplers/GitSampler.md) | [Schema](./references/samplers/GitSampler.schema.yaml) |
-| `httpudsampler` | Send HTTP requests using reusable config templates with parameter substitution | [HTTP User Defined Sampler](./references/samplers/HTTPUDSampler.md) | [Schema](./references/samplers/HTTPUDSampler.schema.yaml) |
-| `sshcommandsampler` | Execute a single command on a remote host via SSH (password or key auth) | [SSH Command Sampler](./references/samplers/SSHCommandSampler.md) | [Schema](./references/samplers/SSHCommandSampler.schema.yaml) |
-| `sshsftpsampler` | Perform SFTP operations (get, put, rm, rmdir, ls) on a remote host over SSH | [SSH SFTP Sampler](./references/samplers/SSHSFTPSampler.md) | [Schema](./references/samplers/SSHSFTPSampler.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `httpsampler` | Native | Make HTTP/HTTPS requests | [HTTP Request](./references/native/samplers/HTTPRequest.md) | [Schema](./references/native/samplers/HTTPRequest.schema.yaml) |
+| `jdbcsampler` | Native | Execute database queries | [JDBC Sampler](./references/native/samplers/JDBCSampler.md) | [Schema](./references/native/samplers/JDBCSampler.schema.yaml) |
+| `jsr223sampler` | Native | Execute custom code (Groovy, Java, etc.) | [JSR223 Sampler](./references/native/samplers/JSR223Sampler.md) | [Schema](./references/native/samplers/JSR223Sampler.schema.yaml) |
+| `beanshellsampler` | Native | Execute BeanShell scripts | [BeanShell Sampler](./references/native/samplers/BeanShellSampler.md) | [Schema](./references/native/samplers/BeanShellSampler.schema.yaml) |
+| `flowcontrolaction` | Native | Pause/stop test or control loops | [Flow Control Action](./references/native/samplers/FlowControlAction.md) | [Schema](./references/native/samplers/FlowControlAction.schema.yaml) |
+| `debugsampler` | Native | Display JMeter variables/properties for debugging | [Debug Sampler](./references/native/samplers/DebugSampler.md) | [Schema](./references/native/samplers/DebugSampler.schema.yaml) |
+| `osprocesssampler` | Native | Execute system commands or native executables | [OS Process Sampler](./references/native/samplers/OSProcessSampler.md) | [Schema](./references/native/samplers/OSProcessSampler.schema.yaml) |
+| `s3sampler` | Gitee QA | Execute S3 object storage operations (bucket CRUD, file upload/download) | [S3 Sampler](./references/gitee-qa/samplers/S3Sampler.md) | [Schema](./references/gitee-qa/samplers/S3Sampler.schema.yaml) |
+| `gitsampler` | Gitee QA | Execute Git operations (clone, add, commit, push, pull, branch) via SSH or HTTP | [Git Sampler](./references/gitee-qa/samplers/GitSampler.md) | [Schema](./references/gitee-qa/samplers/GitSampler.schema.yaml) |
+| `httpudsampler` | Gitee QA | Send HTTP requests using reusable config templates with parameter substitution | [HTTP User Defined Sampler](./references/gitee-qa/samplers/HTTPUDSampler.md) | [Schema](./references/gitee-qa/samplers/HTTPUDSampler.schema.yaml) |
+| `sshcommandsampler` | 3rd-party | Execute a single command on a remote host via SSH (password or key auth) | [SSH Command Sampler](./references/third-party/samplers/SSHCommandSampler.md) | [Schema](./references/third-party/samplers/SSHCommandSampler.schema.yaml) |
+| `sshsftpsampler` | 3rd-party | Perform SFTP operations (get, put, rm, rmdir, ls) on a remote host over SSH | [SSH SFTP Sampler](./references/third-party/samplers/SSHSFTPSampler.md) | [Schema](./references/third-party/samplers/SSHSFTPSampler.schema.yaml) |
 
 
 ### Controllers
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `loopcontroller` | Loop contained samplers | [Loop Controller](./references/controllers/LoopController.md) | [Schema](./references/controllers/LoopController.schema.yaml) |
-| `ifcontroller` | Conditional execution | [If Controller](./references/controllers/IfController.md) | [Schema](./references/controllers/IfController.schema.yaml) |
-| `whilecontroller` | Loop while condition is true | [While Controller](./references/controllers/WhileController.md) | [Schema](./references/controllers/WhileController.schema.yaml) |
-| `foreachcontroller` | Iterate over a list of variables | [ForEach Controller](./references/controllers/ForeachController.md) | [Schema](./references/controllers/ForeachController.schema.yaml) |
-| `transactioncontroller` | Group samplers into transactions | [Transaction Controller](./references/controllers/TransactionController.md) | [Schema](./references/controllers/TransactionController.schema.yaml) |
-| `simplecontroller` | Organize elements sequentially | [Simple Controller](./references/controllers/SimpleController.md) | [Schema](./references/controllers/SimpleController.schema.yaml) |
-| `onceonlycontroller` | Execute children once per thread (first iteration only) | [Once Only Controller](./references/controllers/OnceOnlyController.md) | [Schema](./references/controllers/OnceOnlyController.schema.yaml) |
-| `randomcontroller` | Random selection of children | [Random Controller](./references/controllers/RandomController.md) | [Schema](./references/controllers/RandomController.schema.yaml) |
-| `modulecontroller` | Reference and execute a controller defined elsewhere in the test plan | [Module Controller](./references/controllers/ModuleController.md) | [Schema](./references/controllers/ModuleController.schema.yaml) |
-| `includecontroller` | Include external JMX test fragment | [Include Controller](./references/controllers/IncludeController.md) | [Schema](./references/controllers/IncludeController.schema.yaml) |
-| `casecontroller` | Label and manage test cases with case_name property | [Case Controller](./references/controllers/CaseController.md) | [Schema](./references/controllers/CaseController.schema.yaml) |
-| `dowhilecontroller` | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/controllers/DoWhileController.md) | [Schema](./references/controllers/DoWhileController.schema.yaml) |
-| `variableloopcontroller` | Loop with configurable counter variable | [Variable Loop Controller](./references/controllers/VariableLoopController.md) | [Schema](./references/controllers/VariableLoopController.schema.yaml) |
-| `probabilitycontroller` | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/controllers/ProbabilityController.md) | [Schema](./references/controllers/ProbabilityController.schema.yaml) |
-| `parameterincludecontroller` | Paired with `parametertestfragmentcontroller` — include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/controllers/ParameterIncludeController.md) | [Schema](./references/controllers/ParameterIncludeController.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `loopcontroller` | Native | Loop contained samplers | [Loop Controller](./references/native/controllers/LoopController.md) | [Schema](./references/native/controllers/LoopController.schema.yaml) |
+| `ifcontroller` | Native | Conditional execution | [If Controller](./references/native/controllers/IfController.md) | [Schema](./references/native/controllers/IfController.schema.yaml) |
+| `whilecontroller` | Native | Loop while condition is true | [While Controller](./references/native/controllers/WhileController.md) | [Schema](./references/native/controllers/WhileController.schema.yaml) |
+| `foreachcontroller` | Native | Iterate over a list of variables | [ForEach Controller](./references/native/controllers/ForeachController.md) | [Schema](./references/native/controllers/ForeachController.schema.yaml) |
+| `transactioncontroller` | Native | Group samplers into transactions | [Transaction Controller](./references/native/controllers/TransactionController.md) | [Schema](./references/native/controllers/TransactionController.schema.yaml) |
+| `simplecontroller` | Native | Organize elements sequentially | [Simple Controller](./references/native/controllers/SimpleController.md) | [Schema](./references/native/controllers/SimpleController.schema.yaml) |
+| `onceonlycontroller` | Native | Execute children once per thread (first iteration only) | [Once Only Controller](./references/native/controllers/OnceOnlyController.md) | [Schema](./references/native/controllers/OnceOnlyController.schema.yaml) |
+| `randomcontroller` | Native | Random selection of children | [Random Controller](./references/native/controllers/RandomController.md) | [Schema](./references/native/controllers/RandomController.schema.yaml) |
+| `modulecontroller` | Native | Reference and execute a controller defined elsewhere in the test plan | [Module Controller](./references/native/controllers/ModuleController.md) | [Schema](./references/native/controllers/ModuleController.schema.yaml) |
+| `includecontroller` | Native | Include external JMX test fragment | [Include Controller](./references/native/controllers/IncludeController.md) | [Schema](./references/native/controllers/IncludeController.schema.yaml) |
+| `casecontroller` | Gitee QA | Label and manage test cases with case_name property | [Case Controller](./references/gitee-qa/controllers/CaseController.md) | [Schema](./references/gitee-qa/controllers/CaseController.schema.yaml) |
+| `dowhilecontroller` | Gitee QA | Execute children at least once, repeat while condition is true | [DoWhile Controller](./references/gitee-qa/controllers/DoWhileController.md) | [Schema](./references/gitee-qa/controllers/DoWhileController.schema.yaml) |
+| `variableloopcontroller` | Gitee QA | Loop with configurable counter variable | [Variable Loop Controller](./references/gitee-qa/controllers/VariableLoopController.md) | [Schema](./references/gitee-qa/controllers/VariableLoopController.schema.yaml) |
+| `probabilitycontroller` | Gitee QA | Randomly select one child based on weight (requires parent-child nesting) | [Probability Controller](./references/gitee-qa/controllers/ProbabilityController.md) | [Schema](./references/gitee-qa/controllers/ProbabilityController.schema.yaml) |
+| `parameterincludecontroller` | Gitee QA | Paired with `parametertestfragmentcontroller` — include external fragment with input parameters and return values | [Include Controller (with Parameters)](./references/gitee-qa/controllers/ParameterIncludeController.md) | [Schema](./references/gitee-qa/controllers/ParameterIncludeController.schema.yaml) |
 
 ### Test Fragments
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `testfragmentcontroller` | Non-executable container for reusable test modules referenced by Module/Include Controllers | [Test Fragment](./references/test-fragments/TestFragmentController.md) | [Schema](./references/test-fragments/TestFragmentController.schema.yaml) |
-| `parametertestfragmentcontroller` | Paired with `parameterincludecontroller` — define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/test-fragments/ParameterTestFragmentController.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `testfragmentcontroller` | Native | Non-executable container for reusable test modules referenced by Module/Include Controllers | [Test Fragment](./references/native/test-fragments/TestFragmentController.md) | [Schema](./references/native/test-fragments/TestFragmentController.schema.yaml) |
+| `parametertestfragmentcontroller` | Gitee QA | Paired with `parameterincludecontroller` — define reusable test module with parameter contracts | [Test Fragment (with Parameters)](./references/gitee-qa/test-fragments/ParameterTestFragmentController.md) | [Schema](./references/gitee-qa/test-fragments/ParameterTestFragmentController.schema.yaml) |
 
 ### Configuration Elements
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `csvdataset` | Read CSV files for parameterization | [CSV Data Set Config](./references/configuration/CSVDataSet.md) | [Schema](./references/configuration/CSVDataSet.schema.yaml) |
-| `httpdefaults` | Default values for HTTP requests | [HTTP Request Defaults](./references/configuration/HTTP Request Defaults.md) | [Schema](./references/configuration/HTTPRequestDefaults.schema.yaml) |
-| `headermanager` | Manage HTTP headers | [Header Manager](./references/configuration/HeaderManager.md) | [Schema](./references/configuration/HeaderManager.schema.yaml) |
-| `cookiemanager` | Manage cookies | [Cookie Manager](./references/configuration/CookieManager.md) | [Schema](./references/configuration/CookieManager.schema.yaml) |
-| `userdefinedvariables` | User defined variables | [User Defined Variables](./references/configuration/UserDefinedVariables.md) | [Schema](./references/configuration/UserDefinedVariables.schema.yaml) |
-| `exceldataconfig` | Read Excel files for parameterization | [Excel Data Set Config](./references/configuration/ExcelDataConfig.md) | [Schema](./references/configuration/ExcelDataConfig.schema.yaml) |
-| `jdbcdatasource` | Configure JDBC database connection pool | [JDBC Connection Configuration](./references/configuration/JDBCConnectionConfiguration.md) | [Schema](./references/configuration/JDBCConnectionConfiguration.schema.yaml) |
-| `s3configelement` | Configure S3 object storage connection | [S3 Connection Configuration](./references/configuration/S3ConfigElement.md) | [Schema](./references/configuration/S3ConfigElement.schema.yaml) |
-| `httpudconfigelement` | Define reusable HTTP request templates with custom parameters | [HTTP User Defined Element Configuration](./references/configuration/HTTPUDConfigElement.md) | [Schema](./references/configuration/HTTPUDConfigElement.schema.yaml) |
-| `httpudincludeconfig` | Include external JMX files with HTTPUD config definitions | [HTTP User Defined Include Configuration](./references/configuration/HTTPUDIncludeConfig.md) | [Schema](./references/configuration/HTTPUDIncludeConfig.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `csvdataset` | Native | Read CSV files for parameterization | [CSV Data Set Config](./references/native/configuration/CSVDataSet.md) | [Schema](./references/native/configuration/CSVDataSet.schema.yaml) |
+| `httpdefaults` | Native | Default values for HTTP requests | [HTTP Request Defaults](./references/native/configuration/HTTP%20Request%20Defaults.md) | [Schema](./references/native/configuration/HTTPRequestDefaults.schema.yaml) |
+| `headermanager` | Native | Manage HTTP headers | [Header Manager](./references/native/configuration/HeaderManager.md) | [Schema](./references/native/configuration/HeaderManager.schema.yaml) |
+| `cookiemanager` | Native | Manage cookies | [Cookie Manager](./references/native/configuration/CookieManager.md) | [Schema](./references/native/configuration/CookieManager.schema.yaml) |
+| `userdefinedvariables` | Native | User defined variables | [User Defined Variables](./references/native/configuration/UserDefinedVariables.md) | [Schema](./references/native/configuration/UserDefinedVariables.schema.yaml) |
+| `exceldataconfig` | Gitee QA | Read Excel files for parameterization | [Excel Data Set Config](./references/gitee-qa/configuration/ExcelDataConfig.md) | [Schema](./references/gitee-qa/configuration/ExcelDataConfig.schema.yaml) |
+| `jdbcdatasource` | Native | Configure JDBC database connection pool | [JDBC Connection Configuration](./references/native/configuration/JDBCConnectionConfiguration.md) | [Schema](./references/native/configuration/JDBCConnectionConfiguration.schema.yaml) |
+| `s3configelement` | Gitee QA | Configure S3 object storage connection | [S3 Connection Configuration](./references/gitee-qa/configuration/S3ConfigElement.md) | [Schema](./references/gitee-qa/configuration/S3ConfigElement.schema.yaml) |
+| `httpudconfigelement` | Gitee QA | Define reusable HTTP request templates with custom parameters | [HTTP User Defined Element Configuration](./references/gitee-qa/configuration/HTTPUDConfigElement.md) | [Schema](./references/gitee-qa/configuration/HTTPUDConfigElement.schema.yaml) |
+| `httpudincludeconfig` | Gitee QA | Include external JMX files with HTTPUD config definitions | [HTTP User Defined Include Configuration](./references/gitee-qa/configuration/HTTPUDIncludeConfig.md) | [Schema](./references/gitee-qa/configuration/HTTPUDIncludeConfig.schema.yaml) |
 
 ### Pre-Processors
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `jsr223preprocessor` | Execute code before sampler | [JSR223 Pre-Processor](./references/pre-processors/JSR223PreProcessor.md) | [Schema](./references/pre-processors/JSR223PreProcessor.schema.yaml) |
-| `beanshellpreprocessor` | Execute BeanShell scripts before sampler | [BeanShell Pre-Processor](./references/pre-processors/BeanShellPreProcessor.md) | [Schema](./references/pre-processors/BeanShellPreProcessor.schema.yaml) |
-| `userparameters` | Define specific values for different users | [User Parameters](./references/pre-processors/UserParameters.md) | [Schema](./references/pre-processors/UserParameters.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `jsr223preprocessor` | Native | Execute code before sampler | [JSR223 Pre-Processor](./references/native/pre-processors/JSR223PreProcessor.md) | [Schema](./references/native/pre-processors/JSR223PreProcessor.schema.yaml) |
+| `beanshellpreprocessor` | Native | Execute BeanShell scripts before sampler | [BeanShell Pre-Processor](./references/native/pre-processors/BeanShellPreProcessor.md) | [Schema](./references/native/pre-processors/BeanShellPreProcessor.schema.yaml) |
+| `userparameters` | Native | Define specific values for different users | [User Parameters](./references/native/pre-processors/UserParameters.md) | [Schema](./references/native/pre-processors/UserParameters.schema.yaml) |
 
 
 ### Post-Processors
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `regexextractor` | Extract data using regex | [Regex Extractor](./references/post-processors/RegexExtractor.md) | [Schema](./references/post-processors/RegexExtractor.schema.yaml) |
-| `jsonpostprocessor` | Extract data using JSON path | [JSON Post Processor](./references/post-processors/JSONPostProcessor.md) | [Schema](./references/post-processors/JSONPostProcessor.schema.yaml) |
-| `htmlextractor` | Extract data using CSS selectors | [CSS Selector Extractor](./references/post-processors/HtmlExtractor.md) | [Schema](./references/post-processors/HtmlExtractor.schema.yaml) |
-| `jsr223postprocessor` | Execute JSR223 scripts after sampler | [JSR223 Post-Processor](./references/post-processors/JSR223PostProcessor.md) | [Schema](./references/post-processors/JSR223PostProcessor.schema.yaml) |
-| `beanshellpostprocessor` | Execute BeanShell scripts after sampler | [BeanShell Post-Processor](./references/post-processors/BeanShellPostProcessor.md) | [Schema](./references/post-processors/BeanShellPostProcessor.schema.yaml) |
-| `debugpostprocessor` | Display variables/properties for debugging | [Debug Post-Processor](./references/post-processors/DebugPostProcessor.md) | [Schema](./references/post-processors/DebugPostProcessor.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `regexextractor` | Native | Extract data using regex | [Regex Extractor](./references/native/post-processors/RegexExtractor.md) | [Schema](./references/native/post-processors/RegexExtractor.schema.yaml) |
+| `jsonpostprocessor` | Native | Extract data using JSON path | [JSON Post Processor](./references/native/post-processors/JSONPostProcessor.md) | [Schema](./references/native/post-processors/JSONPostProcessor.schema.yaml) |
+| `htmlextractor` | Native | Extract data using CSS selectors | [CSS Selector Extractor](./references/native/post-processors/HtmlExtractor.md) | [Schema](./references/native/post-processors/HtmlExtractor.schema.yaml) |
+| `jsr223postprocessor` | Native | Execute JSR223 scripts after sampler | [JSR223 Post-Processor](./references/native/post-processors/JSR223PostProcessor.md) | [Schema](./references/native/post-processors/JSR223PostProcessor.schema.yaml) |
+| `beanshellpostprocessor` | Native | Execute BeanShell scripts after sampler | [BeanShell Post-Processor](./references/native/post-processors/BeanShellPostProcessor.md) | [Schema](./references/native/post-processors/BeanShellPostProcessor.schema.yaml) |
+| `debugpostprocessor` | Native | Display variables/properties for debugging | [Debug Post-Processor](./references/native/post-processors/DebugPostProcessor.md) | [Schema](./references/native/post-processors/DebugPostProcessor.schema.yaml) |
 
 
 ### Assertions
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `responseassertion` | Validate response data | [Response Assertion](./references/assertions/ResponseAssertion.md) | [Schema](./references/assertions/ResponseAssertion.schema.yaml) |
-| `jsonpathassertion` | Validate JSON responses | [JSON Path Assertion](./references/assertions/JSONPathAssertion.md) | [Schema](./references/assertions/JSONPathAssertion.schema.yaml) |
-| `xpathassertion` | Validate XML responses | [XPath Assertion](./references/assertions/XPathAssertion.md) | [Schema](./references/assertions/XPathAssertion.schema.yaml) |
-| `jsr223assertion` | Custom assertion using JSR223 scripts | [JSR223 Assertion](./references/assertions/JSR223Assertion.md) | [Schema](./references/assertions/JSR223Assertion.schema.yaml) |
-| `beanshellassertion` | Custom assertion script | [BeanShell Assertion](./references/assertions/BeanShellAssertion.md) | [Schema](./references/assertions/BeanShellAssertion.schema.yaml) |
-| `md5hexassertion` | Validate response checksum | MD5Hex Assertion | |
-| `xmlassertion` | Validate XML well-formedness | [XML Assertion](./references/assertions/XMLAssertion.md) | [Schema](./references/assertions/XMLAssertion.schema.yaml) |
-| `jmespathassertion` | Validate JSON using JMESPath | (see JMESPath Extractor) | |
-| `variableassertion` | Validate JMeter variables/properties | [Variable Assertion](./references/assertions/VariableAssertion.md) | [Schema](./references/assertions/VariableAssertion.schema.yaml) |
-| `valueassertion` | Compare actual vs expected values | [Value Assertion](./references/assertions/ValueAssertion.md) | [Schema](./references/assertions/ValueAssertion.schema.yaml) |
-| `jsonautoassertion` | Auto-compare JSON with regex support | [JSON Auto Assertion](./references/assertions/JsonAutoAssertion.md) | [Schema](./references/assertions/JsonAutoAssertion.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `responseassertion` | Native | Validate response data | [Response Assertion](./references/native/assertions/ResponseAssertion.md) | [Schema](./references/native/assertions/ResponseAssertion.schema.yaml) |
+| `jsonpathassertion` | Native | Validate JSON responses | [JSON Path Assertion](./references/native/assertions/JSONPathAssertion.md) | [Schema](./references/native/assertions/JSONPathAssertion.schema.yaml) |
+| `xpathassertion` | Native | Validate XML responses | [XPath Assertion](./references/native/assertions/XPathAssertion.md) | [Schema](./references/native/assertions/XPathAssertion.schema.yaml) |
+| `jsr223assertion` | Native | Custom assertion using JSR223 scripts | [JSR223 Assertion](./references/native/assertions/JSR223Assertion.md) | [Schema](./references/native/assertions/JSR223Assertion.schema.yaml) |
+| `beanshellassertion` | Native | Custom assertion script | [BeanShell Assertion](./references/native/assertions/BeanShellAssertion.md) | [Schema](./references/native/assertions/BeanShellAssertion.schema.yaml) |
+| `md5hexassertion` | Native | Validate response checksum | MD5Hex Assertion | |
+| `xmlassertion` | Native | Validate XML well-formedness | [XML Assertion](./references/native/assertions/XMLAssertion.md) | [Schema](./references/native/assertions/XMLAssertion.schema.yaml) |
+| `jmespathassertion` | Native | Validate JSON using JMESPath | (see JMESPath Extractor) | |
+| `variableassertion` | Gitee QA | Validate JMeter variables/properties | [Variable Assertion](./references/gitee-qa/assertions/VariableAssertion.md) | [Schema](./references/gitee-qa/assertions/VariableAssertion.schema.yaml) |
+| `valueassertion` | Gitee QA | Compare actual vs expected values | [Value Assertion](./references/gitee-qa/assertions/ValueAssertion.md) | [Schema](./references/gitee-qa/assertions/ValueAssertion.schema.yaml) |
+| `jsonautoassertion` | Gitee QA | Auto-compare JSON with regex support | [JSON Auto Assertion](./references/gitee-qa/assertions/JsonAutoAssertion.md) | [Schema](./references/gitee-qa/assertions/JsonAutoAssertion.schema.yaml) |
 
 **Note:** `jsonassertion` is an alias for `jsonpathassertion`
 
 ### Timers
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `constanttimer` | Fixed pause | [Constant Timer](./references/timers/ConstantTimer.md) | [Schema](./references/timers/ConstantTimer.schema.yaml) |
-| `uniformrandomtimer` | Random pause with uniform distribution | [Uniform Random Timer](./references/timers/UniformRandomTimer.md) | [Schema](./references/timers/UniformRandomTimer.schema.yaml) |
-| `constantthroughputtimer` | Target throughput | [Constant Throughput Timer](./references/timers/ConstantThroughputTimer.md) | [Schema](./references/timers/ConstantThroughputTimer.schema.yaml) |
-| `precisethroughputTimer` | Precise throughput with exact sample count | [Precise Throughput Timer](./references/timers/PreciseThroughputTimer.md) | [Schema](./references/timers/PreciseThroughputTimer.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `constanttimer` | Native | Fixed pause | [Constant Timer](./references/native/timers/ConstantTimer.md) | [Schema](./references/native/timers/ConstantTimer.schema.yaml) |
+| `uniformrandomtimer` | Native | Random pause with uniform distribution | [Uniform Random Timer](./references/native/timers/UniformRandomTimer.md) | [Schema](./references/native/timers/UniformRandomTimer.schema.yaml) |
+| `constantthroughputtimer` | Native | Target throughput | [Constant Throughput Timer](./references/native/timers/ConstantThroughputTimer.md) | [Schema](./references/native/timers/ConstantThroughputTimer.schema.yaml) |
+| `precisethroughputTimer` | Native | Precise throughput with exact sample count | [Precise Throughput Timer](./references/native/timers/PreciseThroughputTimer.md) | [Schema](./references/native/timers/PreciseThroughputTimer.schema.yaml) |
 
 
 ### Listeners
-| elementType | Description | Docs | Schema |
-|-------------|-------------|------|--------|
-| `viewresultstree` | View detailed results | [View Results Tree](./references/listeners/ViewResultsTree.md) | [Schema](./references/listeners/ViewResultsTree.schema.yaml) |
-| `summaryreport` | Aggregate Report (Basic summary) | [Summary Report](./references/listeners/SummaryReport.md) | [Schema](./references/listeners/SummaryReport.schema.yaml) |
-| `aggregatereport` | Aggregate Report | [Aggregate Report](./references/listeners/AggregateReport.md) | [Schema](./references/listeners/AggregateReport.schema.yaml) |
-| `backendlistener` | Send results to backend | [Backend Listener](./references/listeners/BackendListener.md) | [Schema](./references/listeners/BackendListener.schema.yaml) |
+| elementType | Source | Description | Docs | Schema |
+|-------------|------|-------------|------|--------|
+| `viewresultstree` | Native | View detailed results | [View Results Tree](./references/native/listeners/ViewResultsTree.md) | [Schema](./references/native/listeners/ViewResultsTree.schema.yaml) |
+| `summaryreport` | Native | Aggregate Report (Basic summary) | [Summary Report](./references/native/listeners/SummaryReport.md) | [Schema](./references/native/listeners/SummaryReport.schema.yaml) |
+| `aggregatereport` | Native | Aggregate Report | [Aggregate Report](./references/native/listeners/AggregateReport.md) | [Schema](./references/native/listeners/AggregateReport.schema.yaml) |
+| `backendlistener` | Native | Send results to backend | [Backend Listener](./references/native/listeners/BackendListener.md) | [Schema](./references/native/listeners/BackendListener.schema.yaml) |
 
 ## Important: HTTP Arguments Format
 

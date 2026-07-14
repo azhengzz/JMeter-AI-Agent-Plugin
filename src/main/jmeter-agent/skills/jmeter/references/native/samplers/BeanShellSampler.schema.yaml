@@ -1,0 +1,31 @@
+component:
+  type: beanshellsampler
+  testClass: org.apache.jmeter.protocol.java.sampler.BeanShellSampler
+  guiClass: org.apache.jmeter.protocol.java.control.gui.BeanShellSamplerGui
+  name: BeanShell Sampler
+  description: "Executes BeanShell scripts to perform custom operations. Note: JSR223 Sampler with Groovy is recommended for better performance."
+
+properties:
+  - name: BeanShellSampler.parameters
+    type: String
+    required: false
+    default: ""
+    description: "Parameters to pass to the script. Available as 'Parameters' string and 'bsh.args' array."
+
+  - name: BeanShellSampler.filename
+    type: String
+    required: false
+    default: ""
+    description: "External script file path. If set, script content from file will be used instead of inline script."
+
+  - name: BeanShellSampler.query
+    type: String
+    required: false
+    default: ""
+    description: "BeanShell script code to execute. Required if filename is not set."
+
+  - name: BeanShellSampler.resetInterpreter
+    type: Boolean
+    required: false
+    default: false
+    description: "Reset the BeanShell interpreter before each execution."

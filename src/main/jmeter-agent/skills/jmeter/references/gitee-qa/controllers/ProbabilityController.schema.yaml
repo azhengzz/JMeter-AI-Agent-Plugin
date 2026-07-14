@@ -1,0 +1,13 @@
+component:
+  type: probabilitycontroller
+  testClass: com.gitee.qa.jmeter.control.ProbabilityController
+  guiClass: com.gitee.qa.jmeter.control.gui.ProbabilityControllerControlGui
+  name: Probability Controller
+  description: Randomly selects one of its child Probability Controllers based on assigned weights, enabling weighted random distribution of test scenarios.
+
+properties:
+  - name: ProbabilityController.weight
+    type: String
+    required: false
+    default: "0"
+    description: Weight value for probability calculation. Higher weight increases the chance of being selected.

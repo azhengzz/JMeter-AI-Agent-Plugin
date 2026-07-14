@@ -1,0 +1,42 @@
+component:
+  type: userdefinedvariables
+  testClass: org.apache.jmeter.config.Arguments
+  guiClass: org.apache.jmeter.config.gui.ArgumentsPanel
+  name: User Defined Variables
+  description: Defines static variables that can be referenced throughout the test plan
+
+properties:
+  - name: Arguments.arguments
+    type: Array
+    required: false
+    description: List of variable name-value pairs
+    testClass: org.apache.jmeter.config.Arguments
+    mountMode: self
+    containerAddMethod: addArgument
+    itemClass: org.apache.jmeter.config.Argument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        default: ""
+        description: Parameter name
+
+      - name: Argument.value
+        type: String
+        required: true
+        default: ""
+        description: Parameter value
+
+      - name: Argument.desc
+        type: String
+        required: true
+        default: ""
+        setterOverride: setDescription
+        description: Description for this variable
+
+      - name: Argument.metadata
+        type: String
+        required: true
+        default: "="
+        setterOverride: setMetaData
+        description: Metadata character (typically '=')

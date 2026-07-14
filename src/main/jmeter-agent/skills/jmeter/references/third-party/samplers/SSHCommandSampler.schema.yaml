@@ -1,0 +1,76 @@
+component:
+  type: sshcommandsampler
+  testClass: org.apache.jmeter.protocol.ssh.sampler.SSHCommandSampler
+  guiClass: org.apache.jmeter.testbeans.gui.TestBeanGUI
+  name: SSH Command Sampler
+  description: "Opens an SSH session to a remote host and executes a single command via the exec channel. Captures stdout (and optionally stderr) as the response data. Supports password and public-key authentication. Useful for triggering remote admin commands or verifying remote state as part of a load test."
+
+properties:
+  - name: hostname
+    type: String
+    required: true
+    default: ""
+    description: "SSH server host name or IP address (e.g., '10.0.0.5', 'app-server-1')."
+
+  - name: port
+    type: Integer
+    required: false
+    default: 22
+    min: 1
+    max: 65535
+    description: "SSH server TCP port. Standard SSH listens on 22; some hosts run SSH on alternate ports (e.g., 2222)."
+
+  - name: connectionTimeout
+    type: Integer
+    required: false
+    default: 5000
+    min: 0
+    description: "SSH session connect timeout in milliseconds. The sampler fails the sample if the handshake does not complete within this time. Example: 10000 = 10 seconds."
+
+  - name: username
+    type: String
+    required: true
+    default: ""
+    description: "SSH login user name (e.g., 'deploy', 'ci', 'root')."
+
+  - name: password
+    type: String
+    required: false
+    default: ""
+    description: "Password for password-based authentication. Ignored when sshkeyfile is set. Leave empty when using key-based authentication. Prefer referencing a JMeter variable (e.g., '${SSH_PASSWORD}') rather than hard-coding."
+
+  - name: sshkeyfile
+    type: String
+    required: false
+    default: ""
+    description: "Absolute path to the local private key file used for public-key authentication. When non-empty, key-based authentication is used instead of password. Example: '/home/jmeter/.ssh/id_rsa', '/home/jmeter/.ssh/id_ed25519'."
+
+  - name: passphrase
+    type: String
+    required: false
+    default: ""
+    description: "Passphrase used to decrypt the private key, if the key is encrypted. Leave empty when the key has no passphrase. Prefer referencing a JMeter variable (e.g., '${KEY_PASSPHRASE}')."
+
+  - name: command
+    type: String
+    required: true
+    default: "date"
+    description: "Command to execute on the remote host. The string is sent verbatim; no quoting, escaping, or wildcard expansion is performed by the sampler. The remote user's login shell interprets it. Examples: 'df -h /', 'sudo systemctl restart myapp', 'tail -n 200 /var/log/app.log'."
+
+  - name: useReturnCode
+    type: Boolean
+    required: false
+    default: true
+    description: "If true, the sampler is marked successful only when the command's exit code is 0. If false, any exit code is considered successful and the response code is set to a generic success value. Useful for verify-style checks."
+
+  - name: useTty
+    type: Boolean
+    required: false
+    default: false
+    description: "If true, allocates a pseudo-terminal (PTY) for the exec channel. Some programs (e.g., sudo with password prompt, top, full-screen tools) require a TTY; most do not. Leave false unless the command behaves incorrectly without a TTY."
+
+  - name: printStdErr
+    type: Boolean
+    required: false
+    default: true
+    description: "If true, standard error is appended to the response data after a '=== stderr ===' marker. If false, only standard output is captured. Set to false when only stdout matters to keep the response body clean."
