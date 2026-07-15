@@ -120,7 +120,7 @@ Response to Chat UI
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Search the web (supports Brave, Tavily, DuckDuckGo, and more) |
+| `web_search` | Search the web (supports Brave, Tavily, Jina, and more) |
 | `web_fetch` | Fetch web page content, auto-stripping navigation and ads |
 
 ### Execution Tool (Must Enable)
@@ -346,13 +346,11 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.tools.websearch.enabled` | Enable web tools | `true` (source-code built-in default: `false`) |
-| `agent.tools.websearch.provider` | Search engine (brave / tavily / duckduckgo / jina / serpapi) | `brave` |
+| `agent.tools.websearch.provider` | Search engine (brave / tavily / jina) | `brave` |
 | `agent.tools.websearch.max.results` | Max search results | `10` |
 | `agent.tools.websearch.timeout` | Search timeout (seconds) | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API key (required when provider=tavily) | — |
-| `agent.tools.websearch.serpapi.key` | SerpAPI key (required when provider=serpapi) | — |
 | `agent.tools.websearch.jina.api.key` | Jina API key (required when provider=jina) | — |
-| `agent.tools.webfetch.max.length` | Max fetch content length (chars) | `50000` |
 | `agent.tools.webfetch.timeout` | Web fetch timeout (seconds) | `30` |
 | `agent.tools.web.max.redirects` | Max redirects to follow | `5` |
 | `agent.tools.web.ssrf.protection` | SSRF protection (blocks private/local network access) | `true` |

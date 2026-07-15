@@ -88,7 +88,7 @@ mvn test -Dtest=ClassNameTest
 ```bash
 mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
-mvn clean install -Dlaunch.gui=true  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
+mvn clean install "-Dlaunch.gui=true"  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
 
 **跳过测试构建：**

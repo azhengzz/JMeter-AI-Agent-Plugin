@@ -120,7 +120,7 @@ AgentLoop（主循环）
 
 | 工具名 | 说明 |
 |--------|------|
-| `web_search` | 搜索互联网（支持 Brave、Tavily、DuckDuckGo 等搜索引擎） |
+| `web_search` | 搜索互联网（支持 Brave、Tavily、Jina 等搜索引擎） |
 | `web_fetch` | 抓取网页内容，自动去除导航和广告 |
 
 ### 命令执行工具（需启用）
@@ -343,13 +343,11 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.tools.websearch.enabled` | 启用 Web 工具 | `true`（源码内置默认 `false`） |
-| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / duckduckgo / jina / serpapi） | `brave` |
+| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / jina） | `brave` |
 | `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
 | `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API 密钥（provider=tavily 时必填） | — |
-| `agent.tools.websearch.serpapi.key` | SerpAPI 密钥（provider=serpapi 时必填） | — |
 | `agent.tools.websearch.jina.api.key` | Jina API 密钥（provider=jina 时必填） | — |
-| `agent.tools.webfetch.max.length` | 网页抓取最大长度（字符） | `50000` |
 | `agent.tools.webfetch.timeout` | 网页抓取超时（秒） | `30` |
 | `agent.tools.web.max.redirects` | 最大重定向次数 | `5` |
 | `agent.tools.web.ssrf.protection` | SSRF 防护（拦截访问内网/本地地址） | `true` |
