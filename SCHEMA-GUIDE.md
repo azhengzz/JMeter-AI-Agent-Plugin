@@ -9,9 +9,9 @@
 | 场景 | YAML 改动 | Java 改动 |
 |------|----------|----------|
 | 需要 AI 能**创建并配置**该组件(有属性 schema) | ✅ 写 `.schema.yaml`(含 `testClass`/`guiClass` + `properties`) | ❌ 不需要 |
-| 仅需组件在 registry 里**可被识别**(用于兼容性反查,不参与 AI 创建) | ✅ 在 [`legacy-elements.yaml`](./legacy-elements.yaml) 加一行 | ❌ 不需要 |
+| 仅需组件在 registry 里**可被识别**(用于兼容性反查,不参与 AI 创建) | ✅ 在 [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) 加一行 | ❌ 不需要 |
 
-判断方法:在 [`references/`](./references/) 下找有没有该组件的 `.schema.yaml`,或在 [`legacy-elements.yaml`](./legacy-elements.yaml) 里搜 elementType。两者都没有 → 按需选上面一种。详见 [§13 Checklist](#13-新增组件-checklist)。
+判断方法:在 [`references/`](src/main/jmeter-agent/skills/jmeter/references/) 下找有没有该组件的 `.schema.yaml`,或在 [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) 里搜 elementType。两者都没有 → 按需选上面一种。详见 [§13 Checklist](#13-新增组件-checklist)。
 
 ## 目录
 
@@ -602,9 +602,9 @@ itemProperties:
 
 ### 第 0 步:判断组件当前在不在 registry
 
-组件元信息(testClass/guiClass/默认名)现在由 [`ElementRegistry`](../../../src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) 从两处 YAML 加载:**有 schema 的组件**读 `.schema.yaml` 的 `testClass`/`guiClass`,`name` 作默认名;**无 schema 的组件**读 [`legacy-elements.yaml`](./legacy-elements.yaml)。
+组件元信息(testClass/guiClass/默认名)现在由 [`ElementRegistry`](src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) 从两处 YAML 加载:**有 schema 的组件**读 `.schema.yaml` 的 `testClass`/`guiClass`,`name` 作默认名;**无 schema 的组件**读 [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml)。
 
-先在 [`references/`](./references/) 下找有没有该组件的 `.schema.yaml`,或在 [`legacy-elements.yaml`](./legacy-elements.yaml) 里搜你的 elementType:
+先在 [`references/`](src/main/jmeter-agent/skills/jmeter/references/) 下找有没有该组件的 `.schema.yaml`,或在 [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) 里搜你的 elementType:
 
 - **已有 schema** → 跳到第 2 步补/改属性
 - **只在 legacy-elements.yaml 里** → 它只用于兼容性反查、不参与 AI 创建;若现在要 AI 能创建配置它,继续第 1 步写完整 schema(写好后可从 legacy yaml 删除该行,避免重复)
@@ -627,7 +627,7 @@ component:
 
 `testClass`/`guiClass` 怎么找:打开 JMeter GUI 手动加该组件 → 保存 `.jmx` → XML 里 `<testelement class="...">` 即 testClass,该节点 `guiclass` 属性即 guiClass;或直接查 JMeter 源码(model 类 + 对应 `*Gui` 类)。
 
-**B. 只需 registry 识别**(用于 `isNodeCompatible` 兼容性反查,不让 AI 创建):在 [`legacy-elements.yaml`](./legacy-elements.yaml) 的 `elements` 下追加一行:
+**B. 只需 registry 识别**(用于 `isNodeCompatible` 兼容性反查,不让 AI 创建):在 [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) 的 `elements` 下追加一行:
 
 ```yaml
   - elementType: mynewsampler
@@ -660,7 +660,7 @@ component:
 
 ### 第 6 步:更新 SKILL.md 组件索引
 
-在 [`SKILL.md`](SKILL.md) 对应类别表格追加一行(elementType / Description / Docs 链接 / Schema 链接)。
+在 [`SKILL.md`](src/main/jmeter-agent/skills/jmeter/SKILL.md) 对应类别表格追加一行(elementType / Description / Docs 链接 / Schema 链接)。
 
 ### 第 7 步:测试
 
@@ -735,8 +735,8 @@ container-items 模板有"解析失败保护":用户传了 items 但全部解析
 
 ## 参考
 
-- 代码实现:[SchemaBasedPropertyHandler.java](../../../src/main/java/org/gitee/jmeter/ai/agent/tools/jmeter/property/SchemaBasedPropertyHandler.java)
-- schema 模型:[ComponentSchema.java](../../../src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchema.java)
-- schema 加载:[ComponentSchemaLoader.java](../../../src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchemaLoader.java)
-- 组件注册:[ElementRegistry.java](../../../src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java)(schema + legacy-elements.yaml 合并加载)
-- 组件创建/增删:[JMeterElementManager.java](../../../src/main/java/org/gitee/jmeter/ai/utils/JMeterElementManager.java)
+- 代码实现:[SchemaBasedPropertyHandler.java](src/main/java/org/gitee/jmeter/ai/agent/tools/jmeter/property/SchemaBasedPropertyHandler.java)
+- schema 模型:[ComponentSchema.java](src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchema.java)
+- schema 加载:[ComponentSchemaLoader.java](src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchemaLoader.java)
+- 组件注册:[ElementRegistry.java](src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java)(schema + legacy-elements.yaml 合并加载)
+- 组件创建/增删:[JMeterElementManager.java](src/main/java/org/gitee/jmeter/ai/utils/JMeterElementManager.java)
