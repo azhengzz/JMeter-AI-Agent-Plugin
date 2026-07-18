@@ -49,7 +49,7 @@ public class WebSearchTool extends AbstractWebTool {
 
     public WebSearchTool() {
         super();
-        this.defaultProvider = AiConfig.getProperty("agent.tools.websearch.provider", "brave");
+        this.defaultProvider = AiConfig.getProperty("agent.tools.websearch.provider", "jina");
         this.maxResults = Integer.parseInt(AiConfig.getProperty("agent.tools.websearch.max.results", "10"));
         this.timeoutSeconds = Integer.parseInt(AiConfig.getProperty("agent.tools.websearch.timeout", "30"));
 
@@ -84,7 +84,7 @@ public class WebSearchTool extends AbstractWebTool {
                         "provider": {
                             "type": "string",
                             "enum": ["brave", "tavily", "jina"],
-                            "description": "The search provider to use (default: brave)"
+                            "description": "The search provider to use (default: jina)"
                         },
                         "max_results": {
                             "type": "number",

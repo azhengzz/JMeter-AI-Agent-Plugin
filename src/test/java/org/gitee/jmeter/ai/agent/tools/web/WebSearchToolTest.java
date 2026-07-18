@@ -307,10 +307,10 @@ class WebSearchToolTest {
         }
 
         @Test
-        @DisplayName("provider defaults to 'brave' when config key is absent")
-        void providerDefaultIsBrave() {
-            // createTool stubs "agent.tools.websearch.provider" = "brave"
-            WebSearchTool tool = createTool(true);
+        @DisplayName("provider defaults to 'jina' when config key is absent")
+        void providerDefaultIsJina() {
+            // createTool stubs "agent.tools.websearch.provider" = "jina"
+            WebSearchTool tool = createTool(true, "jina", 10, 5);
             ToolResult result = tool.execute(params("query", "config test"));
             assertNotNull(result);
         }

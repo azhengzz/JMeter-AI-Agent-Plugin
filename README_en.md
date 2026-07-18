@@ -346,7 +346,7 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.tools.websearch.enabled` | Enable web tools | `true` (source-code built-in default: `false`) |
-| `agent.tools.websearch.provider` | Search engine (brave / tavily / jina) | `brave` |
+| `agent.tools.websearch.provider` | Search engine (brave / tavily / jina) | `jina` |
 | `agent.tools.websearch.max.results` | Max search results | `10` |
 | `agent.tools.websearch.timeout` | Search timeout (seconds) | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API key (required when provider=tavily) | — |

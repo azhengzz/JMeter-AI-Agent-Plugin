@@ -343,7 +343,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.tools.websearch.enabled` | 启用 Web 工具 | `true`（源码内置默认 `false`） |
-| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / jina） | `brave` |
+| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / jina） | `jina` |
 | `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
 | `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API 密钥（provider=tavily 时必填） | — |
