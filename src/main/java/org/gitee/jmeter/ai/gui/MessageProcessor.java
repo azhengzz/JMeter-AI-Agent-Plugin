@@ -129,10 +129,16 @@ public class MessageProcessor {
             return;
         }
         Element first = body.getElement(0);
-        if (first == null || first.getName() == null
-                || !first.getName().toLowerCase().startsWith("p")) {
+        if (first == null) {
             return;
         }
+
+        // The leading body child is a strippable placeholder when its text content is all
+        // whitespace — regardless of element name. After setText("") the body retains an
+        // empty <div> (leftover from the prior message) or an implied <p>, each holding a
+        // lone '\n'; without stripping it, the first message renders with a blank line
+        // above it. Only the leading element is considered, and only when empty, so real
+        // first-message content (always non-empty) is never touched.
         int start = first.getStartOffset();
         int len = first.getEndOffset() - start;
         if (len <= 0) {
