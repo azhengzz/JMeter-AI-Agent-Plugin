@@ -66,28 +66,49 @@ public class MessageProcessor {
         }
     }
 
-    /** Render markdown to HTML and append it to the document body. */
+    /**
+     * Render markdown to HTML and append it to the document body.
+     *
+     * <p>{@code fg} is retained for API compatibility but intentionally unused: ordinary
+     * message text inherits the body color from the StyleSheet so it follows the JMeter
+     * theme (light/dark). Callers needing a fixed semantic color should use
+     * {@link #appendStyled(StyledDocument, String, Color)} instead.
+     */
     public void appendMarkdown(StyledDocument doc, String markdown, Color fg) throws BadLocationException {
         String html = MarkdownParserHolder.renderToHtml(markdown);
-        appendHtml(doc, "<div style=\"color:" + UiThemeUtil.toHex(fg) + "\">" + html + "</div>");
+        appendHtml(doc, "<div>" + html + "</div>");
     }
 
-    /** Append plain styled text (HTML-escaped; newlines become {@code <br>}). */
+    /**
+     * Append plain styled text (HTML-escaped; newlines become {@code <br>}).
+     *
+     * <p>Pass {@code fg == null} for ordinary text so it inherits the body color and follows
+     * the JMeter theme; pass a non-null color for fixed semantic colors (errors, status, etc.).
+     */
     public void appendStyled(StyledDocument doc, String text, Color fg) throws BadLocationException {
-        appendHtml(doc, "<div style=\"color:" + UiThemeUtil.toHex(fg) + "\">"
-                + escapeHtml(text).replace("\n", "<br>") + "</div>");
+        String styleAttr = fg != null ? " style=\"color:" + UiThemeUtil.toHex(fg) + "\"" : "";
+        appendHtml(doc, "<div" + styleAttr + ">" + escapeHtml(text).replace("\n", "<br>") + "</div>");
     }
 
-    /** Append plain styled text with a Swing font style bit ({@link Font#BOLD}/{@link Font#ITALIC}). */
+    /**
+     * Append plain styled text with a Swing font style bit ({@link Font#BOLD}/{@link Font#ITALIC}).
+     *
+     * <p>As with {@link #appendStyled(StyledDocument, String, Color)}, {@code fg == null} means
+     * "inherit the themed body color"; a non-null color is rendered inline (semantic colors).
+     */
     public void appendStyled(StyledDocument doc, String text, Color fg, int fontStyle) throws BadLocationException {
-        StringBuilder style = new StringBuilder("color:").append(UiThemeUtil.toHex(fg)).append(";");
+        StringBuilder style = new StringBuilder();
+        if (fg != null) {
+            style.append("color:").append(UiThemeUtil.toHex(fg)).append(";");
+        }
         if ((fontStyle & Font.BOLD) != 0) {
             style.append("font-weight:bold;");
         }
         if ((fontStyle & Font.ITALIC) != 0) {
             style.append("font-style:italic;");
         }
-        appendHtml(doc, "<div style=\"" + style + "\">" + escapeHtml(text).replace("\n", "<br>") + "</div>");
+        String styleAttr = style.length() > 0 ? " style=\"" + style + "\"" : "";
+        appendHtml(doc, "<div" + styleAttr + ">" + escapeHtml(text).replace("\n", "<br>") + "</div>");
     }
 
     /** Append an HTML fragment to the end of the document body. */
