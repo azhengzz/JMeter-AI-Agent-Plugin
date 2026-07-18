@@ -17,37 +17,129 @@ The sampler must reference an S3 Connection Configuration by its unique identifi
 
 ## Actions and Arguments
 
-### Bucket Operations
+### 1. LIST_ALL_BUCKETS — 列出所有存储桶
 
-| Action | Description | Required Arguments |
-|--------|-------------|--------------------|
-| `LIST_ALL_BUCKETS` | List all buckets | (none) |
-| `CREATE_BUCKET` | Create a new bucket | `<bucket-name>` |
-| `DELETE_BUCKET` | Delete a bucket | `<bucket-name>` |
-| `BUCKET_EXISTS` | Check if a bucket exists | `<bucket-name>` |
+List all buckets in the S3 service. No additional arguments required.
 
-### Object Operations
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| *(none)* | — | — | — | This action takes no arguments |
 
-| Action | Description | Required Arguments | Optional Arguments |
-|--------|-------------|--------------------|--------------------|
-| `LIST_OBJECTS` | List objects in a bucket | `<bucket-name>` | `<prefix>` |
-| `GET_FILE_METADATA` | Get file metadata | `<bucket-name>`, `<key>` | — |
-| `FILE_EXISTS` | Check if a file exists | `<bucket-name>`, `<key>` | — |
-| `UPLOAD_FILE` | Upload a local file | `<bucket-name>`, `<key>`, `<file-path>` | — |
-| `DOWNLOAD_FILE` | Download a file | `<bucket-name>`, `<key>`, `<download-dir>` | `<download-file-name>`, `<discard-file>` |
-| `DELETE_FILE` | Delete a file | `<bucket-name>`, `<key>` | — |
+---
 
-### Argument Keys
+### 2. CREATE_BUCKET — 创建存储桶
 
-| Key | Required | Description | Example |
-|-----|----------|-------------|---------|
-| `<bucket-name>` | Yes (most actions) | Target bucket name | `"test-bucket"` |
-| `<key>` | Yes (object actions) | Object key (file path in S3, do not start with `/`) | `"data/report.csv"` |
-| `<file-path>` | Yes (upload) | Local file path to upload | `"/tmp/testfile.txt"` |
-| `<download-dir>` | Yes (download) | Local directory to save downloaded file | `"/tmp/downloads"` |
-| `<download-file-name>` | No | Custom filename for download (defaults to original) | `"result.csv"` |
-| `<discard-file>` | No | Discard after download, measure transfer only (`"true"`/`"false"`) | `"true"` |
-| `<prefix>` | No | Object key prefix filter for listing | `"data/"` |
+Create a new bucket.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+
+---
+
+### 3. DELETE_BUCKET — 删除存储桶
+
+Delete an existing bucket.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+
+---
+
+### 4. BUCKET_EXISTS — 存储桶是否存在
+
+Check whether a bucket exists.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+
+---
+
+### 5. LIST_OBJECTS — 列出存储桶中的对象（最多返回 1000 个）
+
+List objects in a bucket, optionally filtered by a key prefix.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<prefix>` | No | No | `""` (empty = list all) | 对象键前缀（可选），用于过滤指定路径下的对象 |
+
+---
+
+### 6. GET_FILE_METADATA — 获取文件元数据
+
+Retrieve metadata (size, content type, last modified, ETag) for a file.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<key>` | Yes | Yes | — | 对象键（S3 中的文件路径，不要以 `/` 开头） |
+
+---
+
+### 7. FILE_EXISTS — 检查文件是否存在
+
+Check whether a file (object) exists in a bucket.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<key>` | Yes | Yes | — | 对象键（S3 中的文件路径） |
+
+---
+
+### 8. UPLOAD_FILE — 上传文件
+
+Upload a local file to an S3 bucket.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<key>` | Yes | Yes | — | 对象键（S3 中的文件路径，注意：不要以 `/` 开头） |
+| `<file-path>` | Yes | Yes | — | 本地文件路径（绝对路径或相对路径） |
+
+---
+
+### 9. DOWNLOAD_FILE — 下载文件
+
+Download a file from an S3 bucket to a local directory.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<key>` | Yes | Yes | — | 对象键（S3 中的文件路径） |
+| `<download-dir>` | Yes | Yes | — | 本地下载目录 |
+| `<download-file-name>` | No | No | `""` (empty = use original file name) | 保存文件名，如果为空则使用原文件名 |
+| `<discard-file>` | No | No | `"false"` | 是否丢弃文件。`"true"`：下载后丢弃不写磁盘（仅测量传输带宽）；`"false"`：保存到本地 |
+
+---
+
+### 10. DELETE_FILE — 删除文件
+
+Delete a file (object) from a bucket.
+
+| Argument Key | Required | NotNull | Default | Description |
+|-------------|----------|---------|---------|-------------|
+| `<bucket-name>` | Yes | Yes | — | 存储桶名称 |
+| `<key>` | Yes | Yes | — | 对象键（S3 中的文件路径） |
+
+---
+
+## Argument Keys Reference
+
+Summary of all argument keys used across actions:
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `<bucket-name>` | Target bucket name | `"test-bucket"` |
+| `<key>` | Object key (file path in S3, do NOT start with `/`) | `"data/report.csv"` |
+| `<file-path>` | Local file path to upload | `"/tmp/testfile.txt"` |
+| `<download-dir>` | Local directory to save downloaded file | `"/tmp/downloads"` |
+| `<download-file-name>` | Custom filename for download (defaults to original) | `"result.csv"` |
+| `<discard-file>` | Discard after download, measure transfer only (`"true"` / `"false"`) | `"true"` |
+| `<prefix>` | Object key prefix filter for listing | `"data/"` |
 
 ## Usage Examples
 
