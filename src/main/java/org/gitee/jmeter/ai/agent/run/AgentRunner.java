@@ -70,7 +70,7 @@ public class AgentRunner {
         this.memoryConsolidator = memoryConsolidator;
         this.contextBuilder = contextBuilder;
         int contextTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
-        this.contextWindowManager = new ContextWindowManager(contextTokens);
+        this.contextWindowManager = new ContextWindowManager(contextTokens, memoryConsolidator);
         this.sessionManager = sessionManager;
         this.aiService = aiService;
         this.defaultMaxIterations = maxIterations;
@@ -255,7 +255,7 @@ public class AgentRunner {
 
             // Check for iteration limit
             if (iteration > 1) {
-                log.debug("Iteration {}", iteration);
+                log.info("Iteration {}", iteration);
             }
 
             // Check abort before making LLM call (avoid wasting tokens if already stopped)
@@ -264,8 +264,10 @@ public class AgentRunner {
                 break;
             }
 
-            // Call LLM
-            LLMResponse response = callLLM(currentMessages, llmOptions);
+            // Call LLM — govern context first: trim a per-iteration copy if over budget.
+            // currentMessages (the persisted conversation) is never mutated by govern.
+            List<Message> messagesForModel = contextWindowManager.govern(currentMessages, spec.getMaxTokens());
+            LLMResponse response = callLLM(messagesForModel, llmOptions);
             context.setLastLlmResponse(response);
 
             // Check abort after LLM call returns
@@ -488,19 +490,19 @@ public class AgentRunner {
         try {
             // Check if the service supports tool calling
             if (aiService.supportsToolCalling()) {
-                log.debug("Using tool calling enabled LLM service");
+                log.info("Using tool calling enabled LLM service");
 
                 // Get tool definitions from the tool registry
                 List<org.gitee.jmeter.ai.agent.model.ToolDefinition> tools =
                     toolRegistry.getToolDefinitionObjects();
 
-                log.debug("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
+                log.info("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
 
                 // Call the service with full messages and tools
                 return aiService.generateResponseWithTools(messages, tools, options);
             } else {
                 // Fall back to simple text-based response
-                log.debug("Using simple text-based LLM service (no tool calling support)");
+                log.info("Using simple text-based LLM service (no tool calling support)");
 
                 // Convert messages to format expected by AI service
                 List<String> conversation = new ArrayList<>();

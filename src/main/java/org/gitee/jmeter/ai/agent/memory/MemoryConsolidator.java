@@ -418,8 +418,11 @@ public class MemoryConsolidator {
      * Ported from Nanobot's helpers.estimate_message_tokens().
      * Covers: content, name, tool_call_id, tool_calls (JSON), reasoning_content.
      * Minimum return: 4 tokens (framing overhead).
+     *
+     * <p>Public so the in-loop context governor (ContextWindowManager.govern) can reuse
+     * this class as the single source of truth for token estimation.
      */
-    private int estimateMessageTokens(Message msg) {
+    public int estimateMessageTokens(Message msg) {
         List<String> parts = new ArrayList<>();
         // content
         if (msg.getContent() != null && !msg.getContent().isEmpty()) {
@@ -443,6 +446,26 @@ public class MemoryConsolidator {
 
         if (parts.isEmpty()) return 4;
         return Math.max(4, ENCODING.countTokens(String.join("\n", parts)) + 4);
+    }
+
+    /**
+     * Sum of per-message token estimates for an arbitrary message list.
+     * Used by the in-loop context governor (ContextWindowManager.govern).
+     *
+     * <p>Unlike {@link #estimateSessionTokens(Session)}, this operates on a raw list
+     * WITHOUT rebuilding a probe prompt (no re-added system placeholder, no current-user
+     * placeholder, no tool-definition tokens) — so it does not double-count when the
+     * caller already holds the full prompt-bound message list.
+     */
+    public int estimateMessagesTokens(List<Message> msgs) {
+        if (msgs == null || msgs.isEmpty()) {
+            return 0;
+        }
+        int sum = 0;
+        for (Message msg : msgs) {
+            sum += estimateMessageTokens(msg);
+        }
+        return sum;
     }
 
     /**
