@@ -136,7 +136,10 @@ public class AgentLoop {
         }
 
         // Phase 2: Mid-turn injection routing
-        if (injectionManager.hasActiveRun(sessionKey)) {
+        // activeTasks 在方法结束前提交时,覆盖 [提交→完成] 全程;injectionQueues 仅在执行器
+        // pickup 后置位,留有 [提交→pickup] 窗口,突发并发请求会绕过注入短路各自进
+        // Phase 3 排队,挤满 ipc-worker 且队尾纯排队耗光 120s 超时。补 activeTasks 闭合该窗口。
+        if (activeTasks.containsKey(sessionKey) || injectionManager.hasActiveRun(sessionKey)) {
             // Non-priority commands must not be queued for injection.
             // dispatch them directly (same pattern as priority commands).
             if (commandRouter.isDispatchable(raw)) {
