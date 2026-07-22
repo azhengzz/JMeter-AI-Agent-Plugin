@@ -48,20 +48,27 @@ public class ProviderRegistry {
                 //         "glm-5", "glm-5.1")
                 .build());
 
-        // Moonshot (Kimi): K2.5/K2.6/K2.7 enforce temperature=1.0 and support thinking_type.
-        // K2.7 Code 思考不可关闭：reasoning_effort=none 时强制 enabled，避免发送 disabled 报错。
+        // Moonshot (Kimi). base_url follows the official Kimi K3 quickstart (api.moonshot.cn/v1).
+        //   K2.5/K2.6/K2.7: temperature fixed at 1.0, thinking via the `thinking.type` object
+        //     (thinking_type). K2.7 Code 思考不可关闭：reasoning_effort=none 时强制 enabled。
+        //   K3 (kimi-k3): thinking 始终开启且无法关闭，由请求顶层 `reasoning_effort`（low/high/max，
+        //     默认 max）控制；temperature 固定 1.0。与其他 moonshot 模型一视同仁：复用标准
+        //     toReasoningEffort（含 MAX），继承 provider 的 thinking_type（K3 实际由 reasoning_effort
+        //     决定思考；thinking.type 即使被忽略也无害）。reasoning.effort 配成 minimal/medium/xhigh
+        //     时由 K3 服务端报错，不做静默 clamp。
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("moonshot")
                 .displayName("Moonshot")
-                .defaultApiBase("https://api.moonshot.ai/v1")
+                .defaultApiBase("https://api.moonshot.cn/v1")
                 .envKey("moonshot.api.key")
                 .keywords("moonshot", "kimi")
                 .thinkingStyle("thinking_type")
-                .thinkingModels("kimi-k2.5", "kimi-k2.6", "kimi-k2.7-code", "k2.6-code-preview")
-                .thinkingAlwaysOnModels("kimi-k2.7-code")
+                .thinkingModels("kimi-k2.5", "kimi-k2.6", "kimi-k2.7-code", "k2.6-code-preview", "kimi-k3")
+                .thinkingAlwaysOnModels("kimi-k2.7-code", "kimi-k3")
                 .addModelOverride("kimi-k2.5", "temperature", 1.0)
                 .addModelOverride("kimi-k2.6", "temperature", 1.0)
                 .addModelOverride("kimi-k2.7-code", "temperature", 1.0)
+                .addModelOverride("kimi-k3", "temperature", 1.0)
                 .build());
 
         // MiniMax

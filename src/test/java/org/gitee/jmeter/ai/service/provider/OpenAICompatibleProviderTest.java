@@ -132,6 +132,7 @@ class OpenAICompatibleProviderTest {
                 Arguments.of("medium", ReasoningEffort.MEDIUM),
                 Arguments.of("high", ReasoningEffort.HIGH),
                 Arguments.of("xhigh", ReasoningEffort.XHIGH),
+                Arguments.of("max", ReasoningEffort.MAX),
                 Arguments.of("none", null),
                 Arguments.of("null", null),
                 Arguments.of(null, null),
@@ -164,6 +165,31 @@ class OpenAICompatibleProviderTest {
         assertNotNull(deepseek);
         assertFalse(deepseek.isThinkingAlwaysOn("deepseek-reasoner"));
         assertFalse(deepseek.isThinkingAlwaysOn(null));
+    }
+
+    // ==================== Kimi K3 spec wiring ====================
+
+    @Test
+    void testKimiK3_IsThinkingAlwaysOn() {
+        ProviderSpec moonshot = ProviderRegistry.findByName("moonshot");
+        assertNotNull(moonshot);
+        assertTrue(moonshot.isThinkingAlwaysOn("kimi-k3"), "K3 thinking is always on");
+        assertTrue(moonshot.isThinkingAlwaysOn("KIMI-K3"), "always-on check is case-insensitive");
+    }
+
+    @Test
+    void testKimiK3_SupportsThinking() {
+        ProviderSpec moonshot = ProviderRegistry.findByName("moonshot");
+        assertNotNull(moonshot);
+        assertTrue(moonshot.supportsThinking("kimi-k3"));
+    }
+
+    @Test
+    void testMoonshot_UsesThinkingTypeStyle() {
+        // K3 (and all moonshot models) inherit the provider-wide thinking_type style.
+        ProviderSpec moonshot = ProviderRegistry.findByName("moonshot");
+        assertNotNull(moonshot);
+        assertEquals("thinking_type", moonshot.getThinkingStyle());
     }
 
     // ==================== parseResponseIgnoringUnknownFields ====================

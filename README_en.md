@@ -240,6 +240,7 @@ The table below lists recommended values for mainstream models.
 | zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
+| moonshot | kimi-k3 | `1.0` (API-enforced) | `65536` | `[low, high, max]` [Other values are handled by default as "max".](https://platform.kimi.com/docs/guide/use-thinking-effort) | `1000000` |
 | minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
 | minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
 
@@ -287,7 +288,7 @@ The table below lists recommended values for mainstream models.
 | `zhipu.api.key` | Zhipu GLM API key | — |
 | `zhipu.api.base.url` | Zhipu GLM API base URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API key | — |
-| `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.ai/v1` |
+| `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API key | — |
 | `minimax.api.base.url` | MiniMax API base URL | `https://api.minimaxi.com/v1` |
 

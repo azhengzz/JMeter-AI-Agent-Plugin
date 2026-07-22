@@ -237,6 +237,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
+| moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
 | minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
 | minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
 
@@ -284,7 +285,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `zhipu.api.key` | 智谱 GLM API 密钥 | — |
 | `zhipu.api.base.url` | 智谱 GLM API 基础 URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API 密钥 | — |
-| `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.ai/v1` |
+| `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API 密钥 | — |
 | `minimax.api.base.url` | MiniMax API 基础 URL | `https://api.minimaxi.com/v1` |
 
