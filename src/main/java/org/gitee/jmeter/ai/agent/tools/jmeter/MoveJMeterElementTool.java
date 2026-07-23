@@ -282,7 +282,10 @@ public class MoveJMeterElementTool extends AbstractTool {
             // Update GUI selection
             TreePath newPath = new TreePath(sourceNode.getPath());
             guiPackage.getTreeListener().getJTree().setSelectionPath(newPath);
-            guiPackage.updateCurrentGui();
+            // configure-only refresh. Do NOT use updateCurrentGui(): it runs updateCurrentNode()
+            // → modifyTestElement(), which writes the shared GUI component's cached "enabled"
+            // field back onto the TestElement and can silently disable the moved element.
+            guiPackage.refreshCurrentGui();
         });
         if (edtError != null) {
             log.error("Failed to move element: {} ({})", elementName, elementType, edtError);

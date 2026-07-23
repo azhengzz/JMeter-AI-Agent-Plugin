@@ -127,8 +127,8 @@ public class DeleteJMeterElementTool extends AbstractTool {
                             .setSelectionPath(new TreePath(parentForRefresh.getPath()));
                 }
 
-                // 10. Refresh GUI
-                guiPackage.updateCurrentGui();
+                // 10. Refresh GUI (configure-only; see MoveJMeterElementTool for why not updateCurrentGui)
+                guiPackage.refreshCurrentGui();
             });
             if (edtError != null) {
                 log.error("Failed to delete element: {} ({})", elementName, elementType, edtError);
