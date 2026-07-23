@@ -48,6 +48,10 @@ public class FindElementTool extends AbstractTool {
                             "type": "string",
                             "description": "The search query - element name, elementType (e.g., 'httpsampler', 'threadgroup'), path (e.g., 'Test Plan > Thread Group > HTTP Request'), or elementId (e.g., '12345678')"
                         },
+                        "parentId": {
+                            "type": "integer",
+                            "description": "Optional elementId of a node under which to scope the search (inclusive of that node). Use get_test_plan_tree or find_element to get elementId. If omitted, searches the whole test plan. For searchBy=path the path is interpreted relative to this node."
+                        },
                         "exactMatch": {
                             "type": "boolean",
                             "description": "For name search: true for exact match, false for partial match (default: true)"
@@ -106,6 +110,7 @@ public class FindElementTool extends AbstractTool {
         int maxDepth = getIntParameter(parameters, "maxDepth", 0);
         int offset = getIntParameter(parameters, "offset", 0);
         int limit = getIntParameter(parameters, "limit", 20);
+        int parentId = getIntParameter(parameters, "parentId", -1);
 
         if (searchBy.isEmpty() || query.isEmpty()) {
             return ToolResult.error("Parameters 'searchBy' and 'query' are required");
@@ -119,6 +124,16 @@ public class FindElementTool extends AbstractTool {
         }
         if (limit > 50) {
             return ToolResult.error("Parameter 'limit' must not exceed 50, got: " + limit);
+        }
+
+        // Scope the search to a parent node's subtree when parentId is provided
+        if (parentId > 0) {
+            JMeterTreeNode parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
+            if (parentNode == null) {
+                return ToolResult.error("Could not find parent node with elementId: " + parentId +
+                        ". The node may have been removed. Use get_test_plan_tree to get current elementIds.");
+            }
+            searchRoot = parentNode;
         }
 
         try {

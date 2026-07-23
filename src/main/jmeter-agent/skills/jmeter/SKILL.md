@@ -24,8 +24,8 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values, optional `maxDepth` and `includeProperties`
   - `get_selected_element` — Get detailed info about the currently selected element
   - `get_script_info` — Get current JMeter script file info and runtime environment (script path, save status, JMeter/JDK version, JMETER_HOME)
-  - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`)
-  - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`)
+  - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`); optional `parentId` scopes the search to a subtree (inclusive)
+  - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`); optional `parentId` scopes the query to a subtree (inclusive)
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
   - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**

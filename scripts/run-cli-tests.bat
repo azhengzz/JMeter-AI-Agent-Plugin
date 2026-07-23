@@ -99,6 +99,14 @@ rem TC-TOOL-06: run_test is now allowed (H1); test web_search which is still blo
 "%JAVACMD%" -jar "!JAR!" tool web_search --params "{}" --jmeter-home "!JH!" >nul 2>&1
 call :expect_exit 1 !errorlevel! "TC-TOOL-06 web_search blocked"
 
+rem --- 2b) parentId smoke (find_element new --parentId scope; mirrors run-cli-tests.sh 2b) ---
+rem pure-client: --parentId documented in find help
+"%JAVACMD%" -jar "!JAR!" find -h 2>&1 | findstr /i /c:"--parentId" >nul && ( echo   [OK]   TC-READ-24 find help lists --parentId & set /a PASS+=1 ) || ( echo   [FAIL] TC-READ-24 find help missing --parentId & set /a FAIL+=1 )
+rem server-dependent: nonexistent parentId -> tool error exit 1 (no JSON / data-prep needed)
+"%JAVACMD%" -jar "!JAR!" find --searchBy name --query x --parentId 999999 --jmeter-home "!JH!" >nul 2>&1
+call :expect_exit 1 !errorlevel! "TC-READ-25 parentId 不存在 exit"
+"%JAVACMD%" -jar "!JAR!" find --searchBy name --query x --parentId 999999 --jmeter-home "!JH!" 2>&1 | findstr /i /c:"Could not find parent node" >nul && ( echo   [OK]   TC-READ-25 msg @Could not find parent node & set /a PASS+=1 ) || ( echo   [FAIL] TC-READ-25 msg & set /a FAIL+=1 )
+
 rem --- 3) RUN test-exec commands (P0: help + idle-state error path) ---
 echo --- 3) RUN test-exec commands (P0) ---
 "%JAVACMD%" -jar "!JAR!" help run >nul 2>&1

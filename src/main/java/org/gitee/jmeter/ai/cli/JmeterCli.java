@@ -308,6 +308,7 @@ public final class JmeterCli {
         putIntIfPresent(opts, params, "maxDepth");
         putIntIfPresent(opts, params, "offset");
         putIntIfPresent(opts, params, "limit");
+        putIntIfPresent(opts, params, "parentId");
         return execTool(opts, json, "find_element", params);
     }
 
@@ -691,7 +692,7 @@ public final class JmeterCli {
 
         new Cmd("find",
             "Find elements by name / elementType / path / elementId.",
-            "jmeter-cli find --searchBy <c> --query <q> [--exactMatch <bool>] [--includeProperties <bool>] [--maxDepth <n>] [--offset <n>] [--limit <n>]",
+            "jmeter-cli find --searchBy <c> --query <q> [--exactMatch <bool>] [--includeProperties <bool>] [--maxDepth <n>] [--offset <n>] [--limit <n>] [--parentId <id>]",
             """
             Searches the test plan tree. --searchBy selects the match dimension; --query is the value to match.
             All flags map 1:1 to find_element params. Prints elementId(s) and a summary; use --json for the
@@ -704,6 +705,7 @@ public final class JmeterCli {
                 {"--maxDepth <n>", "depth from found node (-1 unlimited, 0 node only; default: 0)"},
                 {"--offset <n>", "results to skip, for pagination (default: 0)"},
                 {"--limit <n>", "max results (default: 20, max: 50)"},
+                {"--parentId <id>", "elementId to scope the search under (inclusive). Omit = whole plan. For path search, path becomes relative to this node."},
                 {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
             },
             new String[]{
