@@ -29,10 +29,11 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
   - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**
-  - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` for quick validation)
+  - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` and startup JMeter `properties`)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
   - `get_test_results` — Get test results with summary statistics and optional sample details
 - Properties use JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
+- `run_test.properties` are global JMeter properties; read them with `${__P(name)}` or `props.get("name")`
 - **Parent-child compatibility is automatically validated** — the tool checks if elements can be added together
 
 ## Workflow
@@ -51,7 +52,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
    - Follow naming conventions with meaningful component names
 
 4. **Execute and Analyze**
-   - Use `run_test` to start test execution (optionally `ignore_timers` for quick validation)
+   - Use `run_test` to start test execution (optionally `ignore_timers` for quick validation and `properties` for runtime parameters)
    - Use `get_test_status` to monitor progress
    - Use `get_test_results` to view summary statistics and sample details
    - Iterate: adjust thread groups, fix assertions, re-run
