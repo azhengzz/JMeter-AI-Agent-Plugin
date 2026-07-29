@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to parse an external JMX script file and return its component tree
@@ -31,6 +32,12 @@ public class ParseJmxFileTool extends AbstractTool {
     @Override
     public String getName() {
         return "parse_jmx_file";
+    }
+
+    /** Read-only: pure DOM parse, never touches GUI state. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

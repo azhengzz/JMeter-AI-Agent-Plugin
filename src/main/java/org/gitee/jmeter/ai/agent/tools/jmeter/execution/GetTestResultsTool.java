@@ -5,6 +5,7 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -16,6 +17,12 @@ public class GetTestResultsTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_test_results";
+    }
+
+    /** Read-only: reads collected sample data. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

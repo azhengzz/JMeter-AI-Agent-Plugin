@@ -13,6 +13,13 @@ import java.util.function.Function;
  */
 public class AgentRunSpec {
 
+    /**
+     * Session key prefix marking an ephemeral subagent run.
+     * Runs using this prefix must be fully isolated: no session persistence,
+     * no memory consolidation, and no mid-turn injection of their own.
+     */
+    public static final String SUBAGENT_SESSION_PREFIX = "subagent:";
+
     private final String userMessage;
     private final String sessionKey;
     private final AgentHook hook;
@@ -27,6 +34,7 @@ public class AgentRunSpec {
     private final List<Message> initialMessages;
     private final AtomicBoolean abortFlag;
     private final Function<Integer, List<String>> injectionCallback;
+    private final boolean persistSession;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -43,6 +51,7 @@ public class AgentRunSpec {
         this.initialMessages = builder.initialMessages;
         this.abortFlag = builder.abortFlag;
         this.injectionCallback = builder.injectionCallback;
+        this.persistSession = builder.persistSession;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -59,6 +68,12 @@ public class AgentRunSpec {
     public List<Message> getInitialMessages() { return initialMessages; }
     public AtomicBoolean getAbortFlag() { return abortFlag; }
     public Function<Integer, List<String>> getInjectionCallback() { return injectionCallback; }
+
+    /**
+     * Whether this run persists its messages to the session store and runs memory
+     * consolidation. Subagent runs set this to false for complete isolation.
+     */
+    public boolean isPersistSession() { return persistSession; }
 
     public static Builder builder() {
         return new Builder();
@@ -79,6 +94,7 @@ public class AgentRunSpec {
         private List<Message> initialMessages;
         private AtomicBoolean abortFlag;
         private Function<Integer, List<String>> injectionCallback;
+        private boolean persistSession = true;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -153,9 +169,43 @@ public class AgentRunSpec {
             return this;
         }
 
+        /**
+         * Whether to persist messages to the session store and run memory
+         * consolidation. Defaults to true (main-agent behaviour).
+         */
+        public Builder persistSession(boolean persist) {
+            this.persistSession = persist;
+            return this;
+        }
+
         public AgentRunSpec build() {
-            Objects.requireNonNull(userMessage, "userMessage is required");
             Objects.requireNonNull(sessionKey, "sessionKey is required");
+
+            // Enforce the subagent isolation invariants at construction time so a
+            // mis-wired subagent run fails fast instead of silently polluting the
+            // main session (see design.md blocker 2). Checked before the
+            // userMessage requirement so a subagent gets the actionable error.
+            if (sessionKey.startsWith(SUBAGENT_SESSION_PREFIX)) {
+                if (persistSession) {
+                    throw new IllegalArgumentException(
+                        "Subagent run must set persistSession(false): " + sessionKey);
+                }
+                if (injectionCallback != null) {
+                    throw new IllegalArgumentException(
+                        "Subagent run must not have an injectionCallback: " + sessionKey);
+                }
+                if (initialMessages == null || initialMessages.isEmpty()) {
+                    throw new IllegalArgumentException(
+                        "Subagent run requires non-empty initialMessages: " + sessionKey);
+                }
+            }
+
+            // A run driven by initialMessages needs no userMessage; otherwise the
+            // user turn is what the run is built from.
+            if (initialMessages == null || initialMessages.isEmpty()) {
+                Objects.requireNonNull(userMessage, "userMessage is required");
+            }
+
             return new AgentRunSpec(this);
         }
     }

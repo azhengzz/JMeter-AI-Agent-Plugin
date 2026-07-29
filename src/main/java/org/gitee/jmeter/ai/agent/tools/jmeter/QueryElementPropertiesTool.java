@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to query JMeter elements by property name and/or value.
@@ -26,6 +27,12 @@ public class QueryElementPropertiesTool extends AbstractTool {
     @Override
     public String getName() {
         return "query_element_properties";
+    }
+
+    /** Read-only: matches element properties, never writes them. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

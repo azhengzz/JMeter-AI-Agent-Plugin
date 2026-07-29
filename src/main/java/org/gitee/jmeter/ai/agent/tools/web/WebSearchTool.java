@@ -63,6 +63,12 @@ public class WebSearchTool extends AbstractWebTool {
         return "web_search";
     }
 
+    /** Read-only: queries a search API, no local side effects. Visible to subagents. */
+    @Override
+    public java.util.Set<String> getScopes() {
+        return java.util.Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
+    }
+
     @Override
     public String getDescription() {
         return "Search the web for information. " +

@@ -366,6 +366,17 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - `claude.max.history.size` / `openai.max.history.size` - 对话历史限制
 - `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
 
+**异步子代理（SubAgent，默认关闭）：** 主代理通过 `spawn` 工具把只读分析任务委派给后台子代理（隔离的只读工具集 + 临时会话，不污染主会话），结果回合内回注。详见 `openspec/changes/add-async-subagent/`。
+
+- `agent.subagent.enabled` - 总开关（默认 `false`；关闭时不注册 `spawn`/`subagent_status`）
+- `agent.subagent.max.concurrent` - 每主会话并发子代理上限（默认 `1`）
+- `agent.subagent.max.iterations` - 单次子代理工具迭代上限（默认 `50`）
+- `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `120`，硬上限 `300`）
+- `agent.subagent.status.retention.seconds` - 完成态状态保留 TTL（默认 `60`）
+- `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`）
+
+完整可配置项见 `jmeter-ai-sample.properties`。
+
 ## 开发参考
 
 **JMeter 源码路径：**

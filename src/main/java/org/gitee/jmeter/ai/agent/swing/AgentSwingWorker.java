@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 
 /**
@@ -90,6 +92,16 @@ public class AgentSwingWorker extends SwingWorker<AgentResponse, ProgressUpdate>
                 callback.accept(response);
             }
         } catch (Exception e) {
+            // The run may have been cancelled via AgentLoop.signalCancel (e.g. /new
+            // typed mid-run), which cancels the inner CompletableFuture — not the
+            // SwingWorker itself, so isCancelled() stays false. It surfaces here as
+            // an ExecutionException whose cause is a CancellationException. That is
+            // benign, not a real failure; the command path (e.g. injectMessage)
+            // owns the UI cleanup.
+            if (e instanceof ExecutionException && e.getCause() instanceof CancellationException) {
+                log.info("AgentSwingWorker run cancelled (inner future cancelled)");
+                return;
+            }
             log.error("Error in AgentSwingWorker", e);
             if (callback != null) {
                 callback.accept(AgentResponse.error("Processing failed: " + e.getMessage()));

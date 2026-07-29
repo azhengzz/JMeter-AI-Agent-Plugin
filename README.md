@@ -363,6 +363,19 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则，逗号分隔） | 内置默认规则（rm -rf、del /f、format、mkfs、shutdown 等） |
 | `agent.tools.exec.path.append` | 追加到 PATH 的额外目录 | — |
 
+#### 异步子代理（Subagent）
+
+主代理可通过 `spawn` 工具把一个自包含的**只读分析任务**委派给后台子代理。子代理运行在专用线程池上，使用隔离的只读工具集（仅限只读的 JMeter / 文件 / Web 工具，无法改测试计划、执行测试、写文件或继续派生子代理），并使用与主会话隔离的临时会话——其结果在**同一对话回合内**回注给主代理。
+
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.subagent.enabled` | 总开关。关闭时不注册 `spawn` 与 `subagent_status` 工具，主代理无法派发子代理 | `false` |
+| `agent.subagent.max.concurrent` | 每个主会话的最大并发子代理数（`1` 时串行执行） | `1` |
+| `agent.subagent.max.iterations` | 单次子代理运行的最大工具迭代数 | `50` |
+| `agent.subagent.drain.timeout.seconds` | 主回合等待子代理结果的阻塞时长（秒，硬上限 300）；超时后子代理继续运行，结果可经 `subagent_status` 查询，或在下个回合投递 | `120` |
+| `agent.subagent.status.retention.seconds` | 完成态子代理状态的可查询保留时长（秒） | `60` |
+| `agent.subagent.status.max.completed` | 每会话保留的完成态状态上限（超出按最旧淘汰） | `10` |
+
 ### 聊天 UI 配置
 
 | 属性 | 说明 | 默认值 |

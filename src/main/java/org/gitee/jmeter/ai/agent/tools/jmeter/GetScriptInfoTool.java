@@ -10,6 +10,7 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import java.io.File;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to get current JMeter script information and runtime environment.
@@ -22,6 +23,12 @@ public class GetScriptInfoTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_script_info";
+    }
+
+    /** Read-only: exposes GuiPackage.getTestPlanFile() and version info. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

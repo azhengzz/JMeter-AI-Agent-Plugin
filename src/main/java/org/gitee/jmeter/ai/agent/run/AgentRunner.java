@@ -89,18 +89,25 @@ public class AgentRunner {
      * Run an agent with the given specification.
      */
     public CompletableFuture<AgentRunResult> run(AgentRunSpec spec) {
-        return CompletableFuture.supplyAsync(() -> {
+        java.util.function.Supplier<AgentRunResult> task = () -> {
             String runId = DEFAULT_RUN_ID_PREFIX + java.util.UUID.randomUUID().toString().substring(0, 8);
             Instant startTime = Instant.now();
 
+            // Bind the run identity so tools (e.g. spawn) can learn their session.
+            AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId));
             try {
                 log.info("Starting agent run {} for session: {}", runId, spec.getSessionKey());
 
-                // Get or create session
-                Session session = sessionManager.getOrCreate(spec.getSessionKey());
+                // Subagent runs stay fully ephemeral: never touch SessionManager, so
+                // nothing about them can reach the main session's jsonl.
+                Session session = spec.isPersistSession()
+                    ? sessionManager.getOrCreate(spec.getSessionKey())
+                    : new Session(spec.getSessionKey());
 
                 // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync])
-                memoryConsolidator.maybeConsolidate(session).join();
+                if (spec.isPersistSession()) {
+                    memoryConsolidator.maybeConsolidate(session).join();
+                }
 
                 // Create hook context
                 AgentHookContext context = new AgentHookContext(runId, session, spec.getUserMessage());
@@ -121,7 +128,8 @@ public class AgentRunner {
                 AgentRunResult result = runAgentLoop(messages, session, spec, context, startTime);
 
                 // Skip session persistence if task was cancelled (Nanobot: CancelledError skips session.save)
-                if (!isAborted(spec)) {
+                // and always skip it for ephemeral subagent runs.
+                if (spec.isPersistSession() && !isAborted(spec)) {
                     int skipCount = Math.max(0, messages.size() - 1);
                     saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
                     memoryConsolidator.maybeConsolidate(session);
@@ -139,8 +147,20 @@ public class AgentRunner {
                     .startTime(startTime)
                     .endTime(Instant.now())
                     .build();
+            } finally {
+                // Carrier threads are pooled — a stale context would misroute a
+                // later subagent result into the wrong session.
+                AgentRunContext.clear();
+                // Consume an interrupt raised to abort this run, so the pooled carrier
+                // does not hand it to the next run (which would bail at iteration 1 and
+                // answer with nothing). Cleared only here, AFTER the persistence guard
+                // above has read it — clearing it earlier would let an interrupted,
+                // half-finished turn be written to the session.
+                Thread.interrupted();
             }
-        });
+        };
+
+        return CompletableFuture.supplyAsync(task);
     }
 
     /**
@@ -475,6 +495,7 @@ public class AgentRunner {
             .toolEvents(context.getToolEvents())
             .currentMessages(currentMessages)
             .metadata(resultMetadata)
+            .stopReason(context.getStopReason())
             .hadInjections(hadInjections)
             .build();
         } finally {

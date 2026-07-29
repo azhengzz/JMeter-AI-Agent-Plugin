@@ -26,6 +26,7 @@ public class AgentRunResult {
     private final List<ToolEvent> toolEvents;
     private final List<Message> currentMessages;
     private final boolean hadInjections;
+    private final String stopReason;
 
     private AgentRunResult(Builder builder) {
         this.runId = builder.runId;
@@ -41,6 +42,7 @@ public class AgentRunResult {
         this.toolEvents = builder.toolEvents != null ? builder.toolEvents : Collections.emptyList();
         this.currentMessages = builder.currentMessages;
         this.hadInjections = builder.hadInjections;
+        this.stopReason = builder.stopReason;
     }
 
     public String getRunId() { return runId; }
@@ -57,6 +59,13 @@ public class AgentRunResult {
     public List<ToolEvent> getToolEvents() { return toolEvents; }
     public List<Message> getCurrentMessages() { return currentMessages; }
     public boolean hadInjections() { return hadInjections; }
+
+    /**
+     * Why the loop stopped ("tool_error" when a run with failOnToolError aborted).
+     * {@link #isSuccess()} only reports whether the run itself threw, so callers that
+     * must distinguish a completed answer from an aborted one check this.
+     */
+    public String getStopReason() { return stopReason; }
 
     public static Builder builder() {
         return new Builder();
@@ -76,6 +85,7 @@ public class AgentRunResult {
         private List<ToolEvent> toolEvents;
         private List<Message> currentMessages;
         private boolean hadInjections;
+        private String stopReason;
 
         public Builder runId(String runId) { this.runId = runId; return this; }
         public Builder content(String content) { this.content = content; return this; }
@@ -90,6 +100,7 @@ public class AgentRunResult {
         public Builder toolEvents(List<ToolEvent> events) { this.toolEvents = events; return this; }
         public Builder currentMessages(List<Message> currentMessages) { this.currentMessages = currentMessages; return this; }
         public Builder hadInjections(boolean v) { this.hadInjections = v; return this; }
+        public Builder stopReason(String reason) { this.stopReason = reason; return this; }
 
         public AgentRunResult build() {
             return new AgentRunResult(this);

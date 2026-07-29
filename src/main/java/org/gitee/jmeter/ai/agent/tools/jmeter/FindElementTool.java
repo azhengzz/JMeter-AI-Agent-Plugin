@@ -12,6 +12,7 @@ import org.gitee.jmeter.ai.utils.JMeterElementManager;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to find and retrieve a specific JMeter element with its subtree structure.
@@ -24,6 +25,12 @@ public class FindElementTool extends AbstractTool {
     @Override
     public String getName() {
         return "find_element";
+    }
+
+    /** Read-only: searches the tree and serializes matches. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

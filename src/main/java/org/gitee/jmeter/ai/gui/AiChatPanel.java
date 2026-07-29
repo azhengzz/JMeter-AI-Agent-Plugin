@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import org.gitee.jmeter.ai.intellisense.InputBoxIntellisense;
 import org.gitee.jmeter.ai.agent.AgentLoop;
@@ -751,6 +752,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
+        // /new starts a fresh conversation with a clean chat area — handle it
+        // specially (covers Enter key and the default Send button).
+        if ("/new".equals(message)) {
+            handleNewCommand();
+            return;
+        }
+
         // If there's an active agent run, inject the message instead
         if (agentLoop != null && agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
             injectMessage();
@@ -830,6 +838,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
+        // /new starts a fresh conversation with a clean chat area. The Stop-mode Send
+        // button is rewired to call injectMessage() directly (bypassing sendMessage),
+        // so /new must be intercepted here too, not only in sendMessage.
+        if ("/new".equals(message)) {
+            handleNewCommand();
+            return;
+        }
+
         log.info("Injecting follow-up message during active run: {}", message);
 
         // Clear the message field
@@ -861,7 +877,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         messageProcessor.appendStyled(chatArea.getStyledDocument(),
                             "[Injected] You: " + message, new Color(0x00, 0x80, 0x00), Font.ITALIC);
                     } else {
-                        // Command dispatch result (e.g. /new, /help) — show normally
+                        // Command dispatch result (e.g. /help, /status) — show normally
                         messageProcessor.appendMessage(chatArea.getStyledDocument(),
                             response.getContent(), null, false);
                     }
@@ -875,6 +891,63 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.info("Race condition: future not done, connecting to handleAgentResponse");
             future.thenAccept(response -> SwingUtilities.invokeLater(() -> handleAgentResponse(response)));
         }
+    }
+
+    /**
+     * Handle the {@code /new} command: clear the chat area, then show the
+     * "You: /new" / bot response exchange. This is the single owner of the /new UI
+     * behavior — both the idle path (sendMessage) and the mid-run path
+     * (injectMessage, including the Stop-mode Send button that bypasses sendMessage)
+     * route here, so /new always clears the chat consistently.
+     *
+     * <p>cmdNew clears the session (and signals the active run to stop if one is
+     * running); the cancelled run's SwingWorker ends silently via
+     * {@code AgentSwingWorker.done}, so the response shows exactly once.
+     */
+    private void handleNewCommand() {
+        // Clear the chat area for a fresh session.
+        chatArea.setText("");
+
+        // Echo the user's command. No leading "\n": the document was just cleared,
+        // so there is no prior block to separate from (a leading \n would render as
+        // a stray blank line above "You:").
+        try {
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "You: /new", null, false);
+        } catch (BadLocationException e) {
+            log.error("Error appending /new user message", e);
+        }
+
+        messageField.setText("");
+
+        if (agentLoop == null) {
+            try {
+                messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                        "Agent Loop is not available. Please check your configuration.",
+                        Color.RED, false);
+            } catch (BadLocationException e) {
+                log.error("Error displaying error message", e);
+            }
+            return;
+        }
+
+        // Dispatch /new: clears the session; mid-run, cmdNew signals the active run
+        // to stop. Mid-run returns a completedFuture (Phase 2); idle completes on the
+        // agent-loop thread (Phase 3). Show the response via the normal handler, which
+        // also resets the UI the prior run created (loading indicator, Stop button,
+        // worker ref). handle (not thenAccept) so a cmdNew failure still surfaces.
+        CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", CHAT_SESSION_KEY);
+        future.handle((response, ex) -> {
+            final AgentResponse r;
+            if (ex != null) {
+                Throwable cause = (ex instanceof CompletionException && ex.getCause() != null)
+                        ? ex.getCause() : ex;
+                r = AgentResponse.error("Processing failed: " + cause.getMessage());
+            } else {
+                r = response;
+            }
+            SwingUtilities.invokeLater(() -> handleAgentResponse(r));
+            return null;
+        });
     }
 
     /**

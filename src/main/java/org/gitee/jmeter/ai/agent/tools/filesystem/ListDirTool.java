@@ -35,6 +35,12 @@ public class ListDirTool extends AbstractFsTool {
         return "list_dir";
     }
 
+    /** Read-only: lists directory entries. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
+    }
+
     @Override
     public String getDescription() {
         return "List the contents of a directory. " +

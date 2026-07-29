@@ -9,6 +9,7 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to get information about the currently selected JMeter element.
@@ -21,6 +22,12 @@ public class GetSelectedElementTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_selected_element";
+    }
+
+    /** Read-only: reads the current tree selection. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

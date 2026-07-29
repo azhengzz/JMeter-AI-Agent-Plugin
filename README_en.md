@@ -366,6 +366,19 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex, comma-separated) | Built-in defaults (rm -rf, del /f, format, mkfs, shutdown, etc.) |
 | `agent.tools.exec.path.append` | Additional directories to append to PATH | — |
 
+#### Async Subagent
+
+The main agent can delegate a self-contained **read-only analysis task** to a background subagent via the `spawn` tool. The subagent runs on a dedicated thread pool with an isolated read-only toolset (only read-only JMeter / file / web tools — it cannot modify the test plan, run tests, write files, or spawn further subagents) and an ephemeral session isolated from the main conversation — its result is folded back into the **same conversation turn**.
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `agent.subagent.enabled` | Master switch. When off, the `spawn` and `subagent_status` tools are not registered and the main agent cannot spawn subagents | `false` |
+| `agent.subagent.max.concurrent` | Max concurrent subagents per main session (at `1` they run serially) | `1` |
+| `agent.subagent.max.iterations` | Max tool iterations for a single subagent run | `50` |
+| `agent.subagent.drain.timeout.seconds` | Seconds the main turn parks waiting for a subagent result (hard cap 300); on timeout the subagent keeps running, its result stays queryable via `subagent_status` and may be delivered in a later turn | `120` |
+| `agent.subagent.status.retention.seconds` | How long (seconds) a finished subagent's status stays queryable | `60` |
+| `agent.subagent.status.max.completed` | Max finished statuses retained per session (oldest evicted beyond this) | `10` |
+
 ### Chat UI Configuration
 
 | Property | Description | Default |

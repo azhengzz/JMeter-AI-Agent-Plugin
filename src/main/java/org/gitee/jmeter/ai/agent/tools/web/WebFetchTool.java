@@ -59,6 +59,12 @@ public class WebFetchTool extends AbstractWebTool {
         return "web_fetch";
     }
 
+    /** Read-only: fetches a URL, no local side effects. Visible to subagents. */
+    @Override
+    public java.util.Set<String> getScopes() {
+        return java.util.Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
+    }
+
     @Override
     public String getDescription() {
         return "Fetch a URL and extract readable content (HTML -> markdown/text). " +
