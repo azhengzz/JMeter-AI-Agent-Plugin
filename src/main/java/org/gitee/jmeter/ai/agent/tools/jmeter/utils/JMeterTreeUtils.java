@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.tools.jmeter.utils;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.testelement.property.CollectionProperty;
@@ -700,5 +701,143 @@ public class JMeterTreeUtils {
 
     static boolean matchText(String text, String query, boolean exact) {
         return exact ? text.equals(query) : text.contains(query);
+    }
+
+    // ---- Structural tree helpers (shared by Move/Delete/CopyPaste and the batch tools) ----
+
+    /**
+     * Check if the node is a TestPlan root node (cannot be moved/deleted).
+     * True if the element is a TestPlan, or if its parent is the virtual root (no TestElement).
+     */
+    public static boolean isTestPlanRootNode(JMeterTreeNode node) {
+        if (node == null) {
+            return false;
+        }
+        TestElement testElement = node.getTestElement();
+        if (testElement == null) {
+            return false;
+        }
+        if (testElement instanceof TestPlan) {
+            return true;
+        }
+        JMeterTreeNode parent = (JMeterTreeNode) node.getParent();
+        if (parent != null && parent.getTestElement() == null) {
+            // Parent has no TestElement, meaning parent is the virtual root node
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check if the node can be safely removed (delegates to TestElement.canRemove()).
+     */
+    public static boolean canRemoveNode(JMeterTreeNode node) {
+        if (node == null) {
+            return false;
+        }
+        TestElement testElement = node.getTestElement();
+        if (testElement == null) {
+            return false;
+        }
+        return testElement.canRemove();
+    }
+
+    /**
+     * Recursively check if {@code node} is a descendant of {@code ancestor}.
+     */
+    public static boolean isDescendant(JMeterTreeNode node, JMeterTreeNode ancestor) {
+        for (int i = 0; i < ancestor.getChildCount(); i++) {
+            javax.swing.tree.TreeNode child = ancestor.getChildAt(i);
+            if (child == node) {
+                return true;
+            }
+            if (child instanceof JMeterTreeNode jmeterChild && isDescendant(node, jmeterChild)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if {@code targetNode} is in the subtree of {@code sourceNode} (circular-reference check).
+     * Returns true if targetNode equals sourceNode or is a descendant of it.
+     */
+    public static boolean isTargetInSubtreeOfSource(JMeterTreeNode targetNode, JMeterTreeNode sourceNode) {
+        if (targetNode == null || sourceNode == null) {
+            return false;
+        }
+        if (targetNode == sourceNode) {
+            return true;
+        }
+        return isDescendant(targetNode, sourceNode);
+    }
+
+    /**
+     * Validate the position parameter format.
+     * Valid: {@code null}, {@code "last"}, {@code "first"}, {@code "before:<id>"}, {@code "after:<id>"} (id &gt; 0).
+     */
+    public static boolean isValidPositionFormat(String position) {
+        if (position == null || "last".equals(position)) {
+            return true;
+        }
+        if ("first".equals(position)) {
+            return true;
+        }
+        if (position.startsWith("before:") || position.startsWith("after:")) {
+            String idPart = position.substring(position.indexOf(':') + 1);
+            try {
+                int refId = Integer.parseInt(idPart);
+                return refId > 0;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Calculate the insert index for a position spec within {@code targetParent}.
+     * <p>For {@code before:<id>}/{@code after:<id>}, returns {@code -1} if the reference node
+     * cannot be found or is not a direct child of {@code targetParent}. Callers decide the
+     * fallback policy for the {@code -1} case (single-element tools fall back to {@code last};
+     * batch tools validate up front so they never hit {@code -1}).
+     *
+     * @return insert index (&ge; 0), or {@code -1} if a before/after reference is unresolved
+     */
+    public static int calculateInsertPosition(JMeterTreeNode targetParent, String position, JMeterTreeNode root) {
+        if ("first".equals(position)) {
+            return 0;
+        }
+        if (position == null || "last".equals(position)) {
+            return targetParent.getChildCount();
+        }
+
+        if (position.startsWith("before:")) {
+            try {
+                int refId = Integer.parseInt(position.substring("before:".length()));
+                JMeterTreeNode refNode = findNodeByElementId(root, refId);
+                if (refNode != null && refNode.getParent() == targetParent) {
+                    return targetParent.getIndex(refNode);
+                }
+                return -1;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+
+        if (position.startsWith("after:")) {
+            try {
+                int refId = Integer.parseInt(position.substring("after:".length()));
+                JMeterTreeNode refNode = findNodeByElementId(root, refId);
+                if (refNode != null && refNode.getParent() == targetParent) {
+                    return targetParent.getIndex(refNode) + 1;
+                }
+                return -1;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+
+        return targetParent.getChildCount(); // default to last
     }
 }

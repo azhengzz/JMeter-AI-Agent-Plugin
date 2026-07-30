@@ -38,9 +38,12 @@ public class JMeterToolRegistry {
         registry.register(new UpdateJMeterElementTool());
         registry.register(new BatchUpdateJMeterElementTool());
         registry.register(new DeleteJMeterElementTool());
+        registry.register(new BatchDeleteJMeterElementTool());
         registry.register(new MoveJMeterElementTool());
+        registry.register(new BatchMoveJMeterElementTool());
         registry.register(new CopyPasteJMeterElementTool());
         registry.register(new ToggleJMeterElementTool());
+        registry.register(new BatchToggleJMeterElementTool());
         registry.register(new QueryElementPropertiesTool());
         registry.register(new GetLogPanelContentTool());
 

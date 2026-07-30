@@ -15,14 +15,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Tool to batch update properties of multiple JMeter elements of the same type.
  */
-public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
+public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool {
 
     private static final Logger log = LoggerFactory.getLogger(BatchUpdateJMeterElementTool.class);
-    private static final int MAX_BATCH_SIZE = 50;
 
     @Override
     public String getName() {
@@ -65,28 +65,14 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
 
     @Override
     protected ToolResult executeInternal(Map<String, Object> parameters) {
-        // Parse elementIds
-        Object elementIdsRaw = parameters.get("elementIds");
-        if (!(elementIdsRaw instanceof List)) {
-            return ToolResult.error("elementIds must be a non-empty array of integers");
-        }
-        List<Integer> elementIds = new ArrayList<>();
-        for (Object item : (List<?>) elementIdsRaw) {
-            if (item instanceof Number) {
-                elementIds.add(((Number) item).intValue());
-            }
-        }
-
-        // Parse properties
+        // Parse elementIds + properties
+        List<Integer> elementIds = parseElementIds(parameters.get("elementIds"));
         Map<String, Object> properties = parsePropertiesParameter(parameters.get("properties"));
 
         // Validate input
-        if (elementIds.isEmpty()) {
-            return ToolResult.error("elementIds must be a non-empty array with at most " + MAX_BATCH_SIZE + " elements");
-        }
-        if (elementIds.size() > MAX_BATCH_SIZE) {
-            return ToolResult.error("elementIds exceeds maximum batch size of " + MAX_BATCH_SIZE +
-                    ". Got " + elementIds.size() + " elements.");
+        ToolResult sizeCheck = validateBatchSize(elementIds);
+        if (!sizeCheck.isSuccess()) {
+            return sizeCheck;
         }
         if (properties.isEmpty()) {
             return ToolResult.error("properties must be provided for batch update");
@@ -106,21 +92,13 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
         try {
             JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
 
-            // Step 1: Find all nodes
-            Map<Integer, JMeterTreeNode> nodeMap = new LinkedHashMap<>();
-            List<Integer> notFound = new ArrayList<>();
-            for (Integer id : elementIds) {
-                JMeterTreeNode node = JMeterTreeUtils.findNodeByElementId(rootNode, id);
-                if (node == null) {
-                    notFound.add(id);
-                } else {
-                    nodeMap.put(id, node);
-                }
-            }
-            if (!notFound.isEmpty()) {
-                return ToolResult.error("Could not find elements with elementIds: " + notFound +
+            // Step 1: Find all nodes (resolve up front; abort if any missing)
+            ResolvedNodes resolved = resolveNodeMap(rootNode, elementIds);
+            if (!resolved.notFound().isEmpty()) {
+                return ToolResult.error("Could not find elements with elementIds: " + resolved.notFound() +
                         ". The elements may have been removed. Use get_test_plan_tree to get current elementIds.");
             }
+            Map<Integer, JMeterTreeNode> nodeMap = resolved.nodeMap();
 
             // Step 2: Validate all elements are same type
             String elementType = null;
@@ -170,46 +148,21 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
                 schema = componentValidator.getSchemaLoader().loadSchema(elementType);
             }
 
-            // Step 6: Apply updates to each element
-            // De-select current node before batch modification to avoid race with GUI:
-            // setProperties writes TestElement off-EDT (for performance); if the GUI panel
-            // still binds a node being modified, a concurrent EDT configure() call could read
-            // a half-written TestElement and corrupt RSyntaxTextArea Token cache.
-            // Selecting root node (row 0) rebinds GUI to TestPlan which is not in our batch.
-            Exception deselectError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(
-                    guiPackage,
-                    () -> guiPackage.getTreeListener().getJTree().setSelectionRow(0));
-            if (deselectError != null) {
-                log.warn("Failed to de-select current node before batch update", deselectError);
+            // Step 6: Apply updates and refresh GUI atomically on EDT (mirrors the single-element
+            // UpdateJMeterElementTool pattern — putting property writes on EDT serializes them
+            // with any configure() call and prevents the half-written-TestElement race).
+            deselectCurrentNode(guiPackage);
+
+            List<ElementResult> results = new ArrayList<>();
+            applyBatchUpdateOnEdt(guiPackage, nodeMap, universalProps, schemaProps, schema, results);
+
+            // Step 7: Build aggregated result (type + updated-properties block as header extra)
+            StringBuilder headerExtra = new StringBuilder();
+            headerExtra.append("Type: ").append(elementType).append("\n\nUpdated properties:\n");
+            for (Map.Entry<String, Object> entry : properties.entrySet()) {
+                headerExtra.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
             }
-
-            List<ElementUpdateResult> results = new ArrayList<>();
-            for (Map.Entry<Integer, JMeterTreeNode> entry : nodeMap.entrySet()) {
-                int id = entry.getKey();
-                JMeterTreeNode node = entry.getValue();
-                TestElement element = node.getTestElement();
-                String elementName = element.getName();
-
-                try {
-                    if (!universalProps.isEmpty()) {
-                        applyUniversalProperties(element, universalProps);
-                    }
-                    if (!schemaProps.isEmpty()) {
-                        propertyHandler.setProperties(element, schemaProps, schema);
-                    }
-                    results.add(new ElementUpdateResult(id, elementName, true, null));
-                    log.info("Successfully updated element: {} (elementId: {})", elementName, id);
-                } catch (Exception e) {
-                    results.add(new ElementUpdateResult(id, elementName, false, e.getMessage()));
-                    log.error("Failed to update element: {} (elementId: {})", elementName, id, e);
-                }
-            }
-
-            // Step 7: Single GUI refresh
-            refreshTreeAfterBatchUpdate(guiPackage, nodeMap);
-
-            // Step 8: Build aggregated result
-            return buildBatchResult(results, elementType, properties);
+            return buildBatchResult(results, "updated", headerExtra.toString(), r -> "OK");
 
         } catch (Exception e) {
             log.error("Error batch updating JMeter elements", e);
@@ -217,83 +170,49 @@ public class BatchUpdateJMeterElementTool extends AbstractJMeterElementTool {
         }
     }
 
-    private void refreshTreeAfterBatchUpdate(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap) {
-        // All operations must run on EDT atomically:
-        // - nodeChanged (Swing DefaultTreeModel)
-        // - refreshCurrentGui (configure → RSyntaxTextArea.setText)
-        // Previously nodeChanged ran on tool-executor while refreshCurrentGui was invokeLater'd,
-        // which left the tree state half-updated between two EDT calls.
+    private void applyBatchUpdateOnEdt(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap,
+                                        Map<String, String> universalProps, Map<String, Object> schemaProps,
+                                        ComponentSchema schema, List<ElementResult> results) {
+        // Property writes + GUI refresh run atomically on EDT (mirrors the single-element
+        // UpdateJMeterElementTool pattern); this serializes TestElement writes with any
+        // concurrent EDT configure() call and prevents the half-written-TestElement race.
         Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
-            for (JMeterTreeNode node : nodeMap.values()) {
-                guiPackage.getTreeModel().nodeChanged(node);
+            // Per-element property writes (each try/catch so one failure doesn't stop the rest)
+            for (Map.Entry<Integer, JMeterTreeNode> entry : nodeMap.entrySet()) {
+                int id = entry.getKey();
+                JMeterTreeNode node = entry.getValue();
+                TestElement element = node.getTestElement();
+                String elementName = element.getName();
+                try {
+                    if (!universalProps.isEmpty()) {
+                        applyUniversalProperties(element, universalProps);
+                    }
+                    if (!schemaProps.isEmpty()) {
+                        propertyHandler.setProperties(element, schemaProps, schema);
+                    }
+                    results.add(ElementResult.ok(id, elementName));
+                    log.info("Successfully updated element: {} (elementId: {})", elementName, id);
+                } catch (Exception e) {
+                    results.add(ElementResult.fail(id, elementName, e.getMessage()));
+                    log.error("Failed to update element: {} (elementId: {})", elementName, id, e);
+                }
             }
-            guiPackage.refreshCurrentGui();
-            refreshTables(guiPackage.getCurrentGui());
-            log.info("Successfully refreshed GUI after batch update");
+            // Trailing refresh is best-effort: property writes are already committed above, so
+            // a refresh failure must not mask the per-element results.
+            try {
+                for (JMeterTreeNode node : nodeMap.values()) {
+                    guiPackage.getTreeModel().nodeChanged(node);
+                }
+                guiPackage.refreshCurrentGui();
+                refreshTables(guiPackage.getCurrentGui());
+                log.info("Successfully refreshed GUI after batch update");
+            } catch (Exception e) {
+                log.warn("GUI refresh failed after batch update (property writes already applied)", e);
+            }
         });
         if (edtError != null) {
-            log.error("Failed to refresh tree after batch update", edtError);
+            log.error("Failed to batch update elements on EDT", edtError);
         }
     }
 
-    private ToolResult buildBatchResult(List<ElementUpdateResult> results, String elementType,
-                                         Map<String, Object> properties) {
-        long successCount = results.stream().filter(r -> r.success).count();
-        int total = results.size();
-
-        StringBuilder sb = new StringBuilder();
-
-        if (successCount == total) {
-            sb.append("Successfully updated ").append(total).append(" of ").append(total)
-                    .append(" elements (type: ").append(elementType).append(")\n");
-
-            sb.append("\nUpdated properties:\n");
-            for (Map.Entry<String, Object> entry : properties.entrySet()) {
-                sb.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
-            }
-
-            sb.append("\nDetails:\n");
-            for (ElementUpdateResult r : results) {
-                sb.append("- elementId ").append(r.elementId).append(": \"").append(r.elementName)
-                        .append("\" - OK\n");
-            }
-        } else {
-            sb.append("Updated ").append(successCount).append(" of ").append(total)
-                    .append(" elements (type: ").append(elementType).append(")\n");
-
-            List<ElementUpdateResult> succeeded = results.stream().filter(r -> r.success).toList();
-            if (!succeeded.isEmpty()) {
-                sb.append("\nSucceeded:\n");
-                for (ElementUpdateResult r : succeeded) {
-                    sb.append("- elementId ").append(r.elementId).append(": \"").append(r.elementName)
-                            .append("\" - OK\n");
-                }
-            }
-
-            List<ElementUpdateResult> failed = results.stream().filter(r -> !r.success).toList();
-            if (!failed.isEmpty()) {
-                sb.append("\nFailed:\n");
-                for (ElementUpdateResult r : failed) {
-                    sb.append("- elementId ").append(r.elementId).append(": \"").append(r.elementName)
-                            .append("\" - ").append(r.error).append("\n");
-                }
-            }
-        }
-
-        return ToolResult.success(sb.toString());
-    }
-
-    private static class ElementUpdateResult {
-        final int elementId;
-        final String elementName;
-        final boolean success;
-        final String error;
-
-        ElementUpdateResult(int elementId, String elementName, boolean success, String error) {
-            this.elementId = elementId;
-            this.elementName = elementName;
-            this.success = success;
-            this.error = error;
-        }
-    }
 }

@@ -3,7 +3,6 @@ package org.gitee.jmeter.ai.agent.tools.jmeter;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.TestPlan;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
@@ -76,7 +75,7 @@ public class MoveJMeterElementTool extends AbstractTool {
         }
 
         // Validate position format early (before any JMeter operations)
-        if (!isValidPositionFormat(position)) {
+        if (!JMeterTreeUtils.isValidPositionFormat(position)) {
             return ToolResult.error("Invalid position format: '" + position + "'. " +
                     "Valid formats are: 'first' (insert at beginning), " +
                     "'last' (insert at end, default), " +
@@ -117,8 +116,13 @@ public class MoveJMeterElementTool extends AbstractTool {
                 return validation;
             }
 
-            // 6. Calculate insert position
-            int insertIndex = calculateInsertPosition(targetParent, position, rootNode);
+            // 6. Calculate insert position (shared helper; -1 means a before/after reference was
+            //    unresolved — preserve original behavior by falling back to 'last').
+            int insertIndex = JMeterTreeUtils.calculateInsertPosition(targetParent, position, rootNode);
+            if (insertIndex < 0) {
+                log.warn("Reference element for position '{}' not found in target parent, defaulting to 'last'", position);
+                insertIndex = targetParent.getChildCount();
+            }
 
             // 7. Perform the move
             return performMove(sourceNode, targetParent, insertIndex);
@@ -136,13 +140,13 @@ public class MoveJMeterElementTool extends AbstractTool {
         TestElement sourceElement = sourceNode.getTestElement();
 
         // Check 1: Cannot move TestPlan root
-        if (isTestPlanRootNode(sourceNode)) {
+        if (JMeterTreeUtils.isTestPlanRootNode(sourceNode)) {
             return ToolResult.error("Cannot move TestPlan root node for safety reasons. " +
                     "The TestPlan root node must always exist in the test plan.");
         }
 
         // Check 2: Cannot move into descendant (circular reference)
-        if (isTargetInSubtreeOfSource(targetParent, sourceNode)) {
+        if (JMeterTreeUtils.isTargetInSubtreeOfSource(targetParent, sourceNode)) {
             return ToolResult.error("Cannot move a parent node into its own descendant. " +
                     "This would create an invalid tree structure.");
         }
@@ -170,77 +174,6 @@ public class MoveJMeterElementTool extends AbstractTool {
         }
 
         return ToolResult.success(""); // Validation passed
-    }
-
-    /**
-     * Validate the position parameter format.
-     * Valid formats: 'first', 'last', 'before:<id>', 'after:<id>'
-     *
-     * @return true if position format is valid, false otherwise
-     */
-    private boolean isValidPositionFormat(String position) {
-        if (position == null || "last".equals(position)) {
-            return true; // Default value, always valid
-        }
-
-        if ("first".equals(position)) {
-            return true;
-        }
-
-        if (position.startsWith("before:") || position.startsWith("after:")) {
-            String idPart = position.substring(position.indexOf(':') + 1);
-
-            // Check if idPart is a valid integer
-            try {
-                int refId = Integer.parseInt(idPart);
-                return refId > 0;
-            } catch (NumberFormatException e) {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Calculate the insert position based on the position parameter.
-     */
-    private int calculateInsertPosition(JMeterTreeNode targetParent, String position, JMeterTreeNode root) {
-        if ("first".equals(position)) {
-            return 0;
-        }
-
-        if (position == null || "last".equals(position)) {
-            return targetParent.getChildCount();
-        }
-
-        if (position.startsWith("before:")) {
-            try {
-                int refId = Integer.parseInt(position.substring("before:".length()));
-                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(root, refId);
-                if (refNode != null && refNode.getParent() == targetParent) {
-                    return targetParent.getIndex(refNode);
-                }
-                log.warn("Reference element for position 'before:{}' not found in target parent, defaulting to 'last'", refId);
-            } catch (NumberFormatException e) {
-                log.warn("Invalid position format: '{}', defaulting to 'last'", position);
-            }
-        }
-
-        if (position.startsWith("after:")) {
-            try {
-                int refId = Integer.parseInt(position.substring("after:".length()));
-                JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(root, refId);
-                if (refNode != null && refNode.getParent() == targetParent) {
-                    return targetParent.getIndex(refNode) + 1;
-                }
-                log.warn("Reference element for position 'after:{}' not found in target parent, defaulting to 'last'", refId);
-            } catch (NumberFormatException e) {
-                log.warn("Invalid position format: '{}', defaulting to 'last'", position);
-            }
-        }
-
-        return targetParent.getChildCount(); // Default to last
     }
 
     /**
@@ -304,67 +237,5 @@ public class MoveJMeterElementTool extends AbstractTool {
                 elementName, elementType, oldParentPath, targetParent.getName());
 
         return ToolResult.success(result.toString());
-    }
-
-    /**
-     * Check if the node is a TestPlan root node.
-     */
-    private boolean isTestPlanRootNode(JMeterTreeNode node) {
-        if (node == null) {
-            return false;
-        }
-
-        TestElement testElement = node.getTestElement();
-        if (testElement == null) {
-            return false;
-        }
-
-        // Method 1: Check if the element type is TestPlan
-        if (testElement instanceof TestPlan) {
-            return true;
-        }
-
-        // Method 2: Check if the parent is a virtual root node (no TestElement)
-        JMeterTreeNode parent = (JMeterTreeNode) node.getParent();
-        if (parent != null && parent.getTestElement() == null) {
-            // Parent has no TestElement, meaning parent is the virtual root node
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Check if targetNode is in the subtree of sourceNode (circular reference check).
-     * Returns true if targetNode is a descendant of sourceNode or equals sourceNode,
-     * which means moving sourceNode under targetNode would create a cycle.
-     */
-    private boolean isTargetInSubtreeOfSource(JMeterTreeNode targetNode, JMeterTreeNode sourceNode) {
-        if (targetNode == null || sourceNode == null) {
-            return false;
-        }
-
-        if (targetNode == sourceNode) {
-            return true;
-        }
-
-        // Check if targetNode is a descendant of sourceNode by traversing children
-        return isDescendant(targetNode, sourceNode);
-    }
-
-    /**
-     * Recursively check if node is a descendant of ancestor.
-     */
-    private boolean isDescendant(JMeterTreeNode node, JMeterTreeNode ancestor) {
-        for (int i = 0; i < ancestor.getChildCount(); i++) {
-            javax.swing.tree.TreeNode child = ancestor.getChildAt(i);
-            if (child == node) {
-                return true;
-            }
-            if (child instanceof JMeterTreeNode jmeterChild && isDescendant(node, jmeterChild)) {
-                return true;
-            }
-        }
-        return false;
     }
 }
