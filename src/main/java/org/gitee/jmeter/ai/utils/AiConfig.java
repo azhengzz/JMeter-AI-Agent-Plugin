@@ -9,6 +9,32 @@ public class AiConfig {
     }
 
     /**
+     * Typed accessors. Empty/unset values return {@code defaultValue}; non-numeric
+     * values still throw {@code NumberFormatException} (same as the previous inline
+     * parsing). Unlike {@code Integer.parseInt(getProperty(key, "x"))}, an empty
+     * configured value returns the default instead of throwing.
+     */
+    public static int getInt(String key, int defaultValue) {
+        String v = JMeterUtils.getPropDefault(key, null);
+        return (v == null || v.isEmpty()) ? defaultValue : Integer.parseInt(v);
+    }
+
+    public static long getLong(String key, long defaultValue) {
+        String v = JMeterUtils.getPropDefault(key, null);
+        return (v == null || v.isEmpty()) ? defaultValue : Long.parseLong(v);
+    }
+
+    public static boolean getBoolean(String key, boolean defaultValue) {
+        String v = JMeterUtils.getPropDefault(key, null);
+        return (v == null || v.isEmpty()) ? defaultValue : Boolean.parseBoolean(v);
+    }
+
+    public static double getDouble(String key, double defaultValue) {
+        String v = JMeterUtils.getPropDefault(key, null);
+        return (v == null || v.isEmpty()) ? defaultValue : Double.parseDouble(v);
+    }
+
+    /**
      * Get the default model from global configuration.
      */
     public static String getDefaultModel() {
@@ -28,14 +54,14 @@ public class AiConfig {
      * IPC server 是否启用。默认关闭(安全优先,需显式开启)。
      */
     public static boolean isIpcEnabled() {
-        return Boolean.parseBoolean(JMeterUtils.getPropDefault("jmeter.ai.ipc.enabled", "false"));
+        return getBoolean("jmeter.ai.ipc.enabled", false);
     }
 
     /**
      * IPC server 监听端口,0 = 自动分配(推荐)。
      */
     public static int getIpcPort() {
-        return Integer.parseInt(JMeterUtils.getPropDefault("jmeter.ai.ipc.port", "0"));
+        return getInt("jmeter.ai.ipc.port", 0);
     }
 
     /**
@@ -56,6 +82,6 @@ public class AiConfig {
      * Agent 路由同步等待超时(毫秒),默认 120s。
      */
     public static long getIpcAgentTimeoutMs() {
-        return Long.parseLong(JMeterUtils.getPropDefault("jmeter.ai.ipc.agent.timeout.ms", "120000"));
+        return getLong("jmeter.ai.ipc.agent.timeout.ms", 120000);
     }
 }

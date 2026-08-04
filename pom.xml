@@ -299,9 +299,10 @@
                                 <copy file="${project.build.directory}/${project.build.finalName}.jar"
                                     todir="${jmeter.home}/lib/ext"/>
 
-                                <!-- Copy built-in skills to JMeter bin/jmeter-agent/skills directory -->
-                                <delete dir="${jmeter.home}/bin/jmeter-agent/skills" quiet="true"/>
-                                <mkdir dir="${jmeter.home}/bin/jmeter-agent/skills"/>
+                                <!-- Copy built-in skills to JMeter bin/jmeter-agent/skills directory.
+                                     Overwrite builtins but preserve user-added skills: the workspace
+                                     now defaults to bin/jmeter-agent, so skills/ is shared with user
+                                     data and must not be wiped on every install. -->
                                 <copy todir="${jmeter.home}/bin/jmeter-agent/skills">
                                     <fileset dir="${project.basedir}/src/main/jmeter-agent/skills"/>
                                 </copy>

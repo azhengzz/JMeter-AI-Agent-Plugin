@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
-import org.gitee.jmeter.ai.utils.AiConfig;
+import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +15,6 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,7 +32,7 @@ public class SessionManager {
     private final Path sessionStorage;
 
     public SessionManager() {
-        this(getDefaultWorkspace());
+        this(WorkspacePaths.resolveWorkspace());
     }
 
     public SessionManager(Path workspace) {
@@ -44,17 +43,6 @@ public class SessionManager {
         loadSessions();
 
         log.info("SessionManager initialized with workspace: {}", sessionStorage);
-    }
-
-    private static Path getDefaultWorkspace() {
-        Path defaultWorkspace = Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            // Fix path separators: replace backslashes with forward slashes
-            String fixedPath = configuredPath.replace('\\', '/');
-            return Paths.get(fixedPath);
-        }
-        return defaultWorkspace;
     }
 
     private void ensureDirectories() {

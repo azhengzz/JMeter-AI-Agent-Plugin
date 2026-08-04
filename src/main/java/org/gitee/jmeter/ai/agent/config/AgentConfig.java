@@ -2,12 +2,11 @@ package org.gitee.jmeter.ai.agent.config;
 
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.WorkspaceInitializer;
+import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Configuration for Agent Loop.
@@ -43,49 +42,35 @@ public class AgentConfig {
 
     private AgentConfig() {
         // Agent Loop Configuration
-        this.enabled = Boolean.parseBoolean(AiConfig.getProperty("agent.enabled", "true"));
-        this.maxIterations = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tool.iterations", "50"));
-        this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
-        this.toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
-        this.maxHistorySize = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.history.size", "120"));
-        this.maxStringLength = Integer.parseInt(AiConfig.getProperty("jmeter.ai.tool.max.string.length", "2048"));
+        this.enabled = AiConfig.getBoolean("agent.enabled", true);
+        this.maxIterations = AiConfig.getInt("jmeter.ai.max.tool.iterations", 50);
+        this.contextWindowTokens = AiConfig.getInt("jmeter.ai.context.window.tokens", 65536);
+        this.toolResultMaxChars = AiConfig.getInt("agent.tool.result.max.chars", 16000);
+        this.maxHistorySize = AiConfig.getInt("jmeter.ai.max.history.size", 120);
+        this.maxStringLength = AiConfig.getInt("jmeter.ai.tool.max.string.length", 2048);
 
         // Memory Configuration
-        this.memoryEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.memory.enabled", "true"));
-        this.memoryConsolidationThreshold = Double.parseDouble(AiConfig.getProperty("agent.memory.consolidation.threshold", "0.5"));
+        this.memoryEnabled = AiConfig.getBoolean("agent.memory.enabled", true);
+        this.memoryConsolidationThreshold = AiConfig.getDouble("agent.memory.consolidation.threshold", 0.5);
 
-        // Workspace path configuration
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            // Fix path separators: replace backslashes with forward slashes for cross-platform compatibility
-            // This handles cases where config files use single backslashes on Windows
-            String fixedPath = configuredPath.replace('\\', '/');
-            log.debug("Original configuredPath: [{}]", configuredPath);
-            log.debug("Fixed configuredPath: [{}]", fixedPath);
-            this.workspacePath = Paths.get(fixedPath).toAbsolutePath().normalize();
-            log.debug("Resolved workspacePath from config: {}", this.workspacePath);
-        } else {
-            // Use default workspace path
-            String userHome = System.getProperty("user.home");
-            Path userHomePath = Paths.get(userHome).toAbsolutePath().normalize();
-            this.workspacePath = userHomePath.resolve(".jmeter-ai").resolve("agent").normalize();
-            log.debug("Using default workspacePath: {}", this.workspacePath);
-        }
+        // Workspace path configuration (single source of truth: WorkspacePaths)
+        this.workspacePath = WorkspacePaths.resolveWorkspace();
+        log.debug("Resolved workspacePath: {}", this.workspacePath);
 
         // Initialize workspace with template files
         initializeWorkspace();
 
         // Session Configuration
-        this.sessionTimeout = Long.parseLong(AiConfig.getProperty("agent.session.timeout", "3600000"));
-        this.maxSessions = Integer.parseInt(AiConfig.getProperty("agent.session.max.sessions", "100"));
+        this.sessionTimeout = AiConfig.getLong("agent.session.timeout", 3600000);
+        this.maxSessions = AiConfig.getInt("agent.session.max.sessions", 100);
 
         // Tool Configuration
-        this.jmeterToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.jmeter.enabled", "true"));
-        this.filesystemToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.filesystem.enabled", "false"));
-        this.websearchToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.websearch.enabled", "false"));
-        this.concurrentToolsEnabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.concurrent.enabled", "false"));
-        this.failOnToolError = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.fail.on.error", "false"));
-        this.toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
+        this.jmeterToolsEnabled = AiConfig.getBoolean("agent.tools.jmeter.enabled", true);
+        this.filesystemToolsEnabled = AiConfig.getBoolean("agent.tools.filesystem.enabled", false);
+        this.websearchToolsEnabled = AiConfig.getBoolean("agent.tools.websearch.enabled", false);
+        this.concurrentToolsEnabled = AiConfig.getBoolean("agent.tools.concurrent.enabled", false);
+        this.failOnToolError = AiConfig.getBoolean("agent.tools.fail.on.error", false);
+        this.toolTimeoutMs = AiConfig.getLong("agent.tools.timeout.ms", 30000);
 
         logConfiguration();
     }

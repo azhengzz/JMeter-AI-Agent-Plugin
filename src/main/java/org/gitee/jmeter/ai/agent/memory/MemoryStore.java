@@ -1,6 +1,7 @@
 package org.gitee.jmeter.ai.agent.memory;
 
 import org.gitee.jmeter.ai.utils.AiConfig;
+import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,7 +9,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
 
@@ -25,7 +25,7 @@ public class MemoryStore {
     private final Path historyFile;
 
     public MemoryStore() {
-        this(getDefaultWorkspace());
+        this(WorkspacePaths.resolveWorkspace());
     }
 
     public MemoryStore(Path workspace) {
@@ -33,17 +33,6 @@ public class MemoryStore {
         this.memoryFile = memoryDir.resolve("MEMORY.md");
         this.historyFile = memoryDir.resolve("HISTORY.md");
         ensureDirectories();
-    }
-
-    private static Path getDefaultWorkspace() {
-        Path defaultWorkspace = Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            // Fix path separators: replace backslashes with forward slashes
-            String fixedPath = configuredPath.replace('\\', '/');
-            return Paths.get(fixedPath);
-        }
-        return defaultWorkspace;
     }
 
     private void ensureDirectories() {
@@ -143,7 +132,7 @@ public class MemoryStore {
      * Check if memory system is enabled
      */
     public boolean isEnabled() {
-        return Boolean.parseBoolean(AiConfig.getProperty("agent.memory.enabled", "true"));
+        return AiConfig.getBoolean("agent.memory.enabled", true);
     }
 
     public Path getMemoryDir() {

@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,10 +33,6 @@ public class SystemPrompt {
         "TOOLS.md"
     };
 
-    // Default workspace path
-    private static final Path DEFAULT_WORKSPACE =
-        Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
-
     /**
      * The default JMeter system prompt used when no custom prompt is configured.
      * Based on Nanobot's identity section format.
@@ -45,7 +40,7 @@ public class SystemPrompt {
     public static final String DEFAULT_JMETER_SYSTEM_PROMPT = buildDefaultPrompt();
 
     private static String buildDefaultPrompt() {
-        return getDefaultWithWorkspace(DEFAULT_WORKSPACE);
+        return getDefaultWithWorkspace(WorkspacePaths.resolveWorkspace());
     }
 
     /**
@@ -179,11 +174,7 @@ public class SystemPrompt {
      * @return The workspace path
      */
     private static Path getWorkspacePath() {
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            return Path.of(configuredPath);
-        }
-        return DEFAULT_WORKSPACE;
+        return WorkspacePaths.resolveWorkspace();
     }
 
     /**
