@@ -14,6 +14,7 @@ import org.gitee.jmeter.ai.agent.run.AgentRunner;
 import org.gitee.jmeter.ai.agent.run.InjectionManager;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.agent.subagent.SubagentManager;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
@@ -52,6 +53,18 @@ public class AgentLoop {
     private final ConcurrentHashMap<String, CountDownLatch> completionLatches = new ConcurrentHashMap<>();
     private final InjectionManager injectionManager = new InjectionManager();
 
+    // Subagent support (null when agent.subagent.enabled=false)
+    private volatile SubagentManager subagentManager;
+    private final long subagentDrainTimeoutMs;
+    // Identifies the currently active turn per session, so a subagent result that
+    // arrives after its turn ended is not injected into an unrelated later turn.
+    private final ConcurrentHashMap<String, Object> activeTurnTokens = new ConcurrentHashMap<>();
+    // Sessions whose subagent wait already timed out this turn — do not block again.
+    private final ConcurrentHashMap<String, Boolean> drainTimedOut = new ConcurrentHashMap<>();
+    // Session whose turn this thread is currently executing, so a command running
+    // inside that turn (e.g. /new) does not cancel the turn it is running in.
+    private final ThreadLocal<String> turnOwnedByThisThread = new ThreadLocal<>();
+
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
     private volatile Map<String, Integer> lastUsage = Map.of();
@@ -68,6 +81,11 @@ public class AgentLoop {
         int maxIterations = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tool.iterations", "50"));
         int toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
         long toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
+
+        // Cap at 300s: past that a subagent is presumed hung and the turn moves on.
+        long drainTimeoutSec = Long.parseLong(
+            AiConfig.getProperty("agent.subagent.drain.timeout.seconds", "120"));
+        this.subagentDrainTimeoutMs = Math.min(drainTimeoutSec, 300L) * 1000L;
 
         this.agentRunner = new AgentRunner(
             toolRegistry,
@@ -136,7 +154,10 @@ public class AgentLoop {
         }
 
         // Phase 2: Mid-turn injection routing
-        if (injectionManager.hasActiveRun(sessionKey)) {
+        // activeTasks 在方法结束前提交时,覆盖 [提交→完成] 全程;injectionQueues 仅在执行器
+        // pickup 后置位,留有 [提交→pickup] 窗口,突发并发请求会绕过注入短路各自进
+        // Phase 3 排队,挤满 ipc-worker 且队尾纯排队耗光 120s 超时。补 activeTasks 闭合该窗口。
+        if (activeTasks.containsKey(sessionKey) || injectionManager.hasActiveRun(sessionKey)) {
             // Non-priority commands must not be queued for injection.
             // dispatch them directly (same pattern as priority commands).
             if (commandRouter.isDispatchable(raw)) {
@@ -162,8 +183,14 @@ public class AgentLoop {
         abortFlags.put(sessionKey, abortFlag);
         completionLatches.put(sessionKey, completionLatch);
 
+        // Marks this turn as the active one; a subagent spawned here compares
+        // against it before announcing so late results cannot derail a later turn.
+        final Object turnToken = new Object();
+
         CompletableFuture<AgentResponse> future = CompletableFuture.supplyAsync(() -> {
             injectionManager.register(sessionKey);
+            activeTurnTokens.put(sessionKey, turnToken);
+            turnOwnedByThisThread.set(sessionKey);
             try {
                 // Check regular commands first (inside executor)
                 Session session = sessionManager.getOrCreate(sessionKey);
@@ -185,7 +212,7 @@ public class AgentLoop {
                     .maxTokens(generationSettings.getMaxTokens())
                     .reasoningEffort(generationSettings.getReasoningEffort())
                     .abortFlag(abortFlag)
-                    .injectionCallback(limit -> injectionManager.drain(sessionKey, limit))
+                    .injectionCallback(limit -> drainInjected(sessionKey, limit))
                     .build();
 
                 // Run agent
@@ -206,6 +233,18 @@ public class AgentLoop {
                 // Convert to legacy response format
                 return result.toAgentResponse();
             } finally {
+                // This turn is over: stop accepting subagent announcements for it,
+                // and reset the timeout latch so the next turn may block again.
+                // Under the same lock as offerInjection, so a result being delivered
+                // right now either lands before the turn closes or is refused — never
+                // enqueued into a queue that is about to be drained and re-published.
+                synchronized (turnTeardownLock) {
+                    activeTurnTokens.remove(sessionKey, turnToken);
+                }
+                drainTimedOut.remove(sessionKey);
+                // The agent-loop thread is reused by the next turn.
+                turnOwnedByThisThread.remove();
+
                 // Cleanup: re-publish remaining messages as new processMessage calls
                 // so they are fully processed by the agent (not just saved to history).
                 // Mirrors Nanobot's finally block at loop.py:817-835.
@@ -235,6 +274,7 @@ public class AgentLoop {
     /**
      * New API: Process a message with full run specification.
      */
+    // TODO 没有地方调用，确认下是否需要删除
     public CompletableFuture<AgentRunResult> run(AgentRunSpec spec) {
         return agentRunner.run(spec);
     }
@@ -300,6 +340,55 @@ public class AgentLoop {
      * @return true if a task was cancelled
      */
     public boolean cancelActiveTask(String sessionKey) {
+        boolean cancelled = signalCancel(sessionKey);
+
+        // 4. Wait for actual completion
+        // TODO 优化点: 此处 latch.await(5s) 在 EDT 上同步阻塞(Stop 按钮经此路径,见 AiChatPanel.stopActiveTask)。
+        //  最坏占用 EDT 5 秒(GUI 短暂无响应);后续可改为后台线程 await + SwingUtilities.invokeLater 回 EDT 做 UI 收尾。
+        CountDownLatch latch = completionLatches.get(sessionKey);
+        if (latch != null) {
+            try {
+                boolean completed = latch.await(5, TimeUnit.SECONDS);
+                if (!completed) {
+                    log.warn("Timed out waiting for task cleanup in session {}", sessionKey);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        return cancelled;
+    }
+
+    /**
+     * Signal an active run (and its subagents) to stop, without waiting for it.
+     *
+     * <p>Callers that must not block use this: {@code /new} is dispatched on the
+     * caller's thread — the Swing EDT when typed during an active run, or the
+     * agent-loop thread inside the very future it would otherwise await. Only the
+     * Stop button needs the completion wait, so only {@link #cancelActiveTask}
+     * does it.
+     *
+     * @return true if there was something to cancel
+     */
+    public boolean signalCancel(String sessionKey) {
+        // 0. Cancel subagents FIRST. The loop thread may be parked waiting for one
+        //    of their results; killing them unblocks that wait immediately. Doing
+        //    this later would leave Stop unresponsive until the drain timeout.
+        var manager = subagentManager;
+        if (manager != null) {
+            manager.cancelBySession(sessionKey);
+        }
+
+        // A command like /new runs inside a turn of its own when nothing else is
+        // active. Cancelling from there would kill the caller mid-command and the
+        // user would get a CancellationException instead of the confirmation.
+        // Subagents (step 0) are still cancelled — only the caller's turn is spared.
+        if (sessionKey.equals(turnOwnedByThisThread.get())) {
+            log.debug("signalCancel from within session {}'s own turn; not cancelling the caller", sessionKey);
+            return false;
+        }
+
         // 1. Set abort flag first (signals agent loop to stop)
         AtomicBoolean abort = abortFlags.get(sessionKey);
         if (abort != null) {
@@ -317,19 +406,6 @@ public class AgentLoop {
             log.info("Cancelled active task for session {}: {}", sessionKey, cancelled);
         }
 
-        // 4. Wait for actual completion
-        CountDownLatch latch = completionLatches.get(sessionKey);
-        if (latch != null) {
-            try {
-                boolean completed = latch.await(5, TimeUnit.SECONDS);
-                if (!completed) {
-                    log.warn("Timed out waiting for task cleanup in session {}", sessionKey);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         return cancelled || (abort != null);
     }
 
@@ -337,6 +413,10 @@ public class AgentLoop {
      * Shutdown the agent loop.
      */
     public void shutdown() {
+        var manager = subagentManager;
+        if (manager != null) {
+            manager.shutdown();
+        }
         executorService.shutdown();
         sessionManager.shutdown();
         log.info("AgentLoop shutdown complete");
@@ -350,6 +430,91 @@ public class AgentLoop {
      */
     public boolean injectMessage(String sessionKey, String message) {
         return injectionManager.offer(sessionKey, message);
+    }
+
+    /**
+     * Seam handed to {@link SubagentManager} as a
+     * {@code ResultSink}, so the manager needs no reference back to this loop.
+     */
+    public boolean offerInjection(String sessionKey, Object turnToken, String message) {
+        // Validate the turn and enqueue under the same lock the turn teardown takes.
+        // If these were separate steps the turn could end in between, and the queued
+        // announcement would be re-published as a bogus new user turn.
+        synchronized (turnTeardownLock) {
+            if (turnToken != null && turnToken != activeTurnTokens.get(sessionKey)) {
+                return false;
+            }
+            return injectionManager.offer(sessionKey, message);
+        }
+    }
+
+    /** Serialises turn teardown against subagent result delivery. */
+    private final Object turnTeardownLock = new Object();
+
+    /**
+     * Attach the subagent manager. Wired by {@code AgentLoopFactory} after
+     * construction, since the manager needs {@link #offerInjection} as its sink.
+     */
+    public void setSubagentManager(SubagentManager manager) {
+        this.subagentManager = manager;
+    }
+
+    public SubagentManager getSubagentManager() {
+        return subagentManager;
+    }
+
+    /**
+     * A token identifying the turn currently active for a session. A subagent
+     * captures it at spawn time and checks it before announcing, so a late result
+     * cannot land in an unrelated later turn.
+     */
+    public SubagentManager.TurnToken currentTurnToken(String sessionKey) {
+        Object token = activeTurnTokens.get(sessionKey);
+        if (token == null) {
+            return null;
+        }
+        return new SubagentManager.TurnToken() {
+            @Override public boolean isActive() {
+                return token == activeTurnTokens.get(sessionKey);
+            }
+            @Override public Object identity() {
+                return token;
+            }
+        };
+    }
+
+    /**
+     * Drain injected messages, blocking for a subagent result when one is still
+     * running and nothing is ready yet — this is what folds a subagent's output
+     * back into the same turn instead of a competing new one.
+     *
+     * <p>Ready messages (e.g. the user typing) always win: the blocking wait only
+     * happens when the queue is empty.
+     */
+    private List<String> drainInjected(String sessionKey, int limit) {
+        var manager = subagentManager;
+        // Only wait on subagents spawned by the turn that is still running: a
+        // leftover from an earlier turn has its result discarded on arrival, so
+        // blocking on it would burn the whole timeout for nothing.
+        boolean mayBlock = manager != null
+            && !drainTimedOut.containsKey(sessionKey)
+            && manager.getWaitableCountBySession(sessionKey) > 0;
+
+        if (!mayBlock) {
+            return injectionManager.drain(sessionKey, limit);
+        }
+
+        List<String> items = injectionManager.drainBlocking(sessionKey, limit, subagentDrainTimeoutMs);
+        if (items.isEmpty()) {
+            // Timed out (or interrupted): the subagent is presumed hung. Stop
+            // blocking for the rest of this turn — the injection cycle counter only
+            // advances when messages actually arrive, so without this latch every
+            // remaining checkpoint would wait the full timeout again. A late result
+            // still reaches the user via the announce fallback / status query.
+            drainTimedOut.put(sessionKey, Boolean.TRUE);
+            log.warn("Subagent drain timed out for session {}; not blocking again this turn", sessionKey);
+        }
+        return items;
     }
 
     /**

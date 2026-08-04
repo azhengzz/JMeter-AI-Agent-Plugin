@@ -58,6 +58,7 @@ Find elements by `name`, `elementType`, `path`, or `elementId`.
 ```bash
 jmeter-cli find --searchBy elementType --query testplan --json
 jmeter-cli find --searchBy name --query "HTTP Request" --exactMatch false --limit 10 --json
+jmeter-cli find --searchBy elementType --query JSR223Sampler --parentId <id>
 ```
 
 Options: `--searchBy <name|elementType|path|elementId>` required, `--query <q>` required, `--exactMatch <bool>`, `--includeProperties <bool>`, `--maxDepth <n>`, `--offset <n>`, `--limit <n>`.

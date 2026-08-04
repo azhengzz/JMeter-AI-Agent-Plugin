@@ -1,7 +1,7 @@
 package org.gitee.jmeter.ai.agent.session;
 
 import org.gitee.jmeter.ai.agent.model.Message;
-import org.gitee.jmeter.ai.agent.model.ToolCall;
+import org.gitee.jmeter.ai.agent.model.MessageListUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -105,7 +105,7 @@ public class Session {
         }
 
         // Step 4: Skip orphaned tool results (Nanobot: _find_legal_start)
-        int legalStart = findLegalStart(sliced);
+        int legalStart = MessageListUtils.findLegalStart(sliced);
         if (legalStart > 0) {
             sliced = sliced.subList(legalStart, sliced.size());
         }
@@ -124,45 +124,6 @@ public class Session {
                     .build());
         }
         return out;
-    }
-
-    /**
-     * Find first index where every tool result has a matching assistant tool_call.
-     * Ported from Nanobot's Session._find_legal_start().
-     */
-    private int findLegalStart(List<Message> msgs) {
-        Set<String> declared = new HashSet<>();
-        int start = 0;
-
-        for (int i = 0; i < msgs.size(); i++) {
-            Message msg = msgs.get(i);
-
-            if (msg.getRole() == Message.Role.ASSISTANT && msg.hasToolCalls()) {
-                for (ToolCall tc : msg.getToolCalls()) {
-                    if (tc.getId() != null) {
-                        declared.add(tc.getId());
-                    }
-                }
-            } else if (msg.getRole() == Message.Role.TOOL) {
-                String tid = msg.getToolCallId();
-                if (tid == null || !declared.contains(tid)) {
-                    start = i + 1;
-                    declared.clear();
-                    for (int j = start; j <= i; j++) {
-                        Message prev = msgs.get(j);
-                        if (prev.getRole() == Message.Role.ASSISTANT && prev.hasToolCalls()) {
-                            for (ToolCall tc : prev.getToolCalls()) {
-                                if (tc.getId() != null) {
-                                    declared.add(tc.getId());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return start;
     }
 
     /**

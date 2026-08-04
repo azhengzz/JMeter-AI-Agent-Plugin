@@ -41,6 +41,7 @@ import java.util.Map;
  *   jmeter-cli toggle --elementId &lt;id&gt; [--action enable|disable|toggle]
  *   jmeter-cli get --elementId &lt;id&gt;
  *   jmeter-cli batch --elementIds 1,2,3 --properties "{\\"HTTPSampler.domain\\":\\"batch.example.com\\"}"
+ *   jmeter-cli run --properties "{\\"p_env\\":\\"test\\",\\"p_concurrent\\":100}"
  *   jmeter-cli agent "再加一个 5 用户的线程组"
  *   jmeter-cli tool &lt;tool_name&gt; --params "{\\"searchBy\\":\\"elementType\\",\\"query\\":\\"threadgroup\\"}"
  *   全局:--pid &lt;pid&gt; --token &lt;t&gt; --json --jmeter-home &lt;dir&gt;
@@ -308,6 +309,7 @@ public final class JmeterCli {
         putIntIfPresent(opts, params, "maxDepth");
         putIntIfPresent(opts, params, "offset");
         putIntIfPresent(opts, params, "limit");
+        putIntIfPresent(opts, params, "parentId");
         return execTool(opts, json, "find_element", params);
     }
 
@@ -328,12 +330,7 @@ public final class JmeterCli {
     }
 
     private static int cmdRun(Map<String, String> opts, boolean json) throws Exception {
-        Map<String, Object> params = new HashMap<>();
-        params.put("action", "start");
-        if (opts.get("ignoreTimers") != null) {
-            // CLI flag is camelCase; the tool param is snake_case.
-            params.put("ignore_timers", Boolean.parseBoolean(opts.get("ignoreTimers")));
-        }
+        Map<String, Object> params = buildRunParameters(opts);
         if (!opts.containsKey("wait")) {
             return execTool(opts, json, "run_test", params);
         }
@@ -369,6 +366,19 @@ public final class JmeterCli {
             }
             System.err.print(".");
         }
+    }
+
+    static Map<String, Object> buildRunParameters(Map<String, String> opts) throws Exception {
+        Map<String, Object> params = new HashMap<>();
+        params.put("action", "start");
+        if (opts.get("ignoreTimers") != null) {
+            // CLI flag is camelCase; the tool param is snake_case.
+            params.put("ignore_timers", Boolean.parseBoolean(opts.get("ignoreTimers")));
+        }
+        if (opts.get("properties") != null) {
+            params.put("properties", parseJsonMap(opts.get("properties")));
+        }
+        return params;
     }
 
     private static int cmdStop(Map<String, String> opts, boolean json) throws Exception {
@@ -691,7 +701,7 @@ public final class JmeterCli {
 
         new Cmd("find",
             "Find elements by name / elementType / path / elementId.",
-            "jmeter-cli find --searchBy <c> --query <q> [--exactMatch <bool>] [--includeProperties <bool>] [--maxDepth <n>] [--offset <n>] [--limit <n>]",
+            "jmeter-cli find --searchBy <c> --query <q> [--exactMatch <bool>] [--includeProperties <bool>] [--maxDepth <n>] [--offset <n>] [--limit <n>] [--parentId <id>]",
             """
             Searches the test plan tree. --searchBy selects the match dimension; --query is the value to match.
             All flags map 1:1 to find_element params. Prints elementId(s) and a summary; use --json for the
@@ -704,6 +714,7 @@ public final class JmeterCli {
                 {"--maxDepth <n>", "depth from found node (-1 unlimited, 0 node only; default: 0)"},
                 {"--offset <n>", "results to skip, for pagination (default: 0)"},
                 {"--limit <n>", "max results (default: 20, max: 50)"},
+                {"--parentId <id>", "elementId to scope the search under (inclusive). Omit = whole plan. For path search, path becomes relative to this node."},
                 {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
             },
             new String[]{
@@ -831,21 +842,25 @@ public final class JmeterCli {
 
         new Cmd("run",
             "Start the current JMeter test plan.",
-            "jmeter-cli run [--ignoreTimers <bool>] [--wait] [--timeout <ms>]",
+            "jmeter-cli run [--properties \"<json>\"] [--ignoreTimers <bool>] [--wait] [--timeout <ms>]",
             """
             Starts the whole GUI test plan (cannot target a sub-tree). A result collector is injected so 'status'
             and 'results' can report data afterwards. Returns once the engine confirms start (within a few seconds)
             and does NOT block until the test finishes; use 'status' to monitor, or pass --wait to poll until done.
+            --properties injects global JMeter properties before the test starts; values must be strings, numbers,
+            or booleans and can be read with __P(name) or props.get("name") in the test plan.
             --ignoreTimers true skips timer delays (quick functional validation). --wait polls get_test_status
             every 1s until the test completes; the total wait is bounded by --timeout (default 130s, raise it for
             long runs). Progress dots go to stderr; the final status goes to stdout.""",
             new String[][]{
+                {"--properties \"<json>\"", "JSON object of JMeter properties to inject before starting"},
                 {"--ignoreTimers <bool>", "skip timer delays during the run (default: false)"},
                 {"--wait", "block until the test finishes, polling status (bounded by --timeout)"},
                 {"--json, --pid, --token, --jmeter-home, --timeout", "global options (see jmeter-cli help)"}
             },
             new String[]{
                 "jmeter-cli run",
+                "jmeter-cli run --properties \"{\\\"p_env\\\":\\\"test\\\",\\\"p_concurrent\\\":100}\"",
                 "jmeter-cli run --ignoreTimers true --wait --timeout 30000"
             }),
 

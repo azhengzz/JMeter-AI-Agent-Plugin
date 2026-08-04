@@ -19,13 +19,13 @@ public final class ProviderSpec {
     private final boolean rawHttpClientOnly;  // Use raw HTTP instead of SDK (for incompatible APIs)
 
     // How to inject the thinking on/off toggle into extra_body.
-    // ""              — no extra_body needed (default)
-    // "thinking_type" — {"thinking": {"type": "enabled"/"disabled"}}  (DeepSeek, VolcEngine, BytePlus)
+    // ""                — no extra_body needed (default)
+    // "thinking_type"   — {"thinking": {"type": "enabled"/"disabled"}}  (DeepSeek, VolcEngine, BytePlus)
     // "enable_thinking" — {"enable_thinking": true/false}  (DashScope)
     // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
     private final String thinkingStyle;
 
-    // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code).
+    // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code, kimi-k3).
     // Sending a disabled thinking.type for these models causes API rejection;
     // force enabled regardless of reasoning_effort.
     private final Set<String> thinkingAlwaysOnModels;

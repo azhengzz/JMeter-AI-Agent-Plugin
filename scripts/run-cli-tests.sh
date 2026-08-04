@@ -169,6 +169,25 @@ R $CLI find --searchBy name --query ZTEST_NOPE_NOT_EXIST $GH; ex0 "TC-READ-14 �
 R $CLI get --elementId 999999 $GH;                           ex1 "TC-READ-15 不存在 elementId exit"
 R $CLI find --searchBy=name --query=ZTEST_S1 $GH;            ex0 "TC-READ-16 --key=value 等号形式 exit"; out "TC-READ-16 命中" "ZTEST_S1"
 
+# --- 2b) FIND parentId 子树范围(find_element 新增 --parentId 维度)---
+# 数据准备阶段树形: ROOT > TG(ZTEST_TG) > {S1(ZTEST_S1), S2(ZTEST_S2)}
+echo "--- 2b) FIND parentId 子树范围 ---"
+R $CLI find --searchBy elementType --query httpsampler --parentId "$TG" $GH
+ex0 "TC-READ-17 parentId=TG 范围 exit"; out "TC-READ-17 含 S1" "ZTEST_S1"; out "TC-READ-17 含 S2" "ZTEST_S2"
+R $CLI find --searchBy elementType --query httpsampler --parentId "$S1" $GH
+ex0 "TC-READ-18 parentId=S1 叶子(inclusive) exit"; out "TC-READ-18 含 S1 自身" "ZTEST_S1"; notout "TC-READ-18 不含子树外 S2" "ZTEST_S2"
+R $CLI find --searchBy name --query ZTEST_S1 --parentId "$TG" $GH
+ex0 "TC-READ-19 parentId=TG name 查 exit"; out "TC-READ-19 命中" "ZTEST_S1"
+R $CLI find --searchBy elementId --query "$S2" --parentId "$TG" $GH
+ex0 "TC-READ-20 parentId=TG elementId(子树内) exit"; out "TC-READ-20 命中" "$S2"
+# elementId 落在子树外(ROOT 是 TG 的父,不在 TG 子树内)→ 工具层 "No element found" 报错 exit 1
+R $CLI find --searchBy elementId --query "$ROOT" --parentId "$TG" $GH
+ex1 "TC-READ-21 parentId=TG elementId(子树外) exit"; err "TC-READ-21 文案" "No element found"
+R $CLI find --searchBy name --query ZTEST_S1 --parentId 999999 $GH
+ex1 "TC-READ-22 parentId 不存在 exit"; err "TC-READ-22 文案" "Could not find parent node"
+R $CLI find --searchBy elementType --query httpsampler --parentId "$TG" --offset 1 --limit 1 $GH
+ex0 "TC-READ-23 parentId + 分页 exit"
+
 # ===== 3) CRUD 写操作 =====
 echo "--- 3) CRUD 写操作 ---"
 TG2=$(mk threadgroup ZTEST_TG2 "$ROOT" '{"ThreadGroup.num_threads":10,"ThreadGroup.main_controller":{"LoopController.loops":1}}')
@@ -260,6 +279,9 @@ R $CLI tool get_test_status $GH;                          noterr "TC-TOOL-10 get
 R $CLI tool get_test_results $GH;                         noterr "TC-TOOL-11 get_test_results 放行(非白名单拒绝)" "not allowed"
 R $CLI tool get_log_panel_content $GH;                    ex0  "TC-TOOL-12 get_log_panel_content 放行 exit"
 R $CLI tool parse_jmx_file --params '{"filePath":"/nonexistent.jmx"}' $GH; ex1 "TC-TOOL-13 parse_jmx_file 工具层报错 exit"; noterr "TC-TOOL-13 放行(非白名单拒绝)" "not allowed"
+# query_element_properties 无 CLI 子命令,经 tool 透传验证其 parentId 子树范围
+R $CLI tool query_element_properties --params "{\"propertyName\":\"name\",\"propertyValue\":\"ZTEST_S1\",\"parentId\":$TG}" $GH
+ex0 "TC-TOOL-14 query_element_properties parentId 范围 exit"; out "TC-TOOL-14 命中" "ZTEST_S1"
 
 # ===== 8) EXC 异常与安全 =====
 echo "--- 8) EXC 异常与安全 ---"

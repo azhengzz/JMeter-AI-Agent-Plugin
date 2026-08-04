@@ -87,8 +87,50 @@ public class AgentLoopFactory {
                 aiService
         );
 
+        registerSubagentTools(agentLoop, toolRegistry, contextBuilder, sessionManager, aiService);
+
         log.info("Agent Loop created successfully with {} tools", toolRegistry.size());
         return agentLoop;
+    }
+
+    /**
+     * Wire up the subagent machinery when enabled.
+     *
+     * <p>The manager takes {@code agentLoop::offerInjection} as its result sink, so
+     * a finished subagent hands its output to the loop's injection queue without
+     * either side holding a reference to the other. Both tools keep the default
+     * {@code core} scope, which is what keeps them out of the subagent's own
+     * toolset (no recursive spawning, no self-introspection).
+     */
+    private static void registerSubagentTools(AgentLoop agentLoop,
+                                              ToolRegistry toolRegistry,
+                                              ContextBuilder contextBuilder,
+                                              SessionManager sessionManager,
+                                              AiService aiService) {
+        boolean enabled = Boolean.parseBoolean(
+                org.gitee.jmeter.ai.utils.AiConfig.getProperty("agent.subagent.enabled", "false"));
+        if (!enabled) {
+            log.info("Subagent support is disabled");
+            return;
+        }
+
+        var manager = new org.gitee.jmeter.ai.agent.subagent.SubagentManager(
+                aiService,
+                contextBuilder,
+                sessionManager,
+                toolRegistry,
+                agentLoop::offerInjection);
+        agentLoop.setSubagentManager(manager);
+
+        toolRegistry.register(new org.gitee.jmeter.ai.agent.tools.subagent.SpawnTool(
+                manager,
+                () -> {
+                    var ctx = org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
+                    return ctx == null ? null : agentLoop.currentTurnToken(ctx.getSessionKey());
+                }));
+        toolRegistry.register(new org.gitee.jmeter.ai.agent.tools.subagent.SubagentStatusTool(manager));
+
+        log.info("Subagent support enabled (spawn + subagent_status registered)");
     }
 
     /**

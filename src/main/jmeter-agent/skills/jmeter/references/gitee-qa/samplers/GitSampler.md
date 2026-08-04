@@ -21,31 +21,94 @@ This component is useful for performance testing Git server throughput, CI/CD pi
 
 ## Actions and Arguments
 
-| Action | Description | Required Arguments | Optional Arguments |
-|--------|-------------|--------------------|--------------------|
-| `Clone` | Clone a remote repository | `<repository>`, `<directory>` | `--branch` |
-| `Add` | Stage file changes | `<repo-path>`, `<pathspec>` | — |
-| `Commit` | Commit staged changes | `<repo-path>`, `--message` | `--author-name`, `--author-email` |
-| `Push` | Push commits to remote | `<repo-path>`, `--force`, `<refspec>` | — |
-| `Pull` | Pull changes from remote | `<repo-path>` | — |
-| `Branch` | Create a branch | `<repo-path>`, `<branch-action>`, `<branch-name>` | — |
+### 1. Clone — 克隆远程仓库
 
-### Argument Keys
+Clone a remote repository to a local directory. Supports both SSH and HTTP authentication.
 
-| Key | Required | Description | Example |
-|-----|----------|-------------|---------|
-| `<repository>` | Yes (Clone) | Remote repository URL to clone from | `"git@github.com:user/repo.git"` |
-| `<directory>` | Yes (Clone) | Local directory to clone into | `"/tmp/test-repo"` |
-| `--branch` | No (Clone) | Branch to checkout after clone | `"main"` |
-| `<repo-path>` | Yes (others) | Path to local Git repository | `"/tmp/test-repo"` |
-| `<pathspec>` | Yes (Add) | File pattern to stage (use `.` for all) | `"."` |
-| `--message` | Yes (Commit) | Commit message | `"feat: add new feature"` |
-| `--author-name` | No (Commit) | Committer name | `"Zhang San"` |
-| `--author-email` | No (Commit) | Committer email | `"zhangsan@example.com"` |
-| `--force` | Yes (Push) | Force push (`"true"` or `"false"`) | `"false"` |
-| `<refspec>` | Yes (Push) | Refspec for push (e.g. `refs/heads/main`) | `"refs/heads/main"` |
-| `<branch-action>` | Yes (Branch) | Branch action (currently only `"create"`) | `"create"` |
-| `<branch-name>` | Yes (Branch) | Branch name to create | `"feature-test"` |
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repository>` | Yes | The (possibly remote) repository URL to clone from. Supports SSH (`git@...`) and HTTP (`https://...`) URLs. |
+| `<directory>` | Yes | The name of a new directory to clone into. |
+| `--branch` | No | Instead of pointing the newly created HEAD to the branch pointed to by the cloned repository's HEAD, point to `<name>` branch instead. |
+
+---
+
+### 2. Add — 暂存文件变更
+
+Stage file changes in a local repository.
+
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repo-path>` | Yes | 本地仓库路径。 |
+| `<pathspec>` | Yes | Files to add content from. Use `"."` to stage all changes. |
+
+---
+
+### 3. Commit — 提交暂存变更
+
+Commit staged changes to a local repository.
+
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repo-path>` | Yes | 本地仓库路径。 |
+| `--message` | Yes | The commit message. |
+| `--author-name` | No | The committer name. Only used when both `--author-name` and `--author-email` are provided. |
+| `--author-email` | No | The committer email. Only used when both `--author-name` and `--author-email` are provided. |
+
+---
+
+### 4. Push — 推送提交到远程
+
+Push commits from a local repository to a remote.
+
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repo-path>` | Yes | 本地仓库路径。 |
+| `--force` | Yes | 强推开关。`"true"`：强制推送；`"false"`：非强制推送。 |
+| `<refspec>` | Yes | Specify what destination ref to update with what source object. Format: `[+]<src>:<dst>`，例如 `refs/heads/main:refs/heads/main`。 |
+
+---
+
+### 5. Pull — 拉取远程更新
+
+Pull changes from a remote repository into a local repository.
+
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repo-path>` | Yes | 本地仓库路径。 |
+
+---
+
+### 6. Branch — 创建分支
+
+Create a new branch in a local repository. Currently only supports branch creation.
+
+| Argument Key | Required | Description |
+|-------------|----------|-------------|
+| `<repo-path>` | Yes | 本地仓库路径。 |
+| `<branch-action>` | Yes | 分支动作。目前仅支持 `"create"`。 |
+| `<branch-name>` | Yes | 分支名。 |
+
+---
+
+## Argument Keys Reference
+
+Summary of all argument keys used across actions:
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `<repository>` | Remote repository URL to clone from | `"git@github.com:user/repo.git"` |
+| `<directory>` | Local directory to clone into | `"/tmp/test-repo"` |
+| `--branch` | Branch to checkout after clone | `"main"` |
+| `<repo-path>` | Path to local Git repository | `"/tmp/test-repo"` |
+| `<pathspec>` | File pattern to stage (use `.` for all) | `"."` |
+| `--message` | Commit message | `"feat: add new feature"` |
+| `--author-name` | Committer name | `"Zhang San"` |
+| `--author-email` | Committer email | `"zhangsan@example.com"` |
+| `--force` | Force push (`"true"` or `"false"`) | `"false"` |
+| `<refspec>` | Refspec for push (e.g. `refs/heads/main:refs/heads/main`) | `"refs/heads/main:refs/heads/main"` |
+| `<branch-action>` | Branch action (currently only `"create"`) | `"create"` |
+| `<branch-name>` | Branch name to create | `"feature-test"` |
 
 ## Usage Examples
 
@@ -121,7 +184,7 @@ create_jmeter_element with:
   - GitSampler.Arguments:
     - "<repo-path>": "/tmp/test-repo"
     - "--force": "false"
-    - "<refspec>": "refs/heads/main"
+    - "<refspec>": "refs/heads/main:refs/heads/main"
 ```
 
 ### Example 4: Pull Changes
@@ -159,5 +222,5 @@ create_jmeter_element with:
 - On Windows, use `/` (forward slash) in SSH key paths, e.g. `C:/Users/test/.ssh/id_rsa`
 - If SSH authentication fails with `invalid privatekey`, regenerate the key with `ssh-keygen -t rsa` or `ssh-keygen -t rsa -m PEM`
 - If SSH authentication fails with `Auth fail`, ensure the public key is added to the Git server
-- The Branch action currently only supports `create`
+- The Branch action currently only supports `"create"`
 - Clone is typically the first operation, followed by Add → Commit → Push workflows

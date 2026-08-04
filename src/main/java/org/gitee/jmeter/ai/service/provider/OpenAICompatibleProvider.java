@@ -366,33 +366,37 @@ public class OpenAICompatibleProvider implements AiService {
                     .maxCompletionTokens(effectiveMaxTokens)
                     .temperature(effectiveTemperature);
 
-            // Apply reasoning effort. Skip for models that don't support thinking — the
-            // parameter has no effect and may be rejected by some providers.
+            // Provider-wide thinking style (injected into extra_body for models like K2.6/K2.7).
+            String effectiveStyle = spec != null ? spec.getThinkingStyle() : "";
+            boolean alwaysOn = spec != null && spec.isThinkingAlwaysOn(modelName);
+
+            // Apply reasoning effort via the SDK enum (includes MAX). Skip for models without
+            // thinking support. Values a model doesn't accept (e.g. K3 with minimal/medium/xhigh)
+            // pass through unchanged — the provider rejects them, surfacing the misconfiguration
+            // rather than silently clamping it.
             ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
             if (effort != null && modelSupportsThinking) {
                 paramsBuilder.reasoningEffort(effort);
             }
 
             // Determine if thinking mode is active (mirrors Nanobot's thinking_active logic).
-            // Only true when the provider has a thinking_style AND model supports it AND reasoning_effort is not none.
-            // Always-on models (e.g. kimi-k2.7-code) force this true so reasoning_content backfill
-            // triggers correctly for multi-turn tool calls.
-            boolean alwaysOn = spec != null && spec.isThinkingAlwaysOn(modelName);
+            // Always-on models (e.g. kimi-k2.7-code, kimi-k3) force this true so reasoning_content
+            // backfill triggers correctly for multi-turn tool calls.
             boolean thinkingActive = alwaysOn || (spec != null
-                    && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
+                    && !effectiveStyle.isEmpty()
                     && modelSupportsThinking
                     && effectiveReasoningEffort != null
                     && !"none".equalsIgnoreCase(effectiveReasoningEffort));
 
-            // Provider-specific thinking parameters (mirrors Nanobot's _THINKING_STYLE_MAP).
-            // Only sent when reasoning_effort is explicitly configured so that
-            // the provider default is preserved otherwise.
-            if (spec != null && spec.getThinkingStyle() != null && !spec.getThinkingStyle().isEmpty()
+            // Provider-specific thinking extra_body (mirrors Nanobot's _THINKING_STYLE_MAP).
+            // Only sent when reasoning_effort is explicitly configured, so the provider default
+            // is preserved otherwise.
+            if (spec != null && !effectiveStyle.isEmpty()
                     && effectiveReasoningEffort != null && modelSupportsThinking) {
                 // Always-on models cannot receive disabled (API rejects); force enabled.
                 boolean thinkingEnabled = alwaysOn || !"none".equalsIgnoreCase(effectiveReasoningEffort);
                 java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
-                        THINKING_STYLE_MAP.get(spec.getThinkingStyle());
+                        THINKING_STYLE_MAP.get(effectiveStyle);
                 if (styleBuilder != null) {
                     Map<String, Object> extra = styleBuilder.apply(thinkingEnabled);
                     if (extra != null && !extra.isEmpty()) {
@@ -524,8 +528,7 @@ public class OpenAICompatibleProvider implements AiService {
             }
             ChatCompletionCreateParams params = paramsBuilder.build();
             log.info("[{}] Request params: {}, thinkingActive={}, thinkingStyle={}",
-                    providerName, summarizeParams(params), thinkingActive,
-                    spec != null ? spec.getThinkingStyle() : "none");
+                    providerName, summarizeParams(params), thinkingActive, effectiveStyle);
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
             log.info("Received response from {}, chatCompletion object type: {}",
@@ -851,6 +854,7 @@ public class OpenAICompatibleProvider implements AiService {
             case "medium" -> ReasoningEffort.MEDIUM;
             case "high" -> ReasoningEffort.HIGH;
             case "xhigh" -> ReasoningEffort.XHIGH;
+            case "max" -> ReasoningEffort.MAX;
             default -> ReasoningEffort.MEDIUM;
         };
     }

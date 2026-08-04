@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to query JMeter elements by property name and/or value.
@@ -26,6 +27,12 @@ public class QueryElementPropertiesTool extends AbstractTool {
     @Override
     public String getName() {
         return "query_element_properties";
+    }
+
+    /** Read-only: matches element properties, never writes them. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override
@@ -44,6 +51,10 @@ public class QueryElementPropertiesTool extends AbstractTool {
                         "elementType": {
                             "type": "string",
                             "description": "Filter by element type (e.g., 'httpsampler', 'threadgroup'). If omitted, searches all elements."
+                        },
+                        "parentId": {
+                            "type": "integer",
+                            "description": "Optional elementId of a node under which to scope the query (inclusive of that node). Use get_test_plan_tree or find_element to get elementId. If omitted, queries the whole test plan."
                         },
                         "propertyName": {
                             "type": "string",
@@ -109,6 +120,7 @@ public class QueryElementPropertiesTool extends AbstractTool {
         int maxDepth = getIntParameter(parameters, "maxDepth", 0);
         int offset = getIntParameter(parameters, "offset", 0);
         int limit = getIntParameter(parameters, "limit", 20);
+        int parentId = getIntParameter(parameters, "parentId", -1);
 
         if (propertyName.isEmpty() && propertyValue.isEmpty()) {
             return ToolResult.error("At least one of 'propertyName' or 'propertyValue' must be specified");
@@ -123,6 +135,16 @@ public class QueryElementPropertiesTool extends AbstractTool {
         }
         if (limit <= 0 || limit > 50) {
             return ToolResult.error("Parameter 'limit' must be between 1 and 50, got: " + limit);
+        }
+
+        // Scope the query to a parent node's subtree when parentId is provided
+        if (parentId > 0) {
+            JMeterTreeNode parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
+            if (parentNode == null) {
+                return ToolResult.error("Could not find parent node with elementId: " + parentId +
+                        ". The node may have been removed. Use get_test_plan_tree to get current elementIds.");
+            }
+            searchRoot = parentNode;
         }
 
         boolean exact = "exact".equals(matchMode);

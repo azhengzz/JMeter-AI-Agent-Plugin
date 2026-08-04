@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to read file contents with line-based pagination.
@@ -26,6 +27,12 @@ public class ReadFileTool extends AbstractFsTool {
     @Override
     public String getName() {
         return "read_file";
+    }
+
+    /** Read-only: reads file content. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

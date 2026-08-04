@@ -57,7 +57,15 @@ properties:
         type: String
         required: true
         description: Argument key (e.g. "--message", "<repo-path>", "<repository>")
+      
       - name: Argument.value
         type: String
         required: false
         description: Argument value
+      
+      - name: Argument.desc
+        type: String
+        required: true
+        default: ""
+        setterOverride: setDescription
+        description: Description for this Argument

@@ -52,6 +52,15 @@ public class ToolRegistry {
     }
 
     /**
+     * The executor backing async tool execution.
+     * Exposed so a derived registry (e.g. the subagent's filtered view) can share
+     * it instead of creating a pool of its own that nothing would ever shut down.
+     */
+    public Executor getExecutor() {
+        return executor;
+    }
+
+    /**
      * Register a tool
      */
     public void register(Tool tool) {
@@ -277,7 +286,19 @@ public class ToolRegistry {
         }
 
         final long finalTimeout = effectiveTimeout;
-        return CompletableFuture.supplyAsync(() -> executeWithEvent(name, parameters), executor)
+        // Concurrent tools run on the pooled tool-executor, which has no run context
+        // of its own — carry the caller's over so tools like spawn still know their
+        // session, and clear it so the pooled thread keeps nothing stale.
+        final org.gitee.jmeter.ai.agent.run.AgentRunContext runContext =
+                org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
+        return CompletableFuture.supplyAsync(() -> {
+                    org.gitee.jmeter.ai.agent.run.AgentRunContext.set(runContext);
+                    try {
+                        return executeWithEvent(name, parameters);
+                    } finally {
+                        org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+                    }
+                }, executor)
                 .orTimeout(finalTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {
                     if (ex instanceof java.util.concurrent.TimeoutException) {

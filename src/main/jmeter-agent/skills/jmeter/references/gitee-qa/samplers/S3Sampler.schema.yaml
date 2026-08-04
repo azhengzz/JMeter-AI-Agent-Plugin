@@ -20,3 +20,44 @@ properties:
     enum: ["LIST_ALL_BUCKETS", "CREATE_BUCKET", "DELETE_BUCKET", "BUCKET_EXISTS", "LIST_OBJECTS", "GET_FILE_METADATA", "FILE_EXISTS", "UPLOAD_FILE", "DOWNLOAD_FILE", "DELETE_FILE"]
     description: S3 operation to perform
 
+  - name: S3Sampler.Arguments
+    type: Array
+    required: false
+    description: Action-specific key-value arguments (keys depend on the action; e.g. <bucket-name>, <key>, <file-path>, <prefix>, <download-dir>, <download-file-name>, <discard-file>)
+    testClass: com.gitee.qa.jmeter.protocol.s3.util.S3Arguments
+    mountMode: TestElementProperty
+    containerAddMethod: addArgument
+    itemClass: com.gitee.qa.jmeter.protocol.s3.util.S3Argument
+    itemProperties:
+      - name: Argument.name
+        type: String
+        required: true
+        description: Argument key (e.g. "<bucket-name>", "<key>", "<file-path>", "<prefix>")
+
+      - name: Argument.value
+        type: String
+        required: false
+        default: ""
+        description: Argument value
+
+      - name: Argument.desc
+        type: String
+        required: false
+        default: ""
+        setterOverride: setDescription
+        description: Description for this argument
+
+      - name: S3Argument.required
+        type: Boolean
+        required: false
+        default: false
+        description: Whether this argument is mandatory for the selected S3 action
+
+      - name: S3Argument.notNull
+        type: Boolean
+        required: false
+        default: false
+        description: Whether the argument value must not be null or empty
+
+
+

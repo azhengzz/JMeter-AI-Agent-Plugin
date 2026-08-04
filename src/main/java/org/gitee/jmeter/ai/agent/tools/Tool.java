@@ -3,12 +3,20 @@ package org.gitee.jmeter.ai.agent.tools;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interface for Agent tools.
  * Tools are callable functions that the LLM can invoke to perform actions.
  */
 public interface Tool {
+
+    /** Scope every tool belongs to: callable by the main agent. */
+    String SCOPE_CORE = "core";
+
+    /** Scope for tools a subagent may call (read-only analysis tools). */
+    String SCOPE_SUBAGENT = "subagent";
+
     /**
      * Unique tool name (used for registration and calling)
      */
@@ -69,5 +77,20 @@ public interface Tool {
      */
     default long getTimeoutMs() {
         return 0;
+    }
+
+    /**
+     * Get the scopes this tool belongs to.
+     *
+     * <p>The subagent toolset is built with INCLUDE semantics: only tools whose
+     * scopes contain {@code "subagent"} are visible to a subagent. Tools keeping
+     * the default {@code {"core"}} are therefore main-agent only — which is what
+     * keeps {@code spawn} out of the subagent toolset and prevents unbounded
+     * recursion (a subagent cannot spawn another subagent).
+     *
+     * @return Set of scope names; defaults to {@code {"core"}}
+     */
+    default Set<String> getScopes() {
+        return Set.of("core");
     }
 }

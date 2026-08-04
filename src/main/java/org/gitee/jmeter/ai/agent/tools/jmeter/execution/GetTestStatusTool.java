@@ -5,6 +5,7 @@ import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to get current test execution status including running state,
@@ -15,6 +16,12 @@ public class GetTestStatusTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_test_status";
+    }
+
+    /** Read-only: reads collector summary and thread counts. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

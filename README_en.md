@@ -120,7 +120,7 @@ Response to Chat UI
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Search the web (supports Brave, Tavily, DuckDuckGo, and more) |
+| `web_search` | Search the web (supports Brave, Tavily, Jina, and more) |
 | `web_fetch` | Fetch web page content, auto-stripping navigation and ads |
 
 ### Execution Tool (Must Enable)
@@ -206,7 +206,7 @@ The Agent dynamically loads skill modules from the filesystem. Each skill contai
 | **memory** | Memory management — Two-layer memory (MEMORY.md long-term + HISTORY.md events) with grep-based recall |
 | **skill-creator** | Skill creation — Meta-skill for creating and updating Agent skills |
 
-> **Want to add new JMeter components for the Agent?** Component metadata (`testClass`/`guiClass`) is fully data-driven — adding a component requires **zero Java changes**, just a YAML Schema file. See the full authoring guide: [SCHEMA-GUIDE_en.md](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE_en.md)（[中文版](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE.md)）.
+> **Want to add new JMeter components for the Agent?** Component metadata (`testClass`/`guiClass`) is fully data-driven — adding a component requires **zero Java changes**, just a YAML Schema file. See the full authoring guide: [SCHEMA-GUIDE_en.md](SCHEMA-GUIDE_en.md)（[中文版](SCHEMA-GUIDE.md)）.
 
 ## Configuration Reference
 
@@ -240,6 +240,7 @@ The table below lists recommended values for mainstream models.
 | zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
+| moonshot | kimi-k3 | `1.0` (API-enforced) | `65536` | `[low, high, max]` [Other values are handled by default as "max".](https://platform.kimi.com/docs/guide/use-thinking-effort) | `1000000` |
 | minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
 | minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
 
@@ -287,7 +288,7 @@ The table below lists recommended values for mainstream models.
 | `zhipu.api.key` | Zhipu GLM API key | — |
 | `zhipu.api.base.url` | Zhipu GLM API base URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API key | — |
-| `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.ai/v1` |
+| `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API key | — |
 | `minimax.api.base.url` | MiniMax API base URL | `https://api.minimaxi.com/v1` |
 
@@ -346,13 +347,11 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.tools.websearch.enabled` | Enable web tools | `true` (source-code built-in default: `false`) |
-| `agent.tools.websearch.provider` | Search engine (brave / tavily / duckduckgo / jina / serpapi) | `brave` |
+| `agent.tools.websearch.provider` | Search engine (brave / tavily / jina) | `jina` |
 | `agent.tools.websearch.max.results` | Max search results | `10` |
 | `agent.tools.websearch.timeout` | Search timeout (seconds) | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API key (required when provider=tavily) | — |
-| `agent.tools.websearch.serpapi.key` | SerpAPI key (required when provider=serpapi) | — |
 | `agent.tools.websearch.jina.api.key` | Jina API key (required when provider=jina) | — |
-| `agent.tools.webfetch.max.length` | Max fetch content length (chars) | `50000` |
 | `agent.tools.webfetch.timeout` | Web fetch timeout (seconds) | `30` |
 | `agent.tools.web.max.redirects` | Max redirects to follow | `5` |
 | `agent.tools.web.ssrf.protection` | SSRF protection (blocks private/local network access) | `true` |
@@ -366,6 +365,19 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | `agent.tools.exec.working.dir` | Restrict working directory (only this dir and its subdirs allowed when set) | — |
 | `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex, comma-separated) | Built-in defaults (rm -rf, del /f, format, mkfs, shutdown, etc.) |
 | `agent.tools.exec.path.append` | Additional directories to append to PATH | — |
+
+#### Async Subagent
+
+The main agent can delegate a self-contained **read-only analysis task** to a background subagent via the `spawn` tool. The subagent runs on a dedicated thread pool with an isolated read-only toolset (only read-only JMeter / file / web tools — it cannot modify the test plan, run tests, write files, or spawn further subagents) and an ephemeral session isolated from the main conversation — its result is folded back into the **same conversation turn**.
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `agent.subagent.enabled` | Master switch. When off, the `spawn` and `subagent_status` tools are not registered and the main agent cannot spawn subagents | `false` |
+| `agent.subagent.max.concurrent` | Max concurrent subagents per main session (at `1` they run serially) | `1` |
+| `agent.subagent.max.iterations` | Max tool iterations for a single subagent run | `50` |
+| `agent.subagent.drain.timeout.seconds` | Seconds the main turn parks waiting for a subagent result (hard cap 300); on timeout the subagent keeps running, its result stays queryable via `subagent_status` and may be delivered in a later turn | `120` |
+| `agent.subagent.status.retention.seconds` | How long (seconds) a finished subagent's status stays queryable | `60` |
+| `agent.subagent.status.max.completed` | Max finished statuses retained per session (oldest evicted beyond this) | `10` |
 
 ### Chat UI Configuration
 

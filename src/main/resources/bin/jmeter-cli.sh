@@ -31,4 +31,5 @@ else
     JAVACMD="java"
 fi
 
+export JMETER_HOME
 exec "$JAVACMD" -cp "$JAR" org.gitee.jmeter.ai.cli.JmeterCli "$@"

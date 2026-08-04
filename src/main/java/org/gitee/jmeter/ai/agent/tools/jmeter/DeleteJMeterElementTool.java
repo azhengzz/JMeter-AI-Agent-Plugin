@@ -93,13 +93,13 @@ public class DeleteJMeterElementTool extends AbstractTool {
             String elementType = testElement != null ? testElement.getClass().getSimpleName() : "Unknown";
 
             // 5. Check if this is the TestPlan root node
-            if (isTestPlanRootNode(targetNode)) {
+            if (JMeterTreeUtils.isTestPlanRootNode(targetNode)) {
                 return ToolResult.error("Cannot delete TestPlan root node for safety reasons. " +
                         "The TestPlan root node must always exist in the test plan.");
             }
 
             // 6. Check if the element can be removed
-            if (!canRemoveNode(targetNode)) {
+            if (!JMeterTreeUtils.canRemoveNode(targetNode)) {
                 return ToolResult.error("Element '" + elementName + "' (" + elementType + ") cannot be removed. " +
                         "It may be in use or does not support removal.");
             }
@@ -127,8 +127,8 @@ public class DeleteJMeterElementTool extends AbstractTool {
                             .setSelectionPath(new TreePath(parentForRefresh.getPath()));
                 }
 
-                // 10. Refresh GUI
-                guiPackage.updateCurrentGui();
+                // 10. Refresh GUI (configure-only; see MoveJMeterElementTool for why not updateCurrentGui)
+                guiPackage.refreshCurrentGui();
             });
             if (edtError != null) {
                 log.error("Failed to delete element: {} ({})", elementName, elementType, edtError);
@@ -157,57 +157,6 @@ public class DeleteJMeterElementTool extends AbstractTool {
             log.error("Error deleting element with elementId: {}", elementId, e);
             return ToolResult.error("Failed to delete element: " + e.getMessage());
         }
-    }
-
-    /**
-     * Check if the node is a TestPlan root node.
-     *
-     * @param node The node to check
-     * @return true if this is the TestPlan root node
-     */
-    private boolean isTestPlanRootNode(JMeterTreeNode node) {
-        if (node == null) {
-            return false;
-        }
-
-        TestElement testElement = node.getTestElement();
-        if (testElement == null) {
-            return false;
-        }
-
-        // Method 1: Check if the element type is TestPlan
-        if (testElement instanceof org.apache.jmeter.testelement.TestPlan) {
-            return true;
-        }
-
-        // Method 2: Check if the parent is a virtual root node (no TestElement)
-        JMeterTreeNode parent = (JMeterTreeNode) node.getParent();
-        if (parent != null && parent.getTestElement() == null) {
-            // Parent has no TestElement, meaning parent is the virtual root node
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Check if the node can be safely removed.
-     *
-     * @param node The node to check
-     * @return true if the node can be removed
-     */
-    private boolean canRemoveNode(JMeterTreeNode node) {
-        if (node == null) {
-            return false;
-        }
-
-        TestElement testElement = node.getTestElement();
-        if (testElement == null) {
-            return false;
-        }
-
-        // Call JMeter's canRemove() method
-        return testElement.canRemove();
     }
 
 }

@@ -9,6 +9,7 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tool to get the complete JMeter TestPlan tree structure in JSON format.
@@ -21,6 +22,12 @@ public class GetTestPlanTreeTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_test_plan_tree";
+    }
+
+    /** Read-only: walks the GUI tree model and serializes it. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override

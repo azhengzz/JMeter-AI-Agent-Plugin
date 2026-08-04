@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Manages per-session injection queues for mid-turn message injection.
@@ -91,6 +92,53 @@ public class InjectionManager {
                 items.size(), sessionKey);
         }
         return items;
+    }
+
+    /**
+     * Drain like {@link #drain(String, int)}, but if nothing is ready, block until
+     * one message arrives or the timeout elapses.
+     *
+     * <p>Used for subagent turn-confluence: the main agent parks here while a
+     * subagent is still running so its result is consumed in the same turn.
+     *
+     * <p>This is invoked through {@code AgentRunSpec.injectionCallback}, a
+     * {@code Function} which cannot declare checked exceptions — so an interrupt
+     * (Stop button) is caught here, the interrupt flag is restored, and an empty
+     * list is returned. The agent loop then exits at its next abort check.
+     * This method never throws.
+     *
+     * @param sessionKey the session key
+     * @param limit maximum number of messages to drain
+     * @param timeoutMs how long to wait when nothing is ready
+     * @return drained messages, possibly empty
+     */
+    public List<String> drainBlocking(String sessionKey, int limit, long timeoutMs) {
+        List<String> items = drain(sessionKey, limit);
+        if (!items.isEmpty()) {
+            return items;
+        }
+
+        LinkedBlockingQueue<String> queue = injectionQueues.get(sessionKey);
+        if (queue == null) {
+            return items;
+        }
+
+        try {
+            String first = queue.poll(timeoutMs, TimeUnit.MILLISECONDS);
+            if (first == null) {
+                log.warn("Timed out after {}ms waiting for a subagent result in session {}",
+                    timeoutMs, sessionKey);
+                return items;
+            }
+            items.add(first);
+            // Take whatever else already arrived, without blocking again.
+            items.addAll(drain(sessionKey, limit - items.size()));
+            return items;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.info("Interrupted while waiting for a subagent result in session {}", sessionKey);
+            return items;
+        }
     }
 
     /**

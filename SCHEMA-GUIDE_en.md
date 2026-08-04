@@ -9,9 +9,9 @@ This guide explains the definition, allowed values, and authoring rules for each
 | Scenario | YAML change | Java change |
 |------|----------|----------|
 | AI needs to be able to **create and configure** the component (has a property schema) | ✅ Write a `.schema.yaml` (containing `testClass`/`guiClass` + `properties`) | ❌ Not required |
-| The component only needs to be **recognizable** in the registry (used for compatibility reverse-lookup, not involved in AI creation) | ✅ Add one line to [`legacy-elements.yaml`](./legacy-elements.yaml) | ❌ Not required |
+| The component only needs to be **recognizable** in the registry (used for compatibility reverse-lookup, not involved in AI creation) | ✅ Add one line to [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) | ❌ Not required |
 
-How to decide: look under [`references/`](./references/) for the component's `.schema.yaml`, or search [`legacy-elements.yaml`](./legacy-elements.yaml) for the elementType. If neither exists → pick one of the two options above as needed. See [§13 Checklist](#13-adding-a-new-component-checklist).
+How to decide: look under [`references/`](src/main/jmeter-agent/skills/jmeter/references/) for the component's `.schema.yaml`, or search [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) for the elementType. If neither exists → pick one of the two options above as needed. See [§13 Checklist](#13-adding-a-new-component-checklist).
 
 ## Table of Contents
 
@@ -602,9 +602,9 @@ The complete workflow for adding a new JMeter component.
 
 ### Step 0: check whether the component is already in the registry
 
-Component metadata (testClass/guiClass/default name) is now loaded by [`ElementRegistry`](../../../src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) from two YAML sources: **components with a schema** read the `testClass`/`guiClass` from the `.schema.yaml`, and `name` serves as the default name; **components without a schema** are read from [`legacy-elements.yaml`](./legacy-elements.yaml).
+Component metadata (testClass/guiClass/default name) is now loaded by [`ElementRegistry`](src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) from two YAML sources: **components with a schema** read the `testClass`/`guiClass` from the `.schema.yaml`, and `name` serves as the default name; **components without a schema** are read from [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml).
 
-First look under [`references/`](./references/) for the component's `.schema.yaml`, or search [`legacy-elements.yaml`](./legacy-elements.yaml) for your elementType:
+First look under [`references/`](src/main/jmeter-agent/skills/jmeter/references/) for the component's `.schema.yaml`, or search [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml) for your elementType:
 
 - **Already has a schema** → jump to step 2 to supplement/modify properties
 - **Only in legacy-elements.yaml** → it is used solely for compatibility reverse-lookup and is not involved in AI creation; if you now want the AI to be able to create and configure it, continue to step 1 to write a full schema (after writing it you may delete that line from the legacy yaml to avoid duplication)
@@ -627,7 +627,7 @@ component:
 
 How to find `testClass`/`guiClass`: open the JMeter GUI, manually add the component → save a `.jmx` → in the XML, `<testelement class="...">` is the testClass, and that node's `guiclass` attribute is the guiClass; or look it up directly in the JMeter source (the model class + the corresponding `*Gui` class).
 
-**B. Only needs registry recognition** (for `isNodeCompatible` compatibility reverse-lookup, not letting the AI create it): append one line under `elements` in [`legacy-elements.yaml`](./legacy-elements.yaml):
+**B. Only needs registry recognition** (for `isNodeCompatible` compatibility reverse-lookup, not letting the AI create it): append one line under `elements` in [`legacy-elements.yaml`](src/main/jmeter-agent/skills/jmeter/legacy-elements.yaml):
 
 ```yaml
   - elementType: mynewsampler
@@ -660,7 +660,7 @@ For each itemProperties / properties sub-field, per [§10](#10-setteroverride-an
 
 ### Step 6: update the SKILL.md component index
 
-Append one row to the corresponding category table in [`SKILL.md`](SKILL.md) (elementType / Description / Docs link / Schema link).
+Append one row to the corresponding category table in [`SKILL.md`](src/main/jmeter-agent/skills/jmeter/SKILL.md) (elementType / Description / Docs link / Schema link).
 
 ### Step 7: test
 
@@ -735,8 +735,8 @@ Under `mountMode: self`, the code first clears the CollectionProperty correspond
 
 ## References
 
-- Code implementation: [SchemaBasedPropertyHandler.java](../../../src/main/java/org/gitee/jmeter/ai/agent/tools/jmeter/property/SchemaBasedPropertyHandler.java)
-- Schema model: [ComponentSchema.java](../../../src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchema.java)
-- Schema loading: [ComponentSchemaLoader.java](../../../src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchemaLoader.java)
-- Component registration: [ElementRegistry.java](../../../src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) (loads schema + legacy-elements.yaml together)
-- Component create/delete: [JMeterElementManager.java](../../../src/main/java/org/gitee/jmeter/ai/utils/JMeterElementManager.java)
+- Code implementation: [SchemaBasedPropertyHandler.java](src/main/java/org/gitee/jmeter/ai/agent/tools/jmeter/property/SchemaBasedPropertyHandler.java)
+- Schema model: [ComponentSchema.java](src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchema.java)
+- Schema loading: [ComponentSchemaLoader.java](src/main/java/org/gitee/jmeter/ai/agent/validation/ComponentSchemaLoader.java)
+- Component registration: [ElementRegistry.java](src/main/java/org/gitee/jmeter/ai/utils/ElementRegistry.java) (loads schema + legacy-elements.yaml together)
+- Component create/delete: [JMeterElementManager.java](src/main/java/org/gitee/jmeter/ai/utils/JMeterElementManager.java)

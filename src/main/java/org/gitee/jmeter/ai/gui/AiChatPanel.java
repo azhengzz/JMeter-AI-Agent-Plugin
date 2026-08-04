@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import org.gitee.jmeter.ai.intellisense.InputBoxIntellisense;
 import org.gitee.jmeter.ai.agent.AgentLoop;
@@ -198,48 +199,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         largerFont = UiThemeUtil.ensureCjkSupport(largerFont);
         chatArea.setFont(largerFont);
         messageProcessor.setBaseFont(largerFont);
-        chatArea.setBackground(Color.WHITE);
-
-        // Base CSS for the HTML render path (theme-aware colors via UIManager).
-        HTMLEditorKit htmlKit = (HTMLEditorKit) chatArea.getEditorKit();
-        StyleSheet ss = htmlKit.getStyleSheet();
-        Color textFg = getThemeColor("TextPane.foreground", Color.BLACK);
-        Color codeBg = UiThemeUtil.getCodeBlockBackground();
-        int fontPt = largerFont.getSize();
-        ss.addRule("body { font-family:" + largerFont.getFamily() + "; font-size:" + fontPt
-                + "pt; color:" + UiThemeUtil.toHex(textFg) + "; background:#ffffff; }");
-        ss.addRule("p { margin:5px 0; }");
-        ss.addRule("div { margin:5px 0; }");
-        // Headings scale with the base font size (browser-standard ratios) so they follow
-        // ai.chat.font.size instead of Swing's built-in fixed heading sizes.
-        ss.addRule("h1 { font-size:" + Math.round(fontPt * 1.50f) + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("h2 { font-size:" + Math.round(fontPt * 1.30f) + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("h3 { font-size:" + Math.round(fontPt * 1.17f) + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("h4 { font-size:" + fontPt + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("h5 { font-size:" + Math.round(fontPt * 0.83f) + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("h6 { font-size:" + Math.round(fontPt * 0.67f) + "pt; font-weight:bold; margin:6px 0; }");
-        ss.addRule("ul,ol { margin:4px 0; padding-left:22px; }");
-        ss.addRule("li { margin:1px 0; }");
-        // font-size is required here: once font-family is set, Swing's CSS engine no longer
-        // inherits the body font size and would fall back to a default — the same applies
-        // to any rule that specifies a font-family.
-        ss.addRule("pre, code, kbd, samp { font-family: Monospaced; font-size:" + fontPt + "pt; }");
-        // Inline code/kbd/samp: light background + padding so they read as distinct "code chips"
-        // instead of bare monospaced text. Background reuses codeBg (theme-aware, guaranteed
-        // contrast vs the panel); font stays at fontPt so it scales with ai.chat.font.size.
-        ss.addRule("code, kbd, samp { background:" + UiThemeUtil.toHex(codeBg) + "; color:"
-                + UiThemeUtil.toHex(textFg) + "; padding:1px 3px; }");
-        ss.addRule("pre { background:" + UiThemeUtil.toHex(codeBg) + "; padding:4px 6px; margin:4px 0; }");
-        // Inside <pre><code>, drop the inline "chip" so the code block stays one solid panel.
-        // Harmless even if Swing ignores the descendant selector: both backgrounds are codeBg.
-        ss.addRule("pre code { background: transparent; padding:0; }");
-        ss.addRule("table { border-collapse:collapse; margin:4px 0; }");
-        ss.addRule("th, td { border:1px solid #999; padding:2px 6px; }");
-        ss.addRule("th { background:" + UiThemeUtil.toHex(codeBg) + "; }");
-        ss.addRule("blockquote { border-left:3px solid #bbb; margin:4px 0; padding-left:8px; color:#666; }");
-
         // Store the base font size for scaling
         baseChatFontSize = largerFont.getSize2D();
+
+        // Apply theme-aware background + StyleSheet. Also re-applied on Look and Feel change
+        // (see propertyChange) so the chat follows JMeter's light/dark themes. The body rule
+        // deliberately omits a CSS "background" — the JTextPane component background set here
+        // provides the chat area's base color, which repaint applies instantly on theme switch
+        // without re-parsing the HTML view tree (Swing caches parsed view attributes).
+        applyChatTheme();
 
         // Set default paragraph attributes for left alignment
         StyledDocument doc = chatArea.getStyledDocument();
@@ -735,7 +703,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 "How can I assist you today?";
 
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, getThemeColor("TextPane.foreground", Color.BLACK), true);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, null, true);
         } catch (BadLocationException e) {
             log.error("Error displaying welcome message", e);
         }
@@ -784,6 +752,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
+        // /new starts a fresh conversation with a clean chat area — handle it
+        // specially (covers Enter key and the default Send button).
+        if ("/new".equals(message)) {
+            handleNewCommand();
+            return;
+        }
+
         // If there's an active agent run, inject the message instead
         if (agentLoop != null && agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
             injectMessage();
@@ -802,7 +777,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Add the user message to the chat
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "\nYou: " + message, getThemeColor("TextPane.foreground", Color.BLACK), false);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "\nYou: " + message, null, false);
         } catch (BadLocationException e) {
             log.error("Error appending user message to chat", e);
         }
@@ -863,6 +838,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         }
 
+        // /new starts a fresh conversation with a clean chat area. The Stop-mode Send
+        // button is rewired to call injectMessage() directly (bypassing sendMessage),
+        // so /new must be intercepted here too, not only in sendMessage.
+        if ("/new".equals(message)) {
+            handleNewCommand();
+            return;
+        }
+
         log.info("Injecting follow-up message during active run: {}", message);
 
         // Clear the message field
@@ -894,9 +877,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         messageProcessor.appendStyled(chatArea.getStyledDocument(),
                             "[Injected] You: " + message, new Color(0x00, 0x80, 0x00), Font.ITALIC);
                     } else {
-                        // Command dispatch result (e.g. /new, /help) — show normally
+                        // Command dispatch result (e.g. /help, /status) — show normally
                         messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                            response.getContent(), getThemeColor("TextPane.foreground", Color.BLACK), false);
+                            response.getContent(), null, false);
                     }
                 }
             } catch (Exception e) {
@@ -908,6 +891,63 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.info("Race condition: future not done, connecting to handleAgentResponse");
             future.thenAccept(response -> SwingUtilities.invokeLater(() -> handleAgentResponse(response)));
         }
+    }
+
+    /**
+     * Handle the {@code /new} command: clear the chat area, then show the
+     * "You: /new" / bot response exchange. This is the single owner of the /new UI
+     * behavior — both the idle path (sendMessage) and the mid-run path
+     * (injectMessage, including the Stop-mode Send button that bypasses sendMessage)
+     * route here, so /new always clears the chat consistently.
+     *
+     * <p>cmdNew clears the session (and signals the active run to stop if one is
+     * running); the cancelled run's SwingWorker ends silently via
+     * {@code AgentSwingWorker.done}, so the response shows exactly once.
+     */
+    private void handleNewCommand() {
+        // Clear the chat area for a fresh session.
+        chatArea.setText("");
+
+        // Echo the user's command. No leading "\n": the document was just cleared,
+        // so there is no prior block to separate from (a leading \n would render as
+        // a stray blank line above "You:").
+        try {
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "You: /new", null, false);
+        } catch (BadLocationException e) {
+            log.error("Error appending /new user message", e);
+        }
+
+        messageField.setText("");
+
+        if (agentLoop == null) {
+            try {
+                messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                        "Agent Loop is not available. Please check your configuration.",
+                        Color.RED, false);
+            } catch (BadLocationException e) {
+                log.error("Error displaying error message", e);
+            }
+            return;
+        }
+
+        // Dispatch /new: clears the session; mid-run, cmdNew signals the active run
+        // to stop. Mid-run returns a completedFuture (Phase 2); idle completes on the
+        // agent-loop thread (Phase 3). Show the response via the normal handler, which
+        // also resets the UI the prior run created (loading indicator, Stop button,
+        // worker ref). handle (not thenAccept) so a cmdNew failure still surfaces.
+        CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", CHAT_SESSION_KEY);
+        future.handle((response, ex) -> {
+            final AgentResponse r;
+            if (ex != null) {
+                Throwable cause = (ex instanceof CompletionException && ex.getCause() != null)
+                        ? ex.getCause() : ex;
+                r = AgentResponse.error("Processing failed: " + cause.getMessage());
+            } else {
+                r = response;
+            }
+            SwingUtilities.invokeLater(() -> handleAgentResponse(r));
+            return null;
+        });
     }
 
     /**
@@ -1007,10 +1047,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         appendBotResponse(text);
     }
 
-    /** Append an AI (markdown) response block with the inline 🤖 marker and themed foreground. */
+    /** Append an AI (markdown) response block with the inline 🤖 marker (foreground inherits the themed body color). */
     private void appendBotResponse(String markdown) throws BadLocationException {
-        String fg = UiThemeUtil.toHex(getThemeColor("TextPane.foreground", Color.BLACK));
-        messageProcessor.appendHtml(chatArea.getStyledDocument(), botHeaderHtml(fg, markdown));
+        messageProcessor.appendHtml(chatArea.getStyledDocument(), botHeaderHtml(markdown));
     }
 
     /**
@@ -1018,7 +1057,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * (e.g. {@code <p><span>🤖 </span>...}) so the bot emoji sits inline with the first line
      * instead of on its own line above the block content.
      */
-    private static String botHeaderHtml(String fg, String markdown) {
+    private static String botHeaderHtml(String markdown) {
         String bot = "<span style=\"font-weight:bold;color:#0066cc\">🤖: </span>";
         String md = MarkdownParserHolder.renderToHtml(markdown);
         String injected;
@@ -1029,7 +1068,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } else {
             injected = bot + md;
         }
-        return "<div style=\"color:" + fg + "\">" + injected + "</div>";
+        return "<div>" + injected + "</div>";
     }
 
     /**
@@ -1255,6 +1294,62 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     /**
+     * Apply the current JMeter theme to the chat area: the component background (the chat's
+     * base color) and the HTML StyleSheet rules (themed foreground + code/table backgrounds).
+     * Called once during construction and again whenever the Look and Feel changes
+     * (see {@link #propertyChange}).
+     *
+     * <p>The body rule intentionally omits a CSS {@code background}; the JTextPane component
+     * background fills the viewport and repaint applies it instantly on theme switch (no HTML
+     * view re-parse needed, which Swing would otherwise cache). {@code JViewport} inherits the
+     * child component background, so the scroll pane area stays consistent without extra setup.
+     */
+    private void applyChatTheme() {
+        Color bg = getThemeColor("TextPane.background", getThemeColor("Panel.background", Color.WHITE));
+        chatArea.setOpaque(true);
+        chatArea.setBackground(bg);
+
+        Font font = chatArea.getFont();
+        int fontPt = font.getSize();
+        Color textFg = getThemeColor("TextPane.foreground", Color.BLACK);
+        Color codeBg = UiThemeUtil.getCodeBlockBackground();
+        StyleSheet ss = ((HTMLEditorKit) chatArea.getEditorKit()).getStyleSheet();
+        ss.addRule("body { font-family:" + font.getFamily() + "; font-size:" + fontPt
+                + "pt; color:" + UiThemeUtil.toHex(textFg) + "; }");
+        ss.addRule("p { margin:5px 0; }");
+        ss.addRule("div { margin:5px 0; }");
+        // Headings scale with the base font size (browser-standard ratios) so they follow
+        // ai.chat.font.size instead of Swing's built-in fixed heading sizes.
+        ss.addRule("h1 { font-size:" + Math.round(fontPt * 1.50f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h2 { font-size:" + Math.round(fontPt * 1.30f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h3 { font-size:" + Math.round(fontPt * 1.17f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h4 { font-size:" + fontPt + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h5 { font-size:" + Math.round(fontPt * 0.83f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("h6 { font-size:" + Math.round(fontPt * 0.67f) + "pt; font-weight:bold; margin:6px 0; }");
+        ss.addRule("ul,ol { margin:4px 0; padding-left:22px; }");
+        ss.addRule("li { margin:1px 0; }");
+        // font-size is required here: once font-family is set, Swing's CSS engine no longer
+        // inherits the body font size and would fall back to a default — the same applies
+        // to any rule that specifies a font-family.
+        ss.addRule("pre, code, kbd, samp { font-family: Monospaced; font-size:" + fontPt + "pt; }");
+        // Inline code/kbd/samp: themed background + padding so they read as distinct "code chips"
+        // instead of bare monospaced text. Background reuses codeBg (theme-aware, guaranteed
+        // contrast vs the panel); font stays at fontPt so it scales with ai.chat.font.size.
+        ss.addRule("code, kbd, samp { background:" + UiThemeUtil.toHex(codeBg) + "; color:"
+                + UiThemeUtil.toHex(textFg) + "; padding:1px 3px; }");
+        ss.addRule("pre { background:" + UiThemeUtil.toHex(codeBg) + "; padding:4px 6px; margin:4px 0; }");
+        // Inside <pre><code>, drop the inline "chip" so the code block stays one solid panel.
+        // Harmless even if Swing ignores the descendant selector: both backgrounds are codeBg.
+        ss.addRule("pre code { background: transparent; padding:0; }");
+        ss.addRule("table { border-collapse:collapse; margin:4px 0; }");
+        ss.addRule("th, td { border:1px solid #999; padding:2px 6px; }");
+        ss.addRule("th { background:" + UiThemeUtil.toHex(codeBg) + "; }");
+        ss.addRule("blockquote { border-left:3px solid #bbb; margin:4px 0; padding-left:8px; color:#666; }");
+
+        chatArea.repaint();
+    }
+
+    /**
      * Updates the font sizes of chat components based on JMeter's current scale
      * factor
      */
@@ -1285,6 +1380,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if ("lookAndFeel".equals(evt.getPropertyName())) {
             // Update font sizes based on the current scale
             updateFontSizes();
+            // Re-apply themed background + StyleSheet so the chat follows the new Look and Feel
+            applyChatTheme();
         }
     }
 

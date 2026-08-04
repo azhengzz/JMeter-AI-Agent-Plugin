@@ -120,7 +120,7 @@ AgentLoop（主循环）
 
 | 工具名 | 说明 |
 |--------|------|
-| `web_search` | 搜索互联网（支持 Brave、Tavily、DuckDuckGo 等搜索引擎） |
+| `web_search` | 搜索互联网（支持 Brave、Tavily、Jina 等搜索引擎） |
 | `web_fetch` | 抓取网页内容，自动去除导航和广告 |
 
 ### 命令执行工具（需启用）
@@ -203,7 +203,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | **memory** | 记忆管理 — 双层记忆（MEMORY.md 长期记忆 + HISTORY.md 事件历史），支持 grep 检索 |
 | **skill-creator** | 技能创建 — 元技能，用于创建和更新新的 Agent 技能 |
 
-> **想为 Agent 扩充新的 JMeter 组件？** 组件元信息（`testClass`/`guiClass`）已完全数据驱动 —— 新增组件**零 Java 改动**，只需编写一个 YAML Schema 文件。完整编写指南见 [SCHEMA-GUIDE.md](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE.md)（[English](src/main/jmeter-agent/skills/jmeter/SCHEMA-GUIDE_en.md)）。
+> **想为 Agent 扩充新的 JMeter 组件？** 组件元信息（`testClass`/`guiClass`）已完全数据驱动 —— 新增组件**零 Java 改动**，只需编写一个 YAML Schema 文件。完整编写指南见 [SCHEMA-GUIDE.md](SCHEMA-GUIDE.md)（[English](SCHEMA-GUIDE_en.md)）。
 
 ## 配置参考
 
@@ -237,6 +237,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
+| moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
 | minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
 | minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
 
@@ -284,7 +285,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `zhipu.api.key` | 智谱 GLM API 密钥 | — |
 | `zhipu.api.base.url` | 智谱 GLM API 基础 URL | `https://open.bigmodel.cn/api/paas/v4/` |
 | `moonshot.api.key` | Moonshot Kimi API 密钥 | — |
-| `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.ai/v1` |
+| `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API 密钥 | — |
 | `minimax.api.base.url` | MiniMax API 基础 URL | `https://api.minimaxi.com/v1` |
 
@@ -343,13 +344,11 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.tools.websearch.enabled` | 启用 Web 工具 | `true`（源码内置默认 `false`） |
-| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / duckduckgo / jina / serpapi） | `brave` |
+| `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / jina） | `jina` |
 | `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
 | `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
 | `agent.tools.websearch.tavily.api.key` | Tavily API 密钥（provider=tavily 时必填） | — |
-| `agent.tools.websearch.serpapi.key` | SerpAPI 密钥（provider=serpapi 时必填） | — |
 | `agent.tools.websearch.jina.api.key` | Jina API 密钥（provider=jina 时必填） | — |
-| `agent.tools.webfetch.max.length` | 网页抓取最大长度（字符） | `50000` |
 | `agent.tools.webfetch.timeout` | 网页抓取超时（秒） | `30` |
 | `agent.tools.web.max.redirects` | 最大重定向次数 | `5` |
 | `agent.tools.web.ssrf.protection` | SSRF 防护（拦截访问内网/本地地址） | `true` |
@@ -363,6 +362,19 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `agent.tools.exec.working.dir` | 限定工作目录（设置后仅允许该目录及其子目录） | — |
 | `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则，逗号分隔） | 内置默认规则（rm -rf、del /f、format、mkfs、shutdown 等） |
 | `agent.tools.exec.path.append` | 追加到 PATH 的额外目录 | — |
+
+#### 异步子代理（Subagent）
+
+主代理可通过 `spawn` 工具把一个自包含的**只读分析任务**委派给后台子代理。子代理运行在专用线程池上，使用隔离的只读工具集（仅限只读的 JMeter / 文件 / Web 工具，无法改测试计划、执行测试、写文件或继续派生子代理），并使用与主会话隔离的临时会话——其结果在**同一对话回合内**回注给主代理。
+
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `agent.subagent.enabled` | 总开关。关闭时不注册 `spawn` 与 `subagent_status` 工具，主代理无法派发子代理 | `false` |
+| `agent.subagent.max.concurrent` | 每个主会话的最大并发子代理数（`1` 时串行执行） | `1` |
+| `agent.subagent.max.iterations` | 单次子代理运行的最大工具迭代数 | `50` |
+| `agent.subagent.drain.timeout.seconds` | 主回合等待子代理结果的阻塞时长（秒，硬上限 300）；超时后子代理继续运行，结果可经 `subagent_status` 查询，或在下个回合投递 | `120` |
+| `agent.subagent.status.retention.seconds` | 完成态子代理状态的可查询保留时长（秒） | `60` |
+| `agent.subagent.status.max.completed` | 每会话保留的完成态状态上限（超出按最旧淘汰） | `10` |
 
 ### 聊天 UI 配置
 

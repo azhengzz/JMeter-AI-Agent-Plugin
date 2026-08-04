@@ -24,6 +24,12 @@ public class BuiltinCommands {
         Session session = ctx.getSessionOrCreate();
         List<Message> snapshot = session.getUnconsolidatedMessages();
 
+        // Signal first: an in-flight run (and any subagents it spawned) would
+        // otherwise keep writing into the session we are about to clear. Signal
+        // rather than wait — this runs on the caller's thread, which is the EDT
+        // when /new is typed during a run, and the agent-loop thread otherwise.
+        ctx.getLoop().signalCancel(session.getKey());
+
         session.clear();
         ctx.getLoop().getSessionManager().saveSession(session);
         ctx.getLoop().getSessionManager().invalidate(session.getKey());

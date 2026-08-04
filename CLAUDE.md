@@ -88,7 +88,7 @@ mvn test -Dtest=ClassNameTest
 ```bash
 mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
-mvn clean install -Dlaunch.gui=true  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
+mvn clean install "-Dlaunch.gui=true"  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
 
 **跳过测试构建：**
@@ -348,7 +348,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | anthropic-java | 2.18.0 | Anthropic Claude SDK |
-| openai-java | 4.30.0 | OpenAI GPT SDK |
+| openai-java | 4.43.0 | OpenAI GPT SDK（ReasoningEffort 自 4.42.0 起含 MAX） |
 | ollama4j | 1.1.6 | Ollama 本地模型 |
 | langsmith-java | 0.1.0-alpha.24 | LangSmith 链路追踪 |
 | ApacheJMeter_core | 5.6.3 | JMeter 核心 |
@@ -365,6 +365,17 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - `claude.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
 - `claude.max.history.size` / `openai.max.history.size` - 对话历史限制
 - `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
+
+**异步子代理（SubAgent，默认关闭）：** 主代理通过 `spawn` 工具把只读分析任务委派给后台子代理（隔离的只读工具集 + 临时会话，不污染主会话），结果回合内回注。详见 `openspec/changes/add-async-subagent/`。
+
+- `agent.subagent.enabled` - 总开关（默认 `false`；关闭时不注册 `spawn`/`subagent_status`）
+- `agent.subagent.max.concurrent` - 每主会话并发子代理上限（默认 `1`）
+- `agent.subagent.max.iterations` - 单次子代理工具迭代上限（默认 `50`）
+- `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `120`，硬上限 `300`）
+- `agent.subagent.status.retention.seconds` - 完成态状态保留 TTL（默认 `60`）
+- `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`）
+
+完整可配置项见 `jmeter-ai-sample.properties`。
 
 ## 开发参考
 

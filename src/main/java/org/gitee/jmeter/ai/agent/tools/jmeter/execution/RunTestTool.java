@@ -5,13 +5,16 @@ import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.util.JMeterUtils;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
+import org.gitee.jmeter.ai.agent.tools.ValidationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +37,7 @@ public class RunTestTool extends AbstractTool {
     @Override
     public String getDescription() {
         return "Start, stop, or shutdown the current JMeter test plan. " +
+                "Custom JMeter properties can be injected before starting. " +
                 "When starting, a result collector is injected to capture sample data. " +
                 "Use get_test_status to check progress and get_test_results to view results after execution.";
     }
@@ -54,10 +58,47 @@ public class RunTestTool extends AbstractTool {
                             "type": "boolean",
                             "description": "If true, skip timer delays during execution (useful for quick validation)",
                             "default": false
+                        },
+                        "properties": {
+                            "type": "object",
+                            "description": "Optional JMeter properties to inject before starting, equivalent to command-line -J properties. Values can be strings, numbers, or booleans and are converted to strings.",
+                            "additionalProperties": {
+                                "type": ["string", "number", "boolean"]
+                            }
                         }
                     }
                 }
                 """;
+    }
+
+    @Override
+    public ValidationResult validateParameters(Map<String, Object> parameters) {
+        String action = getStringParameter(parameters, "action", "start");
+        if (!"start".equalsIgnoreCase(action)) {
+            return ValidationResult.valid();
+        }
+
+        Object propertiesValue = parameters.get("properties");
+        if (propertiesValue == null) {
+            return ValidationResult.valid();
+        }
+        if (!(propertiesValue instanceof Map<?, ?> properties)) {
+            return ValidationResult.invalid("Parameter 'properties' must be an object");
+        }
+
+        ValidationResult.Builder builder = ValidationResult.builder();
+        for (Map.Entry<?, ?> entry : properties.entrySet()) {
+            if (!(entry.getKey() instanceof String name) || name.isBlank()) {
+                builder.addError("Property names in 'properties' must be non-blank strings");
+                continue;
+            }
+
+            Object value = entry.getValue();
+            if (!(value instanceof String || value instanceof Number || value instanceof Boolean)) {
+                builder.addError("Property '" + name + "' must be a string, number, or boolean");
+            }
+        }
+        return builder.build();
     }
 
     @Override
@@ -73,6 +114,9 @@ public class RunTestTool extends AbstractTool {
     }
 
     private ToolResult doStart(Map<String, Object> parameters) {
+        Map<String, String> runProperties = normalizeRunProperties(
+                (Map<?, ?>) parameters.get("properties"));
+
         GuiPackage gui = GuiPackage.getInstance();
         if (gui == null) {
             return ToolResult.error("JMeter GUI is not available");
@@ -119,6 +163,11 @@ public class RunTestTool extends AbstractTool {
                     gui.getTreeModel().addComponent(collector, testPlanNode);
                     log.info("Injected AgentResultCollector into test plan tree");
 
+                    runProperties.forEach(JMeterUtils::setProperty);
+                    if (!runProperties.isEmpty()) {
+                        log.info("Injected {} JMeter properties before test start", runProperties.size());
+                    }
+
                     // Trigger start via ActionRouter
                     String actionName = ignoreTimers
                             ? ActionNames.ACTION_START_NO_TIMERS
@@ -152,7 +201,7 @@ public class RunTestTool extends AbstractTool {
 
         // Wait for engine to confirm start
         boolean started = false;
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 100; i++) {
             if (JMeterContextService.getTestStartTime() > 0) {
                 started = true;
                 break;
@@ -171,9 +220,19 @@ public class RunTestTool extends AbstractTool {
 
         int totalThreads = JMeterContextService.getTotalThreads();
         return ToolResult.success(String.format(
-                "Test started successfully.\n- Total threads: %d\n- Ignore timers: %b\n" +
+                "Test started successfully.\n- Total threads: %d\n- Ignore timers: %b\n- Injected properties: %d\n" +
                 "Use get_test_status to monitor progress and get_test_results to view results.",
-                totalThreads, ignoreTimers));
+                totalThreads, ignoreTimers, runProperties.size()));
+    }
+
+    static Map<String, String> normalizeRunProperties(Map<?, ?> properties) {
+        if (properties == null) {
+            return Map.of();
+        }
+
+        Map<String, String> normalized = new LinkedHashMap<>();
+        properties.forEach((name, value) -> normalized.put((String) name, value.toString()));
+        return normalized;
     }
 
     private ToolResult doStop() {

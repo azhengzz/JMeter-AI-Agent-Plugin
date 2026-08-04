@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Read JMeter LoggerPanel log content by line range.
@@ -40,6 +41,12 @@ public class GetLogPanelContentTool extends AbstractTool {
     @Override
     public String getName() {
         return "get_log_panel_content";
+    }
+
+    /** Read-only: reads LoggerPanel text on the EDT, never mutates it. Visible to subagents. */
+    @Override
+    public Set<String> getScopes() {
+        return Set.of(SCOPE_CORE, SCOPE_SUBAGENT);
     }
 
     @Override
