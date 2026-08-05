@@ -7,7 +7,11 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.Command;
+import org.apache.jmeter.gui.action.Save;
+import org.apache.jmeter.gui.action.Start;
+import org.gitee.jmeter.ai.agent.tools.jmeter.execution.AgentResultCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +46,7 @@ public class SelectionInitCommand implements Command {
         log.info("SelectionInitCommand received ADD_ALL, scheduling SelectionTracker.install()");
         EventQueue.invokeLater(() -> {
             SelectionTracker.install();
+            registerRunCaptureListeners();
             if (org.gitee.jmeter.ai.utils.AiConfig.isIpcEnabled()) {
                 // IPC start() 含 bind + 写端口文件等 IO,放普通线程避免短暂卡 EDT
                 // (SelectionTracker.install 必须留在 EDT 装监听器)。
@@ -56,6 +61,33 @@ public class SelectionInitCommand implements Command {
                 t.start();
             }
         });
+    }
+
+    /**
+     * Register run-capture pre-action listeners on the ActionRouter. Runs once (the ADD_ALL
+     * handler is CAS-guarded). The {@code Save.class} listener strips the collector node
+     * before any save (anti-jmx-leak, always on); the {@code Start.class} listener injects
+     * the collector before GUI-initiated runs and is gated by {@code agent.runcapture.enabled}.
+     */
+    private static void registerRunCaptureListeners() {
+        try {
+            ActionRouter router = ActionRouter.getInstance();
+            // Anti-leak + save-before-run correctness, UNCONDITIONAL (independent of the
+            // capture toggle): JMeter's Start.doAction fires SAVE via popupShouldSave BEFORE
+            // startEngine clones the tree, so strip (clean .jmx) on Save PRE, then re-inject
+            // on Save POST if a start armed it (USER via onTestStartAction, AGENT via
+            // RunTestTool.armForStartReinject). Start POST disarms after startEngine clones.
+            router.addPreActionListener(Save.class, AgentResultCollector::stripCollectorNode);
+            router.addPostActionListener(Save.class, AgentResultCollector::reinjectIfArmed);
+            router.addPostActionListener(Start.class, AgentResultCollector::clearStartArmed);
+            if (org.gitee.jmeter.ai.utils.AiConfig.isRunCaptureEnabled()) {
+                router.addPreActionListener(Start.class, AgentResultCollector::onTestStartAction);
+            }
+            log.info("Run-capture listeners registered (capture.enabled={})",
+                    org.gitee.jmeter.ai.utils.AiConfig.isRunCaptureEnabled());
+        } catch (Throwable t) {
+            log.error("Failed to register run-capture listeners", t);
+        }
     }
 
     @Override

@@ -377,6 +377,10 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 完整可配置项见 `jmeter-ai-sample.properties`。
 
+**GUI 运行结果采集（默认开启）：** 一个全局 JMeter `Start.class` 预监听器在用户点击 GUI Run 按钮（或 Run Thread Group）发起的本地运行前注入结果收集器，使 `get_test_status` / `get_test_results` 对用户发起的运行也返回实时数据（并在 `get_test_status` 显示运行来源 USER/AGENT）。`run_test` 的采集不受影响、开关关闭时仍工作；`Save.class` 预监听器始终剥离收集器节点以防泄漏进 `.jmx`。详见 `openspec/changes/capture-gui-run-results/`。
+
+- `agent.runcapture.enabled` - 仅门控 `Start.class` 预监听器注册（默认 `true`）；关闭时 GUI 运行不采集，但 `run_test` 仍采集
+
 ## 开发参考
 
 **JMeter 源码路径：**

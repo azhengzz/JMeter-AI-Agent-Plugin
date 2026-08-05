@@ -1,7 +1,9 @@
 package org.gitee.jmeter.ai.agent.tools.jmeter.execution;
 
 import org.apache.jmeter.engine.util.NoThreadClone;
+import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.samplers.Remoteable;
 import org.apache.jmeter.samplers.SampleEvent;
@@ -9,11 +11,15 @@ import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
+import java.awt.EventQueue;
+import java.awt.event.ActionEvent;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -29,9 +35,17 @@ import java.util.function.Predicate;
  * engine) and the original instance (read by tools) share the same data.
  * Implements NoThreadClone so a single engine-level instance receives all samples.
  * Auto-removes itself from the GUI tree after test ends.
+ * <p>
+ * Capture is not limited to Agent-initiated ({@code run_test}) runs: a global
+ * {@code Start.class} pre-action listener (see {@link #onTestStartAction}) injects
+ * this collector before any GUI-initiated run too, so users can ask the Agent about
+ * results of tests they started by clicking JMeter's Run button.
  */
 public class AgentResultCollector extends AbstractTestElement
         implements SampleListener, TestStateListener, NoThreadClone, Remoteable {
+
+    /** Who initiated the run currently being captured. */
+    public enum RunProvenance { USER, AGENT }
 
     private static final Logger log = LoggerFactory.getLogger(AgentResultCollector.class);
     public static final String ELEMENT_NAME = "__agent_result_collector__";
@@ -54,6 +68,16 @@ public class AgentResultCollector extends AbstractTestElement
     private static volatile boolean testRunning = false;
     private static volatile long testStartTime = 0;
     private static volatile long testEndTime = 0;
+    private static volatile RunProvenance lastProvenance = RunProvenance.USER;
+
+    /**
+     * True between a start's pre-action arming and the matching Start post-action listener.
+     * JMeter's {@code Start.doAction} may synchronously fire SAVE via {@code popupShouldSave}
+     * (default {@code save_automatically_before_run=true}) BEFORE {@code startEngine} clones
+     * the tree; the Save PRE-listener strips the collector for a clean .jmx, so this flag tells
+     * the Save POST-listener to restore the collector before startEngine reads the live tree.
+     */
+    private static volatile boolean startArmed = false;
 
     public AgentResultCollector() {
         setName(ELEMENT_NAME);
@@ -61,9 +85,11 @@ public class AgentResultCollector extends AbstractTestElement
     }
 
     /**
-     * Reset all collected data. Called before each test start.
+     * Reset all collected data, tagging the upcoming run with the given provenance.
+     * Called before each test start (USER via the global Start pre-listener,
+     * AGENT via {@link RunTestTool}).
      */
-    public static void reset() {
+    public static void reset(RunProvenance provenance) {
         totalSamples.set(0);
         totalErrors.set(0);
         responseTimeSum.set(0);
@@ -75,6 +101,30 @@ public class AgentResultCollector extends AbstractTestElement
         testRunning = false;
         testStartTime = 0;
         testEndTime = 0;
+        lastProvenance = (provenance != null) ? provenance : RunProvenance.USER;
+    }
+
+    /** Backwards-compatible reset; equivalent to {@link #reset(RunProvenance)} with USER. */
+    public static void reset() {
+        reset(RunProvenance.USER);
+    }
+
+    public static RunProvenance getLastProvenance() {
+        return lastProvenance;
+    }
+
+    /** Package-private for tests. */
+    static boolean isStartArmed() {
+        return startArmed;
+    }
+
+    /**
+     * Arm the save-post re-injection. Called by {@link RunTestTool} before it fires
+     * ACTION_START (so Agent runs re-inject correctly regardless of the capture toggle) and by
+     * {@link #onTestStartAction} for USER runs.
+     */
+    public static void armForStartReinject() {
+        startArmed = true;
     }
 
     @Override
@@ -156,9 +206,12 @@ public class AgentResultCollector extends AbstractTestElement
     /**
      * Remove any existing collector nodes from the GUI tree.
      * Searches under TestPlan (not root) since that's where addComponent places them.
-     * Can be called from any thread — dispatches to EDT internally.
+     * <p>MUST be invoked on the EDT — mutates the tree model directly (DefaultTreeModel
+     * contract). All current callers (RunTestTool's EDT block, the testEnded invokeLater,
+     * and the Start/Save pre-action listeners dispatched via ActionRouter) are on the EDT.
      */
     public static void removeFromGuiTree() {
+        assert EventQueue.isDispatchThread() : "removeFromGuiTree must run on the EDT";
         GuiPackage gui = GuiPackage.getInstance();
         if (gui == null) return;
 
@@ -173,6 +226,129 @@ public class AgentResultCollector extends AbstractTestElement
                 }
             }
         }
+    }
+
+    // --- Global run-capture hook (Start.class / Save.class pre-action listeners) ---
+
+    /**
+     * Entry point for the {@code Start.class} ActionRouter pre-action listener. Injects +
+     * resets this collector for user-initiated GUI runs BEFORE {@code Start.doAction} clones
+     * the test tree, so TestCompiler wires it as a SampleListener for the run.
+     * <p>Skips: non-start commands (stop/shutdown/validate), runs already in progress, and
+     * Agent-initiated runs ({@link RunTestTool} already injected + reset in its own earlier
+     * EDT dispatch). Swallows every exception so a collector failure can never abort a start
+     * (ActionRouter runs pre-listeners and doAction in one try block).
+     */
+    public static void onTestStartAction(ActionEvent e) {
+        try {
+            if (!isStartCommand(e.getActionCommand())) {
+                return;
+            }
+            if (isRunInProgress()) {
+                return;
+            }
+            // Arm re-injection for BOTH provenances: Start.doAction may synchronously fire
+            // SAVE (popupShouldSave, default save_automatically_before_run=true) BEFORE
+            // startEngine clones the tree; the Save PRE-listener strips the collector for a
+            // clean .jmx, so the Save POST-listener must restore it before startEngine reads
+            // the live tree. (RunTestTool also arms via armForStartReinject for the
+            // toggle-off case where this listener is not registered.)
+            startArmed = true;
+            RunProvenance p = (e.getSource() instanceof RunTestTool)
+                    ? RunProvenance.AGENT : RunProvenance.USER;
+            if (p == RunProvenance.AGENT) {
+                // RunTestTool already injected + reset(AGENT) in its EDT block (E1), which
+                // completes before this pre-listener's EDT dispatch (E2) — FIFO EDT order.
+                return;
+            }
+            removeFromGuiTree();
+            reset(RunProvenance.USER);
+            addComponentSafely();
+        } catch (Throwable t) {
+            log.error("AgentResultCollector: pre-start injection failed", t);
+        }
+    }
+
+    /**
+     * Entry point for the {@code Save.class} ActionRouter pre-action listener. Strips any
+     * collector node before Save reads the live GUI tree, preventing leakage into .jmx files
+     * (covers save-during-run, which the testEnded auto-remove cannot). Independent of the
+     * capture toggle — anti-leak is always on.
+     */
+    public static void stripCollectorNode(ActionEvent e) {
+        try {
+            removeFromGuiTree();
+        } catch (Throwable t) {
+            log.error("AgentResultCollector: save-time strip failed", t);
+        }
+    }
+
+    /** Whitelist of start-variant commands that should trigger injection. Package-private for tests. */
+    static boolean isStartCommand(String cmd) {
+        return ActionNames.ACTION_START.equals(cmd)
+                || ActionNames.ACTION_START_NO_TIMERS.equals(cmd)
+                || ActionNames.RUN_TG.equals(cmd)
+                || ActionNames.RUN_TG_NO_TIMERS.equals(cmd);
+    }
+
+    private static boolean isRunInProgress() {
+        return JMeterContextService.getTestStartTime() > 0 || testRunning;
+    }
+
+    /**
+     * {@code Save.class} POST-action listener. After Save.doAction wrote a collector-free .jmx
+     * (the PRE-listener stripped it), restore the collector so startEngine — which
+     * Start.doAction runs AFTER popupShouldSave — clones a tree that contains it. Armed by
+     * {@link #onTestStartAction} (USER) / {@link #armForStartReinject} (RunTestTool); disarmed
+     * by {@link #clearStartArmed} (Start POST). No-op when not armed.
+     */
+    public static void reinjectIfArmed(ActionEvent e) {
+        if (!startArmed) {
+            return;
+        }
+        try {
+            removeFromGuiTree();
+            addComponentSafely();
+        } catch (Throwable t) {
+            log.error("AgentResultCollector: post-save re-injection failed", t);
+        }
+    }
+
+    /** {@code Start.class} POST-action listener: startEngine has now cloned the tree, so disarm. */
+    public static void clearStartArmed(ActionEvent e) {
+        startArmed = false;
+    }
+
+    /**
+     * Inject a fresh collector under the TestPlan node with the JMeter core classloader as TCCL
+     * (addComponent → GuiPackage.getGui → Class.forName needs it). Swallows nothing — callers
+     * wrap in try/catch(Throwable). EDT-only.
+     */
+    private static void addComponentSafely() throws IllegalUserActionException {
+        assert EventQueue.isDispatchThread() : "addComponentSafely must run on the EDT";
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui == null) return;
+        ClassLoader originalCl = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(gui.getClass().getClassLoader());
+            JMeterTreeNode root = (JMeterTreeNode) gui.getTreeModel().getRoot();
+            JMeterTreeNode testPlanNode = findTestPlanNode(root);
+            if (testPlanNode != null) {
+                gui.getTreeModel().addComponent(new AgentResultCollector(), testPlanNode);
+            }
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalCl);
+        }
+    }
+
+    private static JMeterTreeNode findTestPlanNode(JMeterTreeNode root) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            JMeterTreeNode child = (JMeterTreeNode) root.getChildAt(i);
+            if (child.getTestElement() instanceof TestPlan) {
+                return child;
+            }
+        }
+        return null;
     }
 
     private static void updateMin(AtomicLong minRef, long value) {

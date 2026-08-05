@@ -56,6 +56,7 @@ public class GetTestStatusTool extends AbstractTool {
         StringBuilder sb = new StringBuilder();
         sb.append("## Test Status\n\n");
         sb.append("- **State**: ").append(summary.running ? "Running" : "Completed").append("\n");
+        sb.append("- **Started by**: ").append(AgentResultCollector.getLastProvenance()).append("\n");
 
         if (summary.elapsedMs > 0) {
             sb.append("- **Elapsed**: ").append(formatDuration(summary.elapsedMs)).append("\n");

@@ -84,4 +84,16 @@ public class AiConfig {
     public static long getIpcAgentTimeoutMs() {
         return getLong("jmeter.ai.ipc.agent.timeout.ms", 120000);
     }
+
+    // ---- Run result capture (GUI-initiated runs) ----
+
+    /**
+     * Whether to capture results of user-initiated (GUI Run button) test runs via a global
+     * Start.class pre-action listener. Default true. Only gates Start-listener registration;
+     * the Save.class strip-listener (anti-jmx-leak) and RunTestTool's own injection are
+     * unaffected, so {@code run_test} always captures regardless of this toggle.
+     */
+    public static boolean isRunCaptureEnabled() {
+        return getBoolean("agent.runcapture.enabled", true);
+    }
 }
