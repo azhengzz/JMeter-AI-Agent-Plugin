@@ -82,6 +82,16 @@ public class ProviderRegistry {
                 .thinkingStyle("reasoning_split")
                 .build());
 
+        // LangCat (OpenAI 兼容, thinking_type: thinking={"type":"enabled"|"disabled"})
+        PROVIDERS.add(new ProviderSpec.Builder()
+                .name("langcat")
+                .displayName("LangCat")
+                .defaultApiBase("https://api.longcat.chat/openai/v1")
+                .envKey("langcat.api.key")
+                .keywords("langcat", "longcat")
+                .thinkingStyle("thinking_type")
+                .build());
+
         // =====================================================
         // Existing Providers (for backward compatibility)
         // =====================================================

@@ -153,7 +153,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     // Set the model in the appropriate service
                     // Note: We pass the FULL model ID (with prefix) so OpenAiService can detect the provider
                     switch (provider) {
-                        case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                        case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
                             openAiService.setModel(selectedModel);  // Pass full ID with prefix
                             log.info("Using {} provider for model: {}", provider, modelName);
                         }
@@ -608,7 +608,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String provider = parts[0];
 
             switch (provider) {
-                case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
                     openAiService.setModel(modelId);
                 }
                 case "ollama" -> {
@@ -637,7 +637,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String modelName = parts[1];
 
             switch (provider) {
-                case "openai", "deepseek", "zhipu", "moonshot", "minimax" -> {
+                case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
                     openAiService.setModel(modelId);  // Pass full ID with prefix
                     log.info("Set {} provider model: {}", provider, modelName);
                 }

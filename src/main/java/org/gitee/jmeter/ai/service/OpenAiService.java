@@ -42,7 +42,7 @@ public class OpenAiService implements AiService {
 
     // Provider prefixes that use OpenAI-compatible API
     private static final String[] OPENAI_COMPATIBLE_PROVIDERS = {
-        "openai", "deepseek", "zhipu", "moonshot", "minimax"
+        "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat"
     };
 
     public OpenAiService() {
