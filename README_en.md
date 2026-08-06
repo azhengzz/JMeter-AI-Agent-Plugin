@@ -11,8 +11,8 @@ Gitee Ai is a JMeter AI Agent plugin powered by an Agent Loop architecture that 
 - **Agent Loop Architecture** — Full iterative cycle of LLM call → tool execution → result feedback, supporting multi-turn tool calling for complex tasks
 - **22 Agent Tools** — Covering JMeter element CRUD, test execution, filesystem, web search, and command execution
 - **Skills System** — Dynamically loaded skill modules from filesystem, with built-in JMeter expertise (73 component references, 58 function references), API autotest, and more
-- **7 AI Providers** — Anthropic Claude, OpenAI, DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax, Ollama
-- **Component Schema Validation** — 67 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
+- **8 AI Providers** — Anthropic Claude, OpenAI, DeepSeek, Zhipu GLM, Moonshot Kimi, MiniMax, LangCat, Ollama
+- **Component Schema Validation** — 73 YAML schema files providing type, required, enum, and range validation for JMeter component parameters
 - **Memory System** — Two-layer memory architecture (long-term memory + event history) with cross-session consolidation
 - **Live Selection Sync** — Chat panel shows the currently selected JMeter element and focused control in real time, with one-click injection into the AI context
 - **Security Controls** — File access whitelisting, SSRF protection, dangerous command blocking
@@ -221,9 +221,9 @@ These settings apply to all AI providers unless overridden by provider-specific 
 | `jmeter.ai.temperature` | Temperature (0.0-1.0); lower = more deterministic | `0.7` |
 | `jmeter.ai.max.tokens` | Max tokens per response | `65536` |
 | `jmeter.ai.max.history.size` | Conversation history size to retain | `10` |
-| `jmeter.ai.reasoning.effort` | Reasoning effort: none / low / medium / high | `none` |
+| `jmeter.ai.reasoning.effort` | Reasoning effort: none / low / medium / high / xhigh / max | `none` |
 | `jmeter.ai.default.model` | Default model (shared by all providers unless switched at runtime) | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | Default provider (anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax) | `minimax` |
+| `jmeter.ai.default.provider` | Default provider (anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat) | `minimax` |
 | `jmeter.ai.context.window.tokens` | Context window size (used by ContextWindowManager, MemoryConsolidator, AgentRunner) | `102400` |
 | `jmeter.ai.max.tool.iterations` | Max tool iterations per agent loop | `50` |
 | `jmeter.ai.system.prompt` | Unified system prompt (overrides built-in default, applies to all providers) | Empty (uses built-in prompt) |
@@ -234,15 +234,16 @@ The table below lists recommended values for mainstream models.
 
 | provider | model | temperature | max.tokens | reasoning.effort | context.window.tokens |
 |----------|-------|-------------|------------|-----------------|----------------------|
-| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
-| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, low, high, max]` | `512000` |
+| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, low, high, max]` | `512000` |
 | zhipu | glm-5.1 | `1.0` | `65536` | `[none, medium]` | `128000` |
-| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh, max]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
-| moonshot | kimi-k3 | `1.0` (API-enforced) | `65536` | `[low, high, max]` [Other values are handled by default as "max".](https://platform.kimi.com/docs/guide/use-thinking-effort) | `1000000` |
-| minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
-| minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
+| moonshot | kimi-k3 | `1.0` (API-enforced) | `65536` | `[low, high, max]` [Other values are handled by default as "max".](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
+| minimax | MiniMax-M2.7 | `1.0` | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M3 | `1.0` | `65536` | `medium` | `512000` |
+| langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
 
 **Notes:**
 
@@ -291,6 +292,8 @@ The table below lists recommended values for mainstream models.
 | `moonshot.api.base.url` | Moonshot API base URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API key | — |
 | `minimax.api.base.url` | MiniMax API base URL | `https://api.minimaxi.com/v1` |
+| `langcat.api.key` | LangCat API key | — |
+| `langcat.api.base.url` | LangCat API base URL | `https://api.longcat.chat/openai/v1` |
 
 Each provider also supports `*.temperature`, `*.max.history.size`, etc. to override global defaults (e.g., `deepseek.temperature=0.3`).
 
@@ -407,6 +410,7 @@ The main agent can delegate a self-contained **read-only analysis task** to a ba
 | Zhipu GLM | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | Moonshot Kimi | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | MiniMax | [api.minimax.com](https://api.minimax.com) |
+| LangCat | [longcat.chat](https://longcat.chat) |
 
 ## Disclaimer
 

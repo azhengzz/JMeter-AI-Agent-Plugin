@@ -11,7 +11,7 @@ Gitee Ai 是一个 JMeter AI Agent 插件，通过 Agent Loop 架构驱动 LLM �
 - **Agent Loop 架构** — LLM 调用 → 工具执行 → 结果反馈的完整迭代循环，支持多轮工具调用完成复杂任务
 - **22 Agent 工具** — 覆盖 JMeter 元素 CRUD、测试执行、文件系统、Web 搜索、命令执行等场景
 - **技能系统** — 从文件系统动态加载技能模块，内置 JMeter 专业知识（73 组件参考文档、58 个函数参考）、API 自动化测试等
-- **7 个 AI 提供者** — 支持 Anthropic Claude、OpenAI、DeepSeek、智谱 GLM、Moonshot Kimi、MiniMax、Ollama
+- **8 个 AI 提供者** — 支持 Anthropic Claude、OpenAI、DeepSeek、智谱 GLM、Moonshot Kimi、MiniMax、LangCat、Ollama
 - **组件 Schema 校验** — 73 个 YAML Schema 文件，为 JMeter 组件参数提供类型、必填、枚举、范围等校验
 - **记忆系统** — 双层记忆架构（长期记忆 + 事件历史），支持跨会话记忆整合
 - **选中上下文联动** — 聊天面板实时展示当前 JMeter 元素与焦点控件，并可一键注入到 AI 上下文
@@ -218,9 +218,9 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `jmeter.ai.temperature` | 温度参数（0.0-1.0），越低越确定性 | `0.7` |
 | `jmeter.ai.max.tokens` | 单次响应最大 Token 数 | `65536` |
 | `jmeter.ai.max.history.size` | 对话历史保留条数 | `10` |
-| `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high | `none` |
+| `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high / xhigh / max | `none` |
 | `jmeter.ai.default.model` | 默认模型（所有提供者共用，除非运行时切换） | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | 默认提供者（anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax） | `minimax` |
+| `jmeter.ai.default.provider` | 默认提供者（anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat） | `minimax` |
 | `jmeter.ai.context.window.tokens` | 上下文窗口大小（供 ContextWindowManager、MemoryConsolidator、AgentRunner 使用） | `102400` |
 | `jmeter.ai.max.tool.iterations` | 单次 Agent 循环最大工具迭代数 | `50` |
 | `jmeter.ai.system.prompt` | 统一系统提示（覆盖内置默认提示，适用于所有提供者） | 空（使用内置提示） |
@@ -231,15 +231,16 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | provider | model | temperature | max.tokens | reasoning.effort | context.window.tokens |
 |--------|---------|-------------|------------|-----------------|----------------------|
-| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
-| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| deepseek | deepseek-v4-flash | `0.7` | `65536` | `[none, low, high, max]` | `512000` |
+| deepseek | deepseek-v4-pro | `0.7` | `65536` | `[none, low, high, max]` | `512000` |
 | zhipu | glm-5.1 | `1.0` | `65536` | `[none, medium]` | `128000` |
-| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh]` | `512000` |
+| zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh, max]` | `512000` |
 | moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
-| minimax | MiniMax-M2.7 | `0.7` | `8192` | `medium` | `128000` |
-| minimax | MiniMax-M3 | `0.7` | `65536` | `medium` | `512000` |
+| minimax | MiniMax-M2.7 | `1.0` | `8192` | `medium` | `128000` |
+| minimax | MiniMax-M3 | `1.0` | `65536` | `medium` | `512000` |
+| langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
 
 **使用说明：**
 
@@ -288,6 +289,8 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `moonshot.api.base.url` | Moonshot API 基础 URL | `https://api.moonshot.cn/v1` |
 | `minimax.api.key` | MiniMax API 密钥 | — |
 | `minimax.api.base.url` | MiniMax API 基础 URL | `https://api.minimaxi.com/v1` |
+| `langcat.api.key` | LangCat API 密钥 | — |
+| `langcat.api.base.url` | LangCat API 基础 URL | `https://api.longcat.chat/openai/v1` |
 
 每个提供者均支持 `*.temperature`、`*.max.history.size` 等覆盖全局默认值（例如 `deepseek.temperature=0.3`）。
 
@@ -404,6 +407,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 智谱 GLM | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | Moonshot Kimi | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | MiniMax | [api.minimax.com](https://api.minimax.com) |
+| LangCat | [longcat.chat](https://longcat.chat) |
 
 ## 免责声明
 
