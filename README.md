@@ -239,13 +239,14 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
 | minimax | MiniMax-M2.7 | `1.0` | `8192` | `medium` | `128000` |
-| minimax | MiniMax-M3 | `1.0` | `65536` | `medium` | `512000` |
+| minimax | MiniMax-M3 | `1.0` | `65536` | `[none, medium]` | `512000` |
 | langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
 
 **使用说明：**
 
 - **max.tokens** — 取各模型 API 的单次输出上限；高于上限的值会被服务端裁剪。推理模型（`deepseek-reasoner` 等）的实际可见输出需扣除思维链 token。
 - **reasoning.effort** — `none` 关闭思考（更快、更省 token），适合常规对话与简单工具调用；推理模型应使用 `medium` 或 `high` 以发挥深度分析能力。
+- **MiniMax 思考开关** — 经 `thinking.type` 控制（`reasoning_effort=none` → `disabled`，其余 → M3 用 `adaptive` / M2.x 用 `enabled`）。**M3** 系列可真正关闭思考；**M2.x** 系列服务端会忽略 `disabled`，思考无法关闭（已知限制，非本端缺陷）。
 - **context.window.tokens** — 建议设为模型上下文上限的 80% 左右，给工具结果回填、记忆整合和系统提示预留缓冲；过大会触发频繁的记忆整合，过小会过早丢弃历史。
 
 ### 提供者配置

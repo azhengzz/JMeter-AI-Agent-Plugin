@@ -12,7 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -120,13 +120,13 @@ class LangCatProviderTest {
     @Test
     void testLangcat_ThinkingTypeStyle_ProducesLangCatBody() throws Exception {
         @SuppressWarnings("unchecked")
-        Map<String, Function<Boolean, Map<String, Object>>> styleMap =
-                (Map<String, Function<Boolean, Map<String, Object>>>) readField(OpenAICompatibleProvider.class, "THINKING_STYLE_MAP");
+        Map<String, BiFunction<String, Boolean, Map<String, Object>>> styleMap =
+                (Map<String, BiFunction<String, Boolean, Map<String, Object>>>) readField(OpenAICompatibleProvider.class, "THINKING_STYLE_MAP");
         assertNotNull(styleMap);
-        Function<Boolean, Map<String, Object>> thinkingType = styleMap.get("thinking_type");
+        BiFunction<String, Boolean, Map<String, Object>> thinkingType = styleMap.get("thinking_type");
         assertNotNull(thinkingType, "thinking_type style must exist for langcat");
-        assertEquals(Map.of("thinking", Map.of("type", "enabled")), thinkingType.apply(true));
-        assertEquals(Map.of("thinking", Map.of("type", "disabled")), thinkingType.apply(false));
+        assertEquals(Map.of("thinking", Map.of("type", "enabled")), thinkingType.apply("LongCat-2.0", true));
+        assertEquals(Map.of("thinking", Map.of("type", "disabled")), thinkingType.apply("LongCat-2.0", false));
     }
 
     // ==================== Helpers ====================

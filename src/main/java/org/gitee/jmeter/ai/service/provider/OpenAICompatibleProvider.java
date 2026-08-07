@@ -2,7 +2,6 @@ package org.gitee.jmeter.ai.service.provider;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -26,11 +25,6 @@ import org.gitee.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,17 +36,54 @@ public class OpenAICompatibleProvider implements AiService {
     private static final Logger log = LoggerFactory.getLogger(OpenAICompatibleProvider.class);
 
     // Maps thinking_style -> extra_body builder (mirrors Nanobot's _THINKING_STYLE_MAP).
-    // Each builder takes a boolean (thinkingEnabled) and returns the dict to merge into extra_body.
-    private static final Map<String, java.util.function.Function<Boolean, Map<String, Object>>> THINKING_STYLE_MAP = Map.of(
-            "thinking_type", on -> Map.of("thinking", Map.of("type", on ? "enabled" : "disabled")),
-            "enable_thinking", on -> Map.of("enable_thinking", on),
-            "reasoning_split", on -> Map.of("reasoning_split", on)
+    // Each builder takes (modelName, thinkingEnabled) and returns the dict to merge into extra_body.
+    // Most styles ignore the model name; "minimax_thinking" uses it to pick M3 (adaptive) vs M2.x (enabled).
+    private static final Map<String, java.util.function.BiFunction<String, Boolean, Map<String, Object>>> THINKING_STYLE_MAP = Map.of(
+            "thinking_type", (model, on) -> Map.of("thinking", Map.of("type", on ? "enabled" : "disabled")),
+            "enable_thinking", (model, on) -> Map.of("enable_thinking", on),
+            "minimax_thinking", (model, on) -> buildMinimaxThinkingExtraBody(model, on)
     );
+
+    /**
+     * MiniMax thinking extra_body. The on/off toggle is {@code thinking.type} (NOT
+     * {@code reasoning_split}, which is only an output-format toggle). The "on" value is
+     * model-family dependent: M3 accepts only {@code adaptive} (sending {@code enabled} → HTTP 400);
+     * M2.x accepts {@code enabled} (its {@code disabled} is silently ignored by the server — a known
+     * limitation). When thinking is on, {@code reasoning_split:true} is also sent so reasoning routes
+     * to {@code reasoning_content} (consumed by the display pipeline) instead of inline {@code <think>}
+     * tags polluting {@code content}.
+     *
+     * @see <a href="https://platform.minimaxi.com/docs/api-reference/text-openai-api#thinking-控制">MiniMax thinking 控制</a>
+     */
+    static Map<String, Object> buildMinimaxThinkingExtraBody(String model, boolean on) {
+        if (on) {
+            String onType = isM3Family(model) ? "adaptive" : "enabled";
+            return Map.of(
+                    "thinking", Map.of("type", onType),
+                    "reasoning_split", true);
+        }
+        return Map.of("thinking", Map.of("type", "disabled"));
+    }
+
+    /**
+     * Whether a MiniMax model is in the M3 family, which requires {@code thinking.type=adaptive}
+     * to enable thinking (it rejects {@code enabled} with HTTP 400). Detection is by substring on
+     * the provider-prefix-stripped, lowercased model id (e.g. "MiniMax-M3",
+     * "minimax:MiniMax-M3-Pro"). Substring (not prefix) so renamed M3 ids on third-party
+     * aggregators (e.g. "acme-minimax-m3-pro") still match.
+     */
+    static boolean isM3Family(String model) {
+        if (model == null) return false;
+        return stripProviderPrefix(model).toLowerCase().contains("minimax-m3");
+    }
 
     private final String providerName;
     private final OpenAIClient client;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final ProviderSpec spec;
+    // MiniMax marker: route plain-text via the unified tool path (generatePlainTextViaToolPath) so
+    // thinking injection + reasoning_content extraction apply. Raw HTTP is no longer used (SDK
+    // tolerates MiniMax responses); the flag name is retained for the routing switch it provides.
     private final boolean useRawHttpClientOnly;
     private final String apiKey;
     private final String baseUrl;
@@ -105,10 +136,12 @@ public class OpenAICompatibleProvider implements AiService {
     public String generateResponse(List<String> conversation, String model) {
         String effectiveModel = model != null ? model : currentModelId;
 
-        // Check if this provider requires raw HTTP client (for API compatibility issues)
+        // MiniMax: route plain-text through the unified tool path (doGenerateWithTools) so the
+        // provider thinking style (minimax_thinking) and reasoning_content extraction apply to plain
+        // text too — makeSdkRequest does not inject the thinking extra_body. The SDK tolerates
+        // MiniMax responses (conclusion A, verified 2026-08-07), so raw HTTP is no longer required.
         if (useRawHttpClientOnly) {
-            log.info("Using raw HTTP client for {} (incompatible API response format)", providerName);
-            return makeRawHttpRequest(conversation, effectiveModel);
+            return generatePlainTextViaToolPath(conversation, effectiveModel);
         }
 
         // Use OpenAI SDK for compatible providers
@@ -118,6 +151,28 @@ public class OpenAICompatibleProvider implements AiService {
             log.error("Error generating response from {}", providerName, e);
             return "Error: " + extractErrorMessage(e);
         }
+    }
+
+    /**
+     * Plain-text generation routed through the unified tool path so the provider thinking style
+     * (e.g. MiniMax {@code minimax_thinking}) and {@code reasoning_content} extraction apply to
+     * plain text — {@link #makeSdkRequest} does not inject the thinking extra_body.
+     */
+    private String generatePlainTextViaToolPath(List<String> conversation, String model) {
+        List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < conversation.size(); i++) {
+            String msg = conversation.get(i);
+            if (msg == null || msg.isEmpty()) continue;
+            Message.Role role = (i % 2 == 0) ? Message.Role.USER : Message.Role.ASSISTANT;
+            messages.add(Message.builder().role(role).content(msg).build());
+        }
+        LLMResponse resp = doGenerateWithTools(messages, null, null,
+                LlmCallOptions.builder().model(model).build());
+        if (resp.isError()) {
+            log.error("Plain-text generation error for {}: {}", providerName, resp.getErrorMessage());
+            return "Error: " + resp.getErrorMessage();
+        }
+        return resp.getContent() != null ? resp.getContent() : "No content available";
     }
 
     /**
@@ -170,109 +225,6 @@ public class OpenAICompatibleProvider implements AiService {
 
         // Extract response content
         return chatCompletion.choices().get(0).message().content().orElse("No content available");
-    }
-
-    /**
-     * Make request using raw HTTP client (for incompatible providers).
-     * This handles providers like MiniMax that return extra fields not recognized by OpenAI SDK.
-     */
-    private String makeRawHttpRequest(List<String> conversation, String model) {
-        try {
-            if (apiKey.isEmpty()) {
-                return "Error: No API key configured for " + providerName;
-            }
-
-            String modelName = stripProviderPrefix(model);
-
-            // Build the request body
-            ObjectMapper mapper = new ObjectMapper();
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", modelName);
-            requestBody.put("temperature", generationSettings.getTemperature());
-            requestBody.put("max_tokens", generationSettings.getMaxTokens());
-
-            // Build messages array
-            List<Map<String, String>> messages = new ArrayList<>();
-
-            // Add system prompt
-            if (!systemPromptInitialized) {
-                messages.add(Map.of("role", "system", "content", systemPrompt));
-                systemPromptInitialized = true;
-            }
-
-            // Add conversation
-            for (int i = 0; i < conversation.size(); i++) {
-                String msg = conversation.get(i);
-                if (msg == null || msg.isEmpty()) continue;
-
-                if (i % 2 == 0) {
-                    messages.add(Map.of("role", "user", "content", msg));
-                } else {
-                    messages.add(Map.of("role", "assistant", "content", msg));
-                }
-            }
-
-            requestBody.put("messages", messages);
-
-            String jsonBody = mapper.writeValueAsString(requestBody);
-            log.info("Raw HTTP request to {} with model: {}, body length: {}", baseUrl, modelName, jsonBody.length());
-
-            // Create HTTP client
-            HttpClient httpClient = HttpClient.newHttpClient();
-
-            // Build request
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody));
-
-            HttpRequest httpRequest = requestBuilder.build();
-
-            // Send request
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log.error("Raw HTTP request failed with status {}: {}", response.statusCode(), response.body());
-                return "Error: API returned status " + response.statusCode() + " - " + response.body();
-            }
-
-            // Parse response, ignoring unknown fields
-            return parseResponseIgnoringUnknownFields(response.body());
-
-        } catch (Exception e) {
-            log.error("Raw HTTP request failed", e);
-            return "Error: Request failed - " + e.getMessage();
-        }
-    }
-
-    /**
-     * Parse JSON response, ignoring unknown fields.
-     */
-    private String parseResponseIgnoringUnknownFields(String jsonResponse) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            // Configure to ignore unknown properties
-            mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-            JsonNode root = mapper.readTree(jsonResponse);
-            JsonNode choices = root.get("choices");
-            if (choices != null && choices.isArray() && choices.size() > 0) {
-                JsonNode firstChoice = choices.get(0);
-                JsonNode message = firstChoice.get("message");
-                if (message != null) {
-                    JsonNode content = message.get("content");
-                    if (content != null) {
-                        return content.asText();
-                    }
-                }
-            }
-
-            return "Error: Could not extract content from response";
-        } catch (Exception e) {
-            log.error("Failed to parse response JSON", e);
-            return "Error: Failed to parse response - " + e.getMessage();
-        }
     }
 
     @Override
@@ -395,10 +347,10 @@ public class OpenAICompatibleProvider implements AiService {
                     && effectiveReasoningEffort != null && modelSupportsThinking) {
                 // Always-on models cannot receive disabled (API rejects); force enabled.
                 boolean thinkingEnabled = alwaysOn || !"none".equalsIgnoreCase(effectiveReasoningEffort);
-                java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
+                java.util.function.BiFunction<String, Boolean, Map<String, Object>> styleBuilder =
                         THINKING_STYLE_MAP.get(effectiveStyle);
                 if (styleBuilder != null) {
-                    Map<String, Object> extra = styleBuilder.apply(thinkingEnabled);
+                    Map<String, Object> extra = styleBuilder.apply(modelName, thinkingEnabled);
                     if (extra != null && !extra.isEmpty()) {
                         for (Map.Entry<String, Object> entry : extra.entrySet()) {
                             paramsBuilder.putAdditionalBodyProperty(entry.getKey(),
@@ -796,7 +748,7 @@ public class OpenAICompatibleProvider implements AiService {
      * Strip the provider prefix from a model ID.
      * e.g., "minimax:MiniMax-M2.7" -> "MiniMax-M2.7"
      */
-    private String stripProviderPrefix(String modelId) {
+    private static String stripProviderPrefix(String modelId) {
         if (modelId != null && modelId.contains(":")) {
             String[] parts = modelId.split(":", 2);
             if (parts.length == 2) {

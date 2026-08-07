@@ -16,6 +16,7 @@ import com.openai.models.ReasoningEffort;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -192,49 +193,6 @@ class OpenAICompatibleProviderTest {
         assertEquals("thinking_type", moonshot.getThinkingStyle());
     }
 
-    // ==================== parseResponseIgnoringUnknownFields ====================
-
-    @Test
-    void testParseResponseIgnoringUnknownFields_NormalResponse() throws Throwable {
-        String json = "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion\",\"unknown_field\":\"ignore me\","
-                + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello world\"},"
-                + "\"finish_reason\":\"stop\"}]}";
-        assertEquals("Hello world",
-                invokeInstance("parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json));
-    }
-
-    @Test
-    void testParseResponseIgnoringUnknownFields_MissingChoices() throws Throwable {
-        String json = "{\"id\":\"chatcmpl-1\"}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when choices missing, got: " + result);
-    }
-
-    @Test
-    void testParseResponseIgnoringUnknownFields_EmptyChoices() throws Throwable {
-        String json = "{\"choices\":[]}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when choices empty, got: " + result);
-    }
-
-    @Test
-    void testParseResponseIgnoringUnknownFields_MissingContent() throws Throwable {
-        String json = "{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when content missing, got: " + result);
-    }
-
-    @Test
-    void testParseResponseIgnoringUnknownFields_InvalidJson() throws Throwable {
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, "not json");
-        assertNotNull(result);
-        assertTrue(result.startsWith("Error"), "expected error string for invalid JSON, got: " + result);
-    }
-
     // ==================== isToolChoiceUnsupported(Throwable) ====================
 
     @ParameterizedTest
@@ -377,5 +335,72 @@ class OpenAICompatibleProviderTest {
         String result = (String) invokeInstance(
                 "extractErrorMessage", new Class<?>[]{Exception.class}, e);
         assertEquals("first line of error", result);
+    }
+
+    // ==================== MiniMax thinking style (minimax_thinking) ====================
+
+    @Test
+    void testMinimaxThinkingExtraBody_M3_On() {
+        // thinking on/off toggle is thinking.type; M3 "on" must be adaptive (enabled → HTTP 400).
+        // reasoning_split:true routes reasoning to reasoning_content (output format).
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "adaptive"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M3", true));
+    }
+
+    @Test
+    void testMinimaxThinkingExtraBody_M3_On_WithProviderPrefix() {
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "adaptive"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("minimax:MiniMax-M3-Pro", true));
+    }
+
+    @Test
+    void testMinimaxThinkingExtraBody_M3_Off() {
+        Map<String, Object> body = OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M3", false);
+        assertEquals(Map.of("thinking", Map.of("type", "disabled")), body);
+        assertFalse(body.containsKey("reasoning_split"),
+                "reasoning_split must not be sent when thinking is off");
+    }
+
+    @Test
+    void testMinimaxThinkingExtraBody_M2x_On() {
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "enabled"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M2.7", true));
+    }
+
+    @Test
+    void testIsM3Family() {
+        assertTrue(OpenAICompatibleProvider.isM3Family("MiniMax-M3"));
+        assertTrue(OpenAICompatibleProvider.isM3Family("minimax:MiniMax-M3-Pro"));
+        assertTrue(OpenAICompatibleProvider.isM3Family("minimax-m3"));
+        // Substring match: third-party aggregators may rename M3 (no "minimax-m3" prefix).
+        assertTrue(OpenAICompatibleProvider.isM3Family("acme-minimax-m3-pro"));
+        assertFalse(OpenAICompatibleProvider.isM3Family("MiniMax-M2.7"));
+        assertFalse(OpenAICompatibleProvider.isM3Family("abab6.5"));
+        assertFalse(OpenAICompatibleProvider.isM3Family(null));
+    }
+
+    @Test
+    void testThinkingStyleMap_HasMinimaxThinking_RemovedReasoningSplit() throws Exception {
+        java.lang.reflect.Field f = OpenAICompatibleProvider.class.getDeclaredField("THINKING_STYLE_MAP");
+        f.setAccessible(true);
+        Map<?, ?> map = (Map<?, ?>) f.get(null);
+        assertTrue(map.containsKey("minimax_thinking"), "minimax_thinking style must be registered");
+        assertFalse(map.containsKey("reasoning_split"),
+                "semantically-wrong reasoning_split style must be removed");
+        assertTrue(map.containsKey("thinking_type"));
+        assertTrue(map.containsKey("enable_thinking"));
+    }
+
+    @Test
+    void testMiniMax_UsesMinimaxThinkingStyle() {
+        ProviderSpec minimax = ProviderRegistry.findByName("minimax");
+        assertNotNull(minimax);
+        assertEquals("minimax_thinking", minimax.getThinkingStyle());
     }
 }

@@ -242,13 +242,14 @@ The table below lists recommended values for mainstream models.
 | moonshot | kimi-k2.7-code | `1.0` (API-enforced) | `8192` | `medium` | `128000` |
 | moonshot | kimi-k3 | `1.0` (API-enforced) | `65536` | `[low, high, max]` [Other values are handled by default as "max".](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
 | minimax | MiniMax-M2.7 | `1.0` | `8192` | `medium` | `128000` |
-| minimax | MiniMax-M3 | `1.0` | `65536` | `medium` | `512000` |
+| minimax | MiniMax-M3 | `1.0` | `65536` | `[none, medium]` | `512000` |
 | langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
 
 **Notes:**
 
 - **max.tokens** — The single-response output cap from each model's API; values above the cap are clipped server-side. For reasoning models (e.g., `deepseek-reasoner`), the visible output is reduced by the chain-of-thought tokens.
 - **reasoning.effort** — `none` disables thinking (faster and cheaper), suited for routine chat and simple tool calls; reasoning models should use `medium` or `high` to leverage deeper analysis.
+- **MiniMax thinking switch** — Controlled via `thinking.type` (`reasoning_effort=none` → `disabled`; otherwise M3 uses `adaptive`, M2.x uses `enabled`). The **M3** family can truly disable thinking; the **M2.x** family silently ignores `disabled`, so thinking cannot be turned off (known limitation, not a client-side defect).
 - **context.window.tokens** — Recommend ~80% of the model's context window ceiling, leaving headroom for tool results, memory consolidation, and the system prompt. Too large triggers frequent consolidation; too small discards history prematurely.
 
 ### Provider Configuration

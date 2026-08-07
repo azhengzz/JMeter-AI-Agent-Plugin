@@ -71,15 +71,20 @@ public class ProviderRegistry {
                 .addModelOverride("kimi-k3", "temperature", 1.0)
                 .build());
 
-        // MiniMax
+        // MiniMax. 思考开关是 thinking.type（不是 reasoning_split——后者只是输出格式开关）：
+        //   M3 系列：开=adaptive / 关=disabled（传 enabled 直接 HTTP 400）；
+        //   M2.x 系列：开=enabled / 关=disabled（服务端忽略 disabled，思考关不掉，已知限制）。
+        //   思考开时一并发送 reasoning_split:true，使推理落到 reasoning_content 字段。
+        //   详见 minimax_thinking 样式与
+        //   https://platform.minimaxi.com/docs/api-reference/text-openai-api#thinking-控制
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("minimax")
                 .displayName("MiniMax")
                 .defaultApiBase("https://api.minimaxi.com/v1")
                 .envKey("minimax.api.key")
                 .keywords("minimax")
-                .rawHttpClientOnly(true)  // MiniMax returns extra fields not compatible with OpenAI SDK
-                .thinkingStyle("reasoning_split")
+                .rawHttpClientOnly(true)  // MiniMax 纯文本走统一工具路径以注入思考参数；raw HTTP 已废弃（SDK 兼容）
+                .thinkingStyle("minimax_thinking")
                 .build());
 
         // LangCat (OpenAI 兼容, thinking_type: thinking={"type":"enabled"|"disabled"})

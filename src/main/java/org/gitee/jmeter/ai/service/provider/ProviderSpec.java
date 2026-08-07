@@ -16,13 +16,19 @@ public final class ProviderSpec {
     private final String backend;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final Set<String> thinkingModels;
-    private final boolean rawHttpClientOnly;  // Use raw HTTP instead of SDK (for incompatible APIs)
+    // When true, plain-text generation routes through the unified tool path
+    // (generatePlainTextViaToolPath) so thinking injection + reasoning_content extraction apply to
+    // plain text. Historical name: originally selected a raw-HTTP path (since removed — the SDK
+    // tolerates provider responses).
+    private final boolean rawHttpClientOnly;
 
     // How to inject the thinking on/off toggle into extra_body.
     // ""                — no extra_body needed (default)
     // "thinking_type"   — {"thinking": {"type": "enabled"/"disabled"}}  (DeepSeek, VolcEngine, BytePlus)
     // "enable_thinking" — {"enable_thinking": true/false}  (DashScope)
-    // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
+    // "minimax_thinking" — MiniMax 思考开关（thinking.type，非 reasoning_split）：
+    //                      开 → {"thinking":{"type": adaptive(M3)/enabled(M2.x)}, "reasoning_split": true}；
+    //                      关 → {"thinking":{"type":"disabled"}}
     private final String thinkingStyle;
 
     // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code, kimi-k3).
@@ -168,10 +174,11 @@ public final class ProviderSpec {
         }
 
         /**
-         * Mark this provider as requiring raw HTTP client only.
-         * This is for providers whose API responses are not fully compatible with OpenAI SDK.
+         * Mark this provider so plain-text generation routes through the unified tool path
+         * (thinking injection + reasoning_content extraction). Historical name retained; raw HTTP
+         * is no longer used.
          *
-         * @param rawHttpClientOnly true to use raw HTTP client instead of SDK
+         * @param rawHttpClientOnly true to route plain-text via the unified tool path
          * @return this builder
          */
         public Builder rawHttpClientOnly(boolean rawHttpClientOnly) {
@@ -181,7 +188,7 @@ public final class ProviderSpec {
 
         /**
          * Set the thinking style for this provider.
-         * @param thinkingStyle one of "", "thinking_type", "enable_thinking", "reasoning_split"
+         * @param thinkingStyle one of "", "thinking_type", "enable_thinking", "minimax_thinking"
          * @return this builder
          */
         public Builder thinkingStyle(String thinkingStyle) {
