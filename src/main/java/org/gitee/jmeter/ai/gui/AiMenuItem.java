@@ -3,12 +3,6 @@ package org.gitee.jmeter.ai.gui;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.gui.util.JMeterToolBar;
-import org.gitee.jmeter.ai.service.AiService;
-import org.gitee.jmeter.ai.service.OpenAiService;
-import org.gitee.jmeter.ai.service.ClaudeService;
-import org.gitee.jmeter.ai.service.OllamaAiService;
-import org.gitee.jmeter.ai.service.provider.AiServiceFactory;
-import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,58 +25,6 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
         this.parent = parent;
         addActionListener(this);
         addToolbarIcon();
-
-        // Initialize the JSR223 context menu
-        try {
-            // Create AI service for the context menu based on global provider config
-            String aiServiceType = AiConfig.getDefaultProvider();
-            AiService aiService = createAiService(aiServiceType);
-
-            if (aiService != null) {
-                JSR223ContextMenu.initialize(aiService);
-                log.info("Initialized JSR223 context menu with {} service", aiServiceType);
-            } else {
-                log.warn("No AI service available for JSR223 context menu");
-                // Still initialize context menu, but it will show the disabled state
-                JSR223ContextMenu.initialize(null);
-            }
-
-            // Add tree selection listener to detect when components are selected in JMeter
-            // tree
-            addTreeSelectionListener();
-        } catch (Exception e) {
-            log.error("Failed to initialize JSR223 context menu", e);
-        }
-    }
-
-    /**
-     * Creates an appropriate AI service based on configuration
-     * 
-     * @param serviceType the type of AI service to create
-     * @return the AI service instance, or null if configuration is invalid
-     */
-    private AiService createAiService(String serviceType) {
-        try {
-            if ("openai".equalsIgnoreCase(serviceType)) {
-                String apiKey = AiConfig.getProperty("openai.api.key", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")) {
-                    return new OpenAiService();
-                }
-            } else if ("anthropic".equalsIgnoreCase(serviceType)) {
-                String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")) {
-                    return new ClaudeService();
-                }
-            } else if ("ollama".equalsIgnoreCase(serviceType)) {
-                return new OllamaAiService();
-            } else {
-                // Chinese LLM providers (deepseek, zhipu, moonshot, minimax, etc.)
-                return AiServiceFactory.createService(serviceType + ":" + AiConfig.getDefaultModel());
-            }
-        } catch (Exception e) {
-            log.error("Error creating AI service", e);
-        }
-        return null;
     }
 
     public static ImageIcon getButtonIcon(int pixelSize) {
@@ -244,29 +186,4 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
         toolbar.add(toolbarButton, pos);
     }
 
-    /**
-     * Adds a tree selection listener to detect when components are selected in
-     * JMeter tree.
-     * This allows us to add context menus to JSR223 components when they're
-     * selected.
-     */
-    private void addTreeSelectionListener() {
-        try {
-            GuiPackage guiPackage = GuiPackage.getInstance();
-            if (guiPackage != null && guiPackage.getTreeListener() != null) {
-                guiPackage.getTreeListener().getJTree().addTreeSelectionListener(e -> {
-                    // Use SwingUtilities.invokeLater to avoid blocking the UI
-                    SwingUtilities.invokeLater(() -> {
-                        // Add context menu to the current JSR223 editor if one exists
-                        JSR223ContextMenu.addContextMenuToCurrentEditor();
-                    });
-                });
-                log.info("Added tree selection listener for JSR223 context menu");
-            } else {
-                log.warn("GuiPackage or TreeListener is null, context menu may not be added automatically");
-            }
-        } catch (Exception e) {
-            log.error("Failed to add tree selection listener", e);
-        }
-    }
 }

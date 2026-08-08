@@ -70,20 +70,6 @@ public class OllamaAiService implements AiService {
         return hostValue;
     }
 
-    private static float parseTemperature(String value) {
-        try {
-            float temp = Float.parseFloat(value);
-            if (temp < 0 || temp >= 1) {
-                logger.warn("Temperature must be between 0 and 1. Provided value: {}. Setting to default 0.5", temp);
-                return 0.5f;
-            }
-            return temp;
-        } catch (NumberFormatException e) {
-            logger.warn("Invalid temperature value: '{}'. Setting to default 0.5", value);
-            return 0.5f;
-        }
-    }
-
     private static ThinkMode parseThinkingMode(String value) {
         try {
             return ThinkMode.valueOf(value.toUpperCase());

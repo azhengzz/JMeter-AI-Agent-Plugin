@@ -204,8 +204,6 @@ mvn clean package -DskipTests
 - **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Claude
 - **OpenAiService** - 使用 openai-java SDK 集成 OpenAI GPT
 - **OllamaAiService** - 使用 ollama4j 集成本地 Ollama 模型
-- **CodeRefactorer** - 通过 AI 处理 JSR223 脚本重构
-- **RetryPolicy** - API 调用重试策略
 
 #### 服务提供者 (`service/provider`)
 - **AiServiceFactory** - AI 服务工厂
@@ -225,11 +223,9 @@ mvn clean package -DskipTests
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
 - **ChatUIManager** - 管理聊天 UI 状态
-- **JSR223ContextMenu** - JSR223 脚本编辑器的右键上下文菜单
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
 - **ElementSuggestionManager** - 为 AI 响应中提到的 JMeter 元素创建可点击按钮
 - **ComponentFinder** - 查找 JMeter 组件
-- **JMeterElementManager** - GUI 层的 JMeter 元素管理
 - **TreeNavigationButtons** - 测试计划树导航按钮
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
@@ -329,8 +325,6 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
   - `ContextWindowManagerTest`
 - **intellisense/** - 智能提示测试
   - `CommandIntellisenseProviderTest` / `InputBoxIntellisenseTest` / `IntellisensePopupTest`
-- **service/** - 服务层测试
-  - `CodeRefactorerTest`
 - **utils/** - 工具类测试
   - `VersionUtilsTest`
 

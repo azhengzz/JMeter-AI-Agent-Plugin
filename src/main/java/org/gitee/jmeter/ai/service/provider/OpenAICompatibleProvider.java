@@ -26,7 +26,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Unified OpenAI-compatible provider for all Chinese LLM providers.
@@ -640,10 +639,6 @@ public class OpenAICompatibleProvider implements AiService {
         log.info("Model set to: {}", modelId);
     }
 
-    public String getCurrentModel() {
-        return currentModelId;
-    }
-
     @Override
     public GenerationSettings getGenerationSettings() {
         return generationSettings;
@@ -670,10 +665,6 @@ public class OpenAICompatibleProvider implements AiService {
 
     public long getMaxTokens() {
         return generationSettings.getMaxTokens();
-    }
-
-    public void resetSystemPromptInitialization() {
-        this.systemPromptInitialized = false;
     }
 
     /**
@@ -756,17 +747,6 @@ public class OpenAICompatibleProvider implements AiService {
             }
         }
         return modelId;
-    }
-
-    /**
-     * Convert Message list to String list for legacy API
-     */
-    private List<String> convertToStringList(List<Message> messages) {
-        return messages.stream()
-                .filter(m -> m.getRole() != Message.Role.SYSTEM && m.getRole() != Message.Role.TOOL)
-                .map(Message::getContent)
-                .filter(c -> c != null)
-                .collect(Collectors.toList());
     }
 
     private String extractErrorMessage(Exception e) {

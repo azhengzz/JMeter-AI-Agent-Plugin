@@ -272,14 +272,6 @@ public class AgentLoop {
     }
 
     /**
-     * New API: Process a message with full run specification.
-     */
-    // TODO 没有地方调用，确认下是否需要删除
-    public CompletableFuture<AgentRunResult> run(AgentRunSpec spec) {
-        return agentRunner.run(spec);
-    }
-
-    /**
      * Get the tool registry.
      */
     public ToolRegistry getToolRegistry() {

@@ -6,10 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.gitee.jmeter.ai.utils.AiConfig;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.Optional;
 import java.util.List;
 
 /**
@@ -129,64 +127,6 @@ public class OpenAiUsage {
         }
         UsageRecord last = usageHistory.get(usageHistory.size() - 1);
         return new long[]{last.promptTokens, last.completionTokens};
-    }
-
-    /**
-     * Get usage summary as a formatted string.
-     *
-     * @return The usage summary
-     */
-    public String getUsageSummary() {
-        if (usageHistory.isEmpty()) {
-            return "No OpenAI usage data available. Try using the OpenAI service first.";
-        }
-
-        StringBuilder summary = new StringBuilder();
-        summary.append("# OpenAI Usage Summary\n\n");
-
-        // Summary totals
-        long totalPromptTokens = 0;
-        long totalCompletionTokens = 0;
-        long totalTokens = 0;
-
-        // Calculate totals
-        for (UsageRecord record : usageHistory) {
-            totalPromptTokens += record.promptTokens;
-            totalCompletionTokens += record.completionTokens;
-            totalTokens += record.totalTokens;
-        }
-
-        // Add summary information
-        summary.append("## Overall Summary\n");
-        summary.append("- **Total Conversations**: ").append(usageHistory.size()).append("\n");
-        summary.append("- **Total Input Tokens**: ").append(totalPromptTokens).append("\n");
-        summary.append("- **Total Output Tokens**: ").append(totalCompletionTokens).append("\n");
-        summary.append("- **Total Tokens**: ").append(totalTokens).append("\n\n");
-
-        // Add pricing note
-        summary.append("## Pricing Information\n");
-        summary.append("For up-to-date pricing information, please visit OpenAI's official pricing page:\n");
-        summary.append("https://openai.com/api/pricing/\n\n");
-        summary.append("OpenAI pricing varies by model and may change over time.\n\n");
-
-        // Add detail for the last 10 conversations using a more readable format
-        summary.append("## Recent Conversations\n");
-
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-        // Get the most recent 10 records or fewer if less than 10 exist
-        int startIndex = Math.max(0, usageHistory.size() - 10);
-        for (int i = startIndex; i < usageHistory.size(); i++) {
-            UsageRecord record = usageHistory.get(i);
-            summary.append("### Conversation ").append(i + 1 - startIndex).append("\n");
-            summary.append("- **Date**: ").append(dateFormat.format(record.timestamp)).append("\n");
-            summary.append("- **Model**: ").append(record.model).append("\n");
-            summary.append("- **Input Tokens**: ").append(record.promptTokens).append("\n");
-            summary.append("- **Output Tokens**: ").append(record.completionTokens).append("\n");
-            summary.append("- **Total Tokens**: ").append(record.totalTokens).append("\n\n");
-        }
-
-        return summary.toString();
     }
 
     /**

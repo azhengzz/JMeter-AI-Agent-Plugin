@@ -31,20 +31,15 @@ import org.gitee.jmeter.ai.selection.SelectionTracker;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
 
-import com.openai.models.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 
 import org.gitee.jmeter.ai.utils.AiConfig;
-import org.gitee.jmeter.ai.utils.Models;
 import org.gitee.jmeter.ai.utils.VersionUtils;
 import org.gitee.jmeter.ai.service.OpenAiService;
 import org.gitee.jmeter.ai.service.OllamaAiService;
 import org.gitee.jmeter.ai.service.provider.ProviderRegistry;
 import org.gitee.jmeter.ai.service.provider.AiServiceFactory;
 import org.gitee.jmeter.ai.tracing.TracedAiService;
-
-import com.anthropic.models.models.ModelInfo;
-import com.anthropic.models.models.ModelListPage;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

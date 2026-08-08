@@ -103,11 +103,6 @@ public class ClaudeService implements AiService {
         log.info("Max tokens set to: {}", maxTokens);
     }
 
-    public void resetSystemPromptInitialization() {
-        this.systemPromptInitialized = false;
-        log.info("Reset system prompt initialization flag");
-    }
-
     public String sendMessage(String message) {
         log.info("Sending message to Claude: {}", message);
         return generateResponse(java.util.Collections.singletonList(message));
