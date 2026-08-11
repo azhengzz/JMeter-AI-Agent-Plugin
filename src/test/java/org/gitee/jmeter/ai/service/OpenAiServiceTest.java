@@ -136,6 +136,13 @@ class OpenAiServiceTest {
                 invokeInstance("extractModelName", new Class<?>[]{String.class}, "gpt-4o"));
     }
 
+    @Test
+    void testExtractModelName_OllamaTagStyle_NotStripped() throws Throwable {
+        // Ollama tags use ":" inside the model name; a non-provider prefix must not be stripped
+        assertEquals("qwen3.5:2b",
+                invokeInstance("extractModelName", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
     // ==================== toReasoningEffort (static) ====================
 
     @ParameterizedTest

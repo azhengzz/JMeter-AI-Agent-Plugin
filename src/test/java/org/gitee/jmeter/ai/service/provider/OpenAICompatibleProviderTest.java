@@ -116,6 +116,33 @@ class OpenAICompatibleProviderTest {
         assertNull(invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, (Object) null));
     }
 
+    @Test
+    void testStripProviderPrefix_OllamaTagStyle_NotStripped() throws Throwable {
+        // Ollama tags use ":" inside the model name; a non-provider prefix must not be stripped
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
+    @Test
+    void testStripProviderPrefix_OllamaProvider_PrefixedTag() throws Throwable {
+        // Prefix stripping is per-instance: an ollama provider strips only "ollama:",
+        // while a bare Ollama tag (no provider prefix) passes through untouched.
+        aiConfigMock.when(() -> AiConfig.getProperty("ollama.api.key", "")).thenReturn("");
+        aiConfigMock.when(() -> AiConfig.getProperty("ollama.api.base.url", "http://localhost:11434/v1"))
+                .thenReturn("http://localhost:11434/v1");
+        ProviderSpec ollamaSpec = new ProviderSpec.Builder()
+                .name("ollama")
+                .displayName("Ollama")
+                .defaultApiBase("http://localhost:11434/v1")
+                .envKey("ollama.api.key")
+                .build();
+        provider = new OpenAICompatibleProvider(ollamaSpec);
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "ollama:qwen3.5:2b"));
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
     // ==================== toReasoningEffort (static) ====================
 
     @ParameterizedTest
