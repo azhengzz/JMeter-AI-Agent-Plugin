@@ -261,6 +261,34 @@ public class AgentRunner {
             .reasoningEffort(spec.getReasoningEffort())
             .build();
 
+        // Fail fast: tool calling is mandatory for the agent. A service that does not
+        // support tool calling must NOT silently degrade to a tool-less text loop.
+        if (!aiService.supportsToolCalling()) {
+            String provider = aiService.getName();
+            log.error("Aborting agent run: model/provider '{}' does not support tool calling", provider);
+            context.setStopReason("unsupported_model");
+            String unsupportedMsg = "This model/provider (" + provider
+                + ") does not support tool calling, which the agent requires. "
+                + "Please select a model that supports function/tool calling.";
+            java.util.Map<String, Object> errMeta = new java.util.HashMap<>();
+            errMeta.put("usage", context.getUsage());
+            return AgentRunResult.builder()
+                .runId(context.getRunId())
+                .content(unsupportedMsg)
+                .toolsUsed(toolsUsed)
+                .iterationCount(iteration)
+                .success(true)
+                .startTime(startTime)
+                .endTime(Instant.now())
+                .session(session)
+                .toolEvents(context.getToolEvents())
+                .currentMessages(currentMessages)
+                .metadata(errMeta)
+                .stopReason(context.getStopReason())
+                .hadInjections(hadInjections)
+                .build();
+        }
+
         while (iteration < maxIterations) {
             iteration++;
             context.setCurrentIteration(iteration);
@@ -509,47 +537,18 @@ public class AgentRunner {
      */
     private LLMResponse callLLM(List<Message> messages, LlmCallOptions options) {
         try {
-            // Check if the service supports tool calling
-            if (aiService.supportsToolCalling()) {
-                log.info("Using tool calling enabled LLM service");
+            // Tool calling is the only supported path (see mandatory-toolcalling spec);
+            // runAgentLoop guards against services that do not support it.
+            log.info("Using tool calling enabled LLM service");
 
-                // Get tool definitions from the tool registry
-                List<org.gitee.jmeter.ai.agent.model.ToolDefinition> tools =
-                    toolRegistry.getToolDefinitionObjects();
+            // Get tool definitions from the tool registry
+            List<org.gitee.jmeter.ai.agent.model.ToolDefinition> tools =
+                toolRegistry.getToolDefinitionObjects();
 
-                log.info("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
+            log.info("Calling LLM with {} messages and {} tools", messages.size(), tools.size());
 
-                // Call the service with full messages and tools
-                return aiService.generateResponseWithTools(messages, tools, options);
-            } else {
-                // Fall back to simple text-based response
-                log.info("Using simple text-based LLM service (no tool calling support)");
-
-                // Convert messages to format expected by AI service
-                List<String> conversation = new ArrayList<>();
-                for (Message msg : messages) {
-                    if (msg.getRole() == Message.Role.SYSTEM) {
-                        continue; // System prompt is handled by the service
-                    }
-                    if (msg.getRole() == Message.Role.TOOL) {
-                        continue; // Skip tool results for now
-                    }
-                    if (msg.getContent() != null) {
-                        conversation.add(msg.getContent());
-                    }
-                }
-
-                String response = aiService.generateResponse(conversation);
-
-                // Check if the response is an error message from the AI service
-                // OpenAiService returns errors as "Error: ..." strings
-                if (response != null && response.startsWith("Error:")) {
-                    log.warn("AI service returned an error response: {}", response);
-                    return LLMResponse.error(response.substring(7)); // Remove "Error: " prefix
-                }
-
-                return LLMResponse.text(response);
-            }
+            // Call the service with full messages and tools
+            return aiService.generateResponseWithTools(messages, tools, options);
 
         } catch (Exception e) {
             log.error("Error calling LLM", e);

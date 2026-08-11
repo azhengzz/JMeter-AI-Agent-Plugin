@@ -67,13 +67,13 @@ public class OpenAICompatibleProvider implements AiService {
     /**
      * Whether a MiniMax model is in the M3 family, which requires {@code thinking.type=adaptive}
      * to enable thinking (it rejects {@code enabled} with HTTP 400). Detection is by substring on
-     * the provider-prefix-stripped, lowercased model id (e.g. "MiniMax-M3",
-     * "minimax:MiniMax-M3-Pro"). Substring (not prefix) so renamed M3 ids on third-party
-     * aggregators (e.g. "acme-minimax-m3-pro") still match.
+     * the lowercased model id (e.g. "MiniMax-M3", "minimax:MiniMax-M3-Pro"). Substring (not prefix)
+     * so renamed M3 ids on third-party aggregators (e.g. "acme-minimax-m3-pro") still match, and a
+     * provider prefix does not affect the match (it cannot compose "minimax-m3" across the colon).
      */
     static boolean isM3Family(String model) {
         if (model == null) return false;
-        return stripProviderPrefix(model).toLowerCase().contains("minimax-m3");
+        return model.toLowerCase().contains("minimax-m3");
     }
 
     private final String providerName;
@@ -736,13 +736,17 @@ public class OpenAICompatibleProvider implements AiService {
     }
 
     /**
-     * Strip the provider prefix from a model ID.
-     * e.g., "minimax:MiniMax-M2.7" -> "MiniMax-M2.7"
+     * Strip the current provider's own "provider:" prefix from a model ID.
+     * e.g. for an ollama provider: "ollama:qwen3.5:2b" -> "qwen3.5:2b".
+     * A bare colon that is NOT the current provider's prefix is left intact —
+     * Ollama model tags themselves use ":" (e.g. "qwen3.5:2b"), which previously
+     * got truncated to "2b". No global prefix whitelist is needed: each instance
+     * already knows its own provider name.
      */
-    private static String stripProviderPrefix(String modelId) {
+    private String stripProviderPrefix(String modelId) {
         if (modelId != null && modelId.contains(":")) {
             String[] parts = modelId.split(":", 2);
-            if (parts.length == 2) {
+            if (parts.length == 2 && parts[0].equals(this.providerName)) {
                 return parts[1];
             }
         }

@@ -1,23 +1,38 @@
 package org.gitee.jmeter.ai.service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.core.JsonValue;
+import com.anthropic.models.messages.ContentBlock;
+import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.StopReason;
+import com.anthropic.models.messages.TextBlockParam;
+import com.anthropic.models.messages.Tool;
+import com.anthropic.models.messages.ToolChoice;
+import com.anthropic.models.messages.ToolChoiceTool;
+import com.anthropic.models.messages.ToolResultBlockParam;
+import com.anthropic.models.messages.ToolUseBlock;
+import com.anthropic.models.messages.ToolUseBlockParam;
+import com.anthropic.models.messages.Usage;
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.gitee.jmeter.ai.agent.model.GenerationSettings;
 import org.gitee.jmeter.ai.agent.model.LLMResponse;
 import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
+import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.SystemPrompt;
+import org.gitee.jmeter.ai.usage.AnthropicUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.gitee.jmeter.ai.usage.AnthropicUsage;
 
 /**
  * ClaudeService class.
@@ -288,12 +303,15 @@ public class ClaudeService implements AiService {
 
     @Override
     public boolean supportsToolCalling() {
-        return currentModelId != null && (
-                currentModelId.startsWith("claude-3") ||
-                currentModelId.startsWith("claude-sonnet") ||
-                currentModelId.startsWith("claude-opus") ||
-                currentModelId.startsWith("claude-haiku")
-        );
+        // Tool calling is a backend capability, not a property of the model id. Every
+        // Claude model since Claude 3 supports it, so this is unconditional — matching
+        // OpenAiService / OpenAICompatibleProvider / OllamaAiService, which all return
+        // true and trust the API to reject an unsupported model. A model/prefix check
+        // here has repeatedly broken the agent (provider-prefix bug ×2, the
+        // claude-fable-* family-list gap), because AgentRunner's pre-flight guard treats
+        // a false return as fatal. Prefix stripping is AiServiceFactory.bareModelName's
+        // job; this method must not re-validate the id.
+        return true;
     }
 
     @Override
@@ -327,24 +345,293 @@ public class ClaudeService implements AiService {
 
     @Override
     public LLMResponse generateResponseWithTools(List<org.gitee.jmeter.ai.agent.model.Message> messages, List<ToolDefinition> tools) {
-        log.info("Tool calling requested - using fallback to text generation");
-        String text = generateResponse(convertToStringList(messages));
+        return callWithTools(messages, tools, null);
+    }
 
-        Map<String, Integer> usageMap = java.util.Map.of();
+    @Override
+    public LLMResponse generateResponseWithForcedTool(List<org.gitee.jmeter.ai.agent.model.Message> messages,
+                                                      List<ToolDefinition> tools, String forcedToolName) {
+        return callWithTools(messages, tools, forcedToolName);
+    }
+
+    @Override
+    public boolean supportsForcedToolChoice() {
+        return supportsToolCalling();
+    }
+
+    /**
+     * Shared tool-calling request path for auto and forced tool choice (D6). When
+     * {@code forcedToolName} is non-null, Anthropic {@code tool_choice} forces that tool —
+     * used by MemoryConsolidator's {@code save_memory} consolidation so the call can't be
+     * skipped (previously the forced-tool default threw and the fallback never fired).
+     */
+    private LLMResponse callWithTools(List<org.gitee.jmeter.ai.agent.model.Message> messages,
+                                      List<ToolDefinition> tools, String forcedToolName) {
+        log.info("Generating response with tools using model: {}, {} tools{}",
+                currentModelId,
+                tools != null ? tools.size() : 0,
+                forcedToolName != null ? ", forced=" + forcedToolName : "");
         try {
-            long[] tokens = AnthropicUsage.getInstance().getLastRecordedUsage();
-            if (tokens[0] > 0 || tokens[1] > 0) {
-                usageMap = java.util.Map.of("prompt_tokens", (int) tokens[0], "completion_tokens", (int) tokens[1]);
-            }
+            Message response = client.messages().create(buildToolCallParams(messages, tools, forcedToolName));
+            return toLLMResponse(response, currentModelId);
         } catch (Exception e) {
-            log.debug("Could not extract usage from usage tracker", e);
+            log.error("Error generating response with tools", e);
+            return LLMResponse.error(extractUserFriendlyErrorMessage(e));
+        }
+    }
+
+    /**
+     * Assemble {@link MessageCreateParams} for a tool-calling turn: max-tokens/model,
+     * thinking/temperature (mutually exclusive), top-level system, mapped messages, tool
+     * definitions, and an optional forced {@code tool_choice}. Extracted for testability.
+     */
+    MessageCreateParams buildToolCallParams(List<org.gitee.jmeter.ai.agent.model.Message> messages,
+                                            List<ToolDefinition> tools, String forcedToolName) {
+        if (currentModelId == null || currentModelId.isEmpty()) {
+            currentModelId = "claude-3-sonnet-20240229";
+            log.warn("No model was set, defaulting to: {}", currentModelId);
         }
 
-        return LLMResponse.builder()
-                .content(text)
-                .finishReason("stop")
-                .usage(usageMap)
+        double temperature = generationSettings.getTemperature();
+        long maxTokens = generationSettings.getMaxTokens();
+        String reasoningEffort = generationSettings.getReasoningEffort();
+
+        MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
+                .maxTokens(maxTokens)
+                .model(currentModelId);
+
+        int budgetTokens = mapReasoningEffortToBudget(reasoningEffort);
+        if (budgetTokens > 0) {
+            paramsBuilder.enabledThinking(budgetTokens);
+            if (maxTokens < budgetTokens + 1) {
+                paramsBuilder.maxTokens(budgetTokens + 1000);
+            }
+        } else {
+            paramsBuilder.temperature(temperature);
+        }
+
+        String system = extractSystem(messages);
+        if (system != null && !system.isEmpty()) {
+            paramsBuilder.system(system);
+        }
+
+        addMessages(paramsBuilder, messages);
+
+        if (tools != null) {
+            for (ToolDefinition td : tools) {
+                paramsBuilder.addTool(buildTool(td));
+            }
+        }
+
+        if (forcedToolName != null) {
+            paramsBuilder.toolChoice(ToolChoice.ofTool(
+                    ToolChoiceTool.builder().name(forcedToolName).build()));
+        }
+
+        return paramsBuilder.build();
+    }
+
+    /**
+     * Build an Anthropic SDK {@link Tool} from a {@link ToolDefinition}, reusing its
+     * JSON-schema parameters as the tool's input schema (D2).
+     */
+    private Tool buildTool(ToolDefinition td) {
+        return Tool.builder()
+                .name(td.getName())
+                .description(td.getDescription() != null ? td.getDescription() : "")
+                .inputSchema(buildInputSchema(td.getParameters()))
                 .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    Tool.InputSchema buildInputSchema(Map<String, Object> parameters) {
+        Tool.InputSchema.Builder schemaBuilder = Tool.InputSchema.builder();
+
+        if (parameters == null || parameters.isEmpty()) {
+            return schemaBuilder.type(JsonValue.from("object")).build();
+        }
+
+        Object type = parameters.get("type");
+        schemaBuilder.type(JsonValue.from(type != null ? type : "object"));
+
+        Object props = parameters.get("properties");
+        if (props instanceof Map) {
+            Tool.InputSchema.Properties.Builder propsBuilder = Tool.InputSchema.Properties.builder();
+            for (Map.Entry<String, Object> entry : ((Map<String, Object>) props).entrySet()) {
+                propsBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
+            }
+            schemaBuilder.properties(propsBuilder.build());
+        }
+
+        Object required = parameters.get("required");
+        if (required instanceof List) {
+            schemaBuilder.required((List<String>) required);
+        }
+
+        return schemaBuilder.build();
+    }
+
+    /**
+     * Map our message list onto Anthropic message params (D3/D4). SYSTEM messages are
+     * skipped here (consumed by {@link #extractSystem}); TOOL results are coalesced into
+     * single USER messages to keep user/assistant turns strictly alternating.
+     */
+    void addMessages(MessageCreateParams.Builder builder,
+                             List<org.gitee.jmeter.ai.agent.model.Message> messages) {
+        List<ContentBlockParam> pendingToolResults = new ArrayList<>();
+        for (org.gitee.jmeter.ai.agent.model.Message m : messages) {
+            switch (m.getRole()) {
+                case SYSTEM:
+                    break;
+                case USER:
+                    flushToolResults(builder, pendingToolResults);
+                    builder.addUserMessage(m.getContent() != null ? m.getContent() : "");
+                    break;
+                case ASSISTANT:
+                    flushToolResults(builder, pendingToolResults);
+                    builder.addAssistantMessageOfBlockParams(buildAssistantBlocks(m));
+                    break;
+                case TOOL:
+                    pendingToolResults.add(buildToolResultBlock(m));
+                    break;
+            }
+        }
+        flushToolResults(builder, pendingToolResults);
+    }
+
+    private void flushToolResults(MessageCreateParams.Builder builder, List<ContentBlockParam> results) {
+        if (results.isEmpty()) {
+            return;
+        }
+        builder.addUserMessageOfBlockParams(new ArrayList<>(results));
+        results.clear();
+    }
+
+    List<ContentBlockParam> buildAssistantBlocks(org.gitee.jmeter.ai.agent.model.Message m) {
+        List<ContentBlockParam> blocks = new ArrayList<>();
+        if (m.getContent() != null && !m.getContent().isEmpty()) {
+            blocks.add(ContentBlockParam.ofText(TextBlockParam.builder().text(m.getContent()).build()));
+        }
+        if (m.hasToolCalls()) {
+            for (ToolCall tc : m.getToolCalls()) {
+                ToolUseBlockParam.Input.Builder inputBuilder = ToolUseBlockParam.Input.builder();
+                if (tc.getArguments() != null) {
+                    for (Map.Entry<String, Object> entry : tc.getArguments().entrySet()) {
+                        inputBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
+                    }
+                }
+                blocks.add(ContentBlockParam.ofToolUse(ToolUseBlockParam.builder()
+                        .id(tc.getId())
+                        .name(tc.getName())
+                        .input(inputBuilder.build())
+                        .build()));
+            }
+        }
+        return blocks;
+    }
+
+    ContentBlockParam buildToolResultBlock(org.gitee.jmeter.ai.agent.model.Message m) {
+        return ContentBlockParam.ofToolResult(ToolResultBlockParam.builder()
+                .toolUseId(m.getToolCallId())
+                .content(m.getContent() != null ? m.getContent() : "")
+                .build());
+    }
+
+    /**
+     * Concatenate SYSTEM-role message content for the top-level {@code system} param (D4).
+     * Re-derived on every call, so the system prompt is never dropped on later turns.
+     */
+    String extractSystem(List<org.gitee.jmeter.ai.agent.model.Message> messages) {
+        StringBuilder sb = new StringBuilder();
+        for (org.gitee.jmeter.ai.agent.model.Message m : messages) {
+            if (m.getRole() == org.gitee.jmeter.ai.agent.model.Message.Role.SYSTEM
+                    && m.getContent() != null && !m.getContent().isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append("\n\n");
+                }
+                sb.append(m.getContent());
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Convert an Anthropic SDK {@link Message} into our {@link LLMResponse} (D5): tool_use
+     * blocks become {@link ToolCall}s, text/thinking blocks become content/reasoning.
+     */
+    LLMResponse toLLMResponse(Message message, String modelId) {
+        StringBuilder content = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
+        List<ToolCall> toolCalls = new ArrayList<>();
+
+        for (ContentBlock block : message.content()) {
+            if (block.isToolUse()) {
+                ToolUseBlock tu = block.asToolUse();
+                Map<String, Object> args;
+                try {
+                    args = tu._input().convert(new TypeReference<Map<String, Object>>() {});
+                } catch (Exception e) {
+                    log.warn("Failed to parse tool_use input for '{}': {}", tu.name(), e.getMessage());
+                    args = Collections.emptyMap();
+                }
+                toolCalls.add(new ToolCall(tu.id(), tu.name(), args));
+            } else if (block.isText()) {
+                content.append(block.asText().text());
+            } else if (block.isThinking()) {
+                reasoning.append(block.asThinking().thinking());
+            }
+        }
+
+        long inputTokens = 0;
+        long outputTokens = 0;
+        try {
+            Usage usage = message.usage();
+            if (usage != null) {
+                inputTokens = usage.inputTokens();
+                outputTokens = usage.outputTokens();
+            }
+        } catch (Exception e) {
+            log.warn("Could not extract usage from response: {}", e.getMessage());
+        }
+        Map<String, Integer> usageMap = Map.of(
+                "prompt_tokens", (int) inputTokens,
+                "completion_tokens", (int) outputTokens);
+
+        try {
+            AnthropicUsage.getInstance().recordUsage(message, modelId, inputTokens, outputTokens);
+        } catch (Exception e) {
+            log.error("Failed to record token usage", e);
+        }
+
+        LLMResponse.Builder builder = LLMResponse.builder().usage(usageMap);
+        if (content.length() > 0) {
+            builder.content(content.toString());
+        }
+        if (reasoning.length() > 0) {
+            builder.reasoningContent(reasoning.toString());
+        }
+        if (!toolCalls.isEmpty()) {
+            builder.toolCalls(toolCalls).finishReason("tool_calls");
+        } else {
+            builder.finishReason(mapStopReason(message.stopReason()));
+        }
+        return builder.build();
+    }
+
+    String mapStopReason(Optional<StopReason> stopReason) {
+        if (stopReason == null || stopReason.isEmpty()) {
+            return "stop";
+        }
+        try {
+            StopReason.Known known = stopReason.get().known();
+            return switch (known) {
+                case MAX_TOKENS -> "length";
+                default -> "stop";
+            };
+        } catch (Exception e) {
+            log.debug("Unknown stop reason, defaulting to stop", e);
+            return "stop";
+        }
     }
 
     @Override
@@ -366,13 +653,5 @@ public class ClaudeService implements AiService {
             this.generationSettings = original;
             this.currentModelId = originalModel;
         }
-    }
-
-    private List<String> convertToStringList(List<org.gitee.jmeter.ai.agent.model.Message> messages) {
-        return messages.stream()
-                .filter(m -> m.getRole() != org.gitee.jmeter.ai.agent.model.Message.Role.SYSTEM && m.getRole() != org.gitee.jmeter.ai.agent.model.Message.Role.TOOL)
-                .map(org.gitee.jmeter.ai.agent.model.Message::getContent)
-                .filter(c -> c != null)
-                .collect(Collectors.toList());
     }
 }

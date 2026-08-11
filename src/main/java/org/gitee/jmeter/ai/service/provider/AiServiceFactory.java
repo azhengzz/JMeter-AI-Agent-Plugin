@@ -148,7 +148,10 @@ public class AiServiceFactory {
                 // Use the existing Claude service
                 ClaudeService claudeService = new ClaudeService();
                 if (modelId != null) {
-                    claudeService.setModel(modelId);
+                    // The "anthropic:" prefix is a UI-routing tag; the Anthropic API rejects a
+                    // prefixed id, so strip it to the bare model name. supportsToolCalling()
+                    // returns true unconditionally and no longer validates the id.
+                    claudeService.setModel(bareModelName(modelId));
                 }
                 yield claudeService;
             }
@@ -156,7 +159,7 @@ public class AiServiceFactory {
                 // Use the existing Ollama service
                 OllamaAiService ollamaService = new OllamaAiService();
                 if (modelId != null) {
-                    ollamaService.setModel(modelId);
+                    ollamaService.setModel(bareModelName(modelId));
                 }
                 yield ollamaService;
             }
@@ -177,6 +180,20 @@ public class AiServiceFactory {
         }
 
         return service;
+    }
+
+    /**
+     * Strip a leading {@code "provider:"} prefix to get the bare model id that the
+     * Anthropic/Ollama SDKs require (e.g. {@code "anthropic:claude-opus-4-8" ->
+     * "claude-opus-4-8"}). OpenAI-compatible providers keep the prefix and are not routed
+     * through here. A bare id (no colon) is returned unchanged.
+     */
+    private static String bareModelName(String modelId) {
+        if (modelId == null) {
+            return null;
+        }
+        int colon = modelId.indexOf(':');
+        return colon >= 0 ? modelId.substring(colon + 1) : modelId;
     }
 
     /**

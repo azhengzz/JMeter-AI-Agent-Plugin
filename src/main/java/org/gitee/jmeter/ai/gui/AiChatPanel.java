@@ -157,9 +157,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                             log.info("Using ollama provider for model: {}", modelName);
                         }
                         default -> {
-                            // For Anthropic (no prefix) and others
-                            claudeService.setModel(selectedModel);
-                            log.info("Using Anthropic provider for model: {}", selectedModel);
+                            // Anthropic (provider tag "anthropic:"): needs the bare model id.
+                            claudeService.setModel(modelName);
+                            log.info("Using Anthropic provider for model: {}", modelName);
                         }
                     }
                 } else {
@@ -601,16 +601,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (modelId.contains(":")) {
             String[] parts = modelId.split(":", 2);
             String provider = parts[0];
+            String modelName = parts[1];
 
             switch (provider) {
                 case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
                     openAiService.setModel(modelId);
                 }
                 case "ollama" -> {
-                    ollamaService.setModel(modelId);
+                    ollamaService.setModel(modelName);  // Ollama needs the bare model id
                 }
                 default -> {
-                    claudeService.setModel(modelId);
+                    claudeService.setModel(modelName);  // Anthropic needs the bare model id
                 }
             }
         } else {
@@ -641,8 +642,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     log.info("Set ollama provider model: {}", modelName);
                 }
                 default -> {
-                    claudeService.setModel(modelId);
-                    log.info("Set Anthropic provider model: {}", modelId);
+                    claudeService.setModel(modelName);  // Anthropic API needs the bare model id (rejects a "provider:" prefix)
+                    log.info("Set Anthropic provider model: {}", modelName);
                 }
             }
         } else {

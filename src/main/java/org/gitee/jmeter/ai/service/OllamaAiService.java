@@ -1,9 +1,16 @@
 package org.gitee.jmeter.ai.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.gitee.jmeter.ai.agent.model.GenerationSettings;
+import org.gitee.jmeter.ai.agent.model.LLMResponse;
+import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
+import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.agent.model.ToolCall;
+import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import io.github.ollama4j.models.request.ThinkMode;
 import io.github.ollama4j.utils.Options;
 import io.github.ollama4j.utils.OptionsBuilder;
@@ -14,9 +21,13 @@ import org.slf4j.LoggerFactory;
 
 import io.github.ollama4j.Ollama;
 import io.github.ollama4j.models.response.Model;
+import io.github.ollama4j.models.chat.OllamaChatMessage;
 import io.github.ollama4j.models.chat.OllamaChatRequest;
 import io.github.ollama4j.models.chat.OllamaChatMessageRole;
 import io.github.ollama4j.models.chat.OllamaChatResult;
+import io.github.ollama4j.models.chat.OllamaChatToolCalls;
+import io.github.ollama4j.tools.OllamaToolCallsFunction;
+import io.github.ollama4j.tools.Tools;
 
 // Ollama Help https://ollama4j.github.io/ollama4j/intro
 public class OllamaAiService implements AiService {
@@ -144,6 +155,11 @@ public class OllamaAiService implements AiService {
     }
 
     @Override
+    public boolean supportsToolCalling() {
+        return true;
+    }
+
+    @Override
     public String generateResponse(List<String> messages) {
         return generateResponse(messages, this.systemPrompt);
     }
@@ -198,6 +214,160 @@ public class OllamaAiService implements AiService {
             logger.error("Error generating response from Ollama", e);
             return "Error generating response: " + e.getMessage();
         }
+    }
+
+    @Override
+    public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools,
+                                                 LlmCallOptions options) {
+        // System prompt comes only from the messages (ContextBuilder includes a SYSTEM
+        // message), so the request is built without the separate systemPrompt injection
+        // used by the text path — avoiding a doubled system prompt.
+        String originalModel = this.model;
+        try {
+            if (options != null && options.getModel() != null && !options.getModel().isEmpty()) {
+                this.model = options.getModel();
+            }
+
+            OllamaChatRequest request = buildOllamaChatRequest(OllamaChatRequest.builder());
+            request = request.withTools(mapTools(tools)).withUseTools(true);
+            // Tool execution stays with the Agent loop: do not let ollama4j auto-execute
+            // or internally retry tool calls.
+            ollamaClient.setMaxChatToolCallRetries(0);
+
+            for (Message msg : messages) {
+                request = appendMessage(request, msg);
+            }
+
+            OllamaChatResult result = ollamaClient.chat(request, null);
+            return buildLLMResponse(result.getResponseModel().getMessage());
+
+        } catch (Exception e) {
+            logger.error("Error generating tool-calling response from Ollama", e);
+            return LLMResponse.error("Ollama tool-calling error: " + e.getMessage());
+        } finally {
+            this.model = originalModel;
+        }
+    }
+
+    /**
+     * Map an Ollama response message to our {@link LLMResponse}. Package-private so the
+     * tool-call/text branching can be unit-tested without a live Ollama instance.
+     */
+    static LLMResponse buildLLMResponse(OllamaChatMessage respMsg) {
+        List<OllamaChatToolCalls> respToolCalls = respMsg.getToolCalls();
+
+        if (respToolCalls != null && !respToolCalls.isEmpty()) {
+            List<ToolCall> mapped = new ArrayList<>();
+            for (OllamaChatToolCalls tc : respToolCalls) {
+                OllamaToolCallsFunction fn = tc.getFunction();
+                String name = fn != null ? fn.getName() : null;
+                Map<String, Object> args = fn != null ? fn.getArguments() : Map.of();
+                mapped.add(new ToolCall(tc.getId(), name, args));
+            }
+            return LLMResponse.builder()
+                    .content(respMsg.getResponse())
+                    .toolCalls(mapped)
+                    .finishReason("tool_calls")
+                    .build();
+        }
+        return LLMResponse.text(respMsg.getResponse());
+    }
+
+    /**
+     * Map our {@link ToolDefinition} list to ollama4j {@link Tools.Tool}s.
+     * Parameters are mapped best-effort: only top-level properties translate to the
+     * flat {@link Tools.Property} model; nested schemas degrade to a generic object.
+     */
+    static List<Tools.Tool> mapTools(List<ToolDefinition> tools) {
+        List<Tools.Tool> out = new ArrayList<>();
+        if (tools == null) return out;
+        for (ToolDefinition td : tools) {
+            Tools.ToolSpec spec = Tools.ToolSpec.builder()
+                    .name(td.getName())
+                    .description(td.getDescription() != null ? td.getDescription() : "")
+                    .parameters(mapParameters(td.getParameters()))
+                    .build();
+            out.add(Tools.Tool.builder().toolSpec(spec).type("function").build());
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Tools.Parameters mapParameters(Map<String, Object> params) {
+        Map<String, Tools.Property> propertyMap = new HashMap<>();
+        if (params == null) {
+            return Tools.Parameters.of(propertyMap);
+        }
+        Object propertiesObj = params.get("properties");
+        if (propertiesObj instanceof Map) {
+            for (Map.Entry<String, Object> e : ((Map<String, Object>) propertiesObj).entrySet()) {
+                propertyMap.put(e.getKey(), mapProperty(e.getValue()));
+            }
+        }
+        Tools.Parameters parameters = Tools.Parameters.of(propertyMap);
+        Object requiredObj = params.get("required");
+        if (requiredObj instanceof List) {
+            List<String> reqList = new ArrayList<>();
+            for (Object o : (List<?>) requiredObj) {
+                if (o != null) reqList.add(o.toString());
+            }
+            parameters.setRequired(reqList);
+        }
+        return parameters;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Tools.Property mapProperty(Object propObj) {
+        Tools.Property.PropertyBuilder b = Tools.Property.builder();
+        if (propObj instanceof Map) {
+            Map<String, Object> propMap = (Map<String, Object>) propObj;
+            Object type = propMap.get("type");
+            if (type != null) b.type(type.toString());
+            Object desc = propMap.get("description");
+            if (desc != null) b.description(desc.toString());
+            Object enumObj = propMap.get("enum");
+            if (enumObj instanceof List) {
+                List<String> enumVals = new ArrayList<>();
+                for (Object o : (List<?>) enumObj) {
+                    if (o != null) enumVals.add(o.toString());
+                }
+                b.enumValues(enumVals);
+            }
+        }
+        return b.build();
+    }
+
+    /**
+     * Append a {@link Message} to the request, preserving role, prior assistant
+     * tool calls, and tool results for multi-turn round-trips.
+     */
+    static OllamaChatRequest appendMessage(OllamaChatRequest request, Message msg) {
+        String content = msg.getContent() != null ? msg.getContent() : "";
+        switch (msg.getRole()) {
+            case SYSTEM:
+                return request.withMessage(OllamaChatMessageRole.SYSTEM, content);
+            case USER:
+                return request.withMessage(OllamaChatMessageRole.USER, content);
+            case ASSISTANT:
+                if (msg.hasToolCalls()) {
+                    return request.withMessage(OllamaChatMessageRole.ASSISTANT, content, mapToolCalls(msg.getToolCalls()));
+                }
+                return request.withMessage(OllamaChatMessageRole.ASSISTANT, content);
+            case TOOL:
+                return request.withMessage(OllamaChatMessageRole.TOOL, content);
+            default:
+                return request.withMessage(OllamaChatMessageRole.USER, content);
+        }
+    }
+
+    static List<OllamaChatToolCalls> mapToolCalls(List<ToolCall> toolCalls) {
+        List<OllamaChatToolCalls> out = new ArrayList<>();
+        if (toolCalls == null) return out;
+        for (ToolCall tc : toolCalls) {
+            out.add(new OllamaChatToolCalls(tc.getId(),
+                    new OllamaToolCallsFunction(tc.getName(), tc.getArguments())));
+        }
+        return out;
     }
 
     private OllamaChatRequest buildOllamaChatRequest(OllamaChatRequest request) {

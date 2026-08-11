@@ -182,7 +182,10 @@ public class LangSmithClient {
 
             return new LLMRun(runId, name, this, true);
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Catch Throwable (not Exception): a Jackson/jar version skew throws
+            // NoSuchMethodError (an Error) which must not abort the agent run —
+            // tracing is best-effort. Return an inactive no-op run.
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
                 log.debug("LangSmith create interrupted (agent stopped): runId={}", runId);
@@ -269,7 +272,7 @@ public class LangSmithClient {
             runService.update(runId, updateParams);
             log.info("LangSmith run updated successfully: runId={}", runId);
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
                 log.debug("LangSmith update interrupted (agent stopped): runId={}", runId);

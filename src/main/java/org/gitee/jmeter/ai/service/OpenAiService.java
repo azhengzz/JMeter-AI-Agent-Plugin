@@ -145,14 +145,20 @@ public class OpenAiService implements AiService {
     /**
      * Extract just the model name without provider prefix.
      * For example, "minimax:MiniMax-M2.7" returns "MiniMax-M2.7".
-     * Returns the original modelId if no provider prefix is found.
+     * Returns the original modelId if no KNOWN provider prefix is found.
+     * A bare colon that is not a known provider prefix is left intact, since
+     * Ollama model tags use ":" inside the model name itself (e.g. "qwen3.5:2b").
      */
     private String extractModelName(String modelId) {
         if (modelId != null && modelId.contains(":")) {
             String[] parts = modelId.split(":", 2);
-            return parts[1];  // Return the part after the colon
+            for (String knownProvider : OPENAI_COMPATIBLE_PROVIDERS) {
+                if (knownProvider.equals(parts[0])) {
+                    return parts[1];  // Return the part after the known provider prefix
+                }
+            }
         }
-        return modelId;  // No prefix, return as-is
+        return modelId;  // No known prefix, return as-is
     }
 
     public OpenAIClient getClient() {
