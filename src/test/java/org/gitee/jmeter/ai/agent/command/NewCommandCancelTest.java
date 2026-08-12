@@ -32,8 +32,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class NewCommandCancelTest {
 
     private static class QuietAiService implements AiService {
-        @Override public String generateResponse(List<String> conversation) { return "ok"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "ok"; }
         @Override public String getName() { return "quiet"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);
@@ -53,8 +51,6 @@ class NewCommandCancelTest {
     private static class BlockingAiService implements AiService {
         private final CountDownLatch release;
         BlockingAiService(CountDownLatch release) { this.release = release; }
-        @Override public String generateResponse(List<String> conversation) { return "ok"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "ok"; }
         @Override public String getName() { return "blocking"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

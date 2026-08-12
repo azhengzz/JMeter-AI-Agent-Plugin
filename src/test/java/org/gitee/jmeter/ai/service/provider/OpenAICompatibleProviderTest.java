@@ -305,65 +305,6 @@ class OpenAICompatibleProviderTest {
         assertFalse(actual);
     }
 
-    // ==================== extractErrorMessage ====================
-
-    @Test
-    void testExtractErrorMessage_InsufficientQuota() throws Throwable {
-        Exception e = new RuntimeException("Error: insufficient_quota");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Credit balance"), "got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_InvalidApiKey() throws Throwable {
-        Exception e = new RuntimeException("Error: invalid_api_key or authentication failed");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Invalid API key"), "got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_RateLimit() throws Throwable {
-        Exception e = new RuntimeException("rate_limit too many requests");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Rate limit"), "got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_ModelNotFound() throws Throwable {
-        Exception e = new RuntimeException("Error: model_not_found");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.toLowerCase().contains("not found"), "got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_ContextLength() throws Throwable {
-        Exception e = new RuntimeException("Error: context_length_exceeded");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("too long"), "got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_NullMessage() throws Throwable {
-        Exception e = new RuntimeException();
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains(provider.getName()) || result.contains("Unknown error"),
-                "expected provider name or unknown error, got: " + result);
-    }
-
-    @Test
-    void testExtractErrorMessage_MultiLineTruncatedToFirstLine() throws Throwable {
-        Exception e = new RuntimeException("first line of error\nsecond line\nthird line");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertEquals("first line of error", result);
-    }
-
     // ==================== MiniMax thinking style (minimax_thinking) ====================
 
     @Test

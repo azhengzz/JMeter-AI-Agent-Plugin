@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * <ul>
  *   <li><b>3.1</b> — can openai-java SDK deserialize a MiniMax PLAIN (no-tools)
  *       chat.completion response? If {@code plainTextSdkResponse_deserializes} passes,
- *       conclusion <b>A</b> (SDK compatible → {@code rawHttpClientOnly} can be dropped);
+ *       conclusion <b>A</b> (SDK compatible → no raw-HTTP path needed);
  *       if it throws on deserialization, conclusion <b>B</b> (keep raw HTTP).</li>
  *   <li><b>3.4</b> — when {@code reasoning_split} is omitted, does reasoning appear inline
  *       as {@code <think>} in {@code content}, or in a separate {@code reasoning_content}

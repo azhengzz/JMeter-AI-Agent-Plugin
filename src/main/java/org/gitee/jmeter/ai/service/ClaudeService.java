@@ -118,114 +118,6 @@ public class ClaudeService implements AiService {
         log.info("Max tokens set to: {}", maxTokens);
     }
 
-    public String sendMessage(String message) {
-        log.info("Sending message to Claude: {}", message);
-        return generateResponse(java.util.Collections.singletonList(message));
-    }
-
-    public String generateResponse(List<String> conversation) {
-        try {
-            log.info("Generating response for conversation with {} messages", conversation.size());
-
-            if (currentModelId == null || currentModelId.isEmpty()) {
-                currentModelId = "claude-3-sonnet-20240229";
-                log.warn("No model was set, defaulting to: {}", currentModelId);
-            }
-
-            double temperature = generationSettings.getTemperature();
-            long maxTokens = generationSettings.getMaxTokens();
-            String reasoningEffort = generationSettings.getReasoningEffort();
-
-            if (temperature < 0 || temperature > 1) {
-                temperature = 0.7;
-                log.warn("Invalid temperature value, defaulting to: 0.7");
-            }
-
-            log.info("Generating response using model: {} and temperature: {}", currentModelId, temperature);
-
-            boolean isFirstMessage = !systemPromptInitialized;
-            if (isFirstMessage) {
-                log.info("Using system prompt (first 100 chars): {}",
-                        systemPrompt.substring(0, Math.min(100, systemPrompt.length())));
-                systemPromptInitialized = true;
-            } else {
-                log.info("Using previously initialized conversation with system prompt");
-            }
-
-            MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
-                    .maxTokens(maxTokens)
-                    .model(currentModelId);
-
-            int budgetTokens = mapReasoningEffortToBudget(reasoningEffort);
-            if (budgetTokens > 0) {
-                paramsBuilder.enabledThinking(budgetTokens);
-                if (maxTokens < budgetTokens + 1) {
-                    paramsBuilder.maxTokens(budgetTokens + 1000);
-                }
-            } else {
-                paramsBuilder.temperature(temperature);
-            }
-
-            if (isFirstMessage) {
-                paramsBuilder.system(systemPrompt);
-                log.info("Including system prompt in request (length: {})", systemPrompt.length());
-            } else {
-                log.info("Skipping system prompt to save tokens (already sent in previous messages)");
-            }
-
-            for (int i = 0; i < conversation.size(); i++) {
-                String msg = conversation.get(i);
-                if (i % 2 == 0) {
-                    paramsBuilder.addUserMessage(msg);
-                } else {
-                    paramsBuilder.addAssistantMessage(msg);
-                }
-            }
-
-            MessageCreateParams params = paramsBuilder.build();
-            log.info("Request parameters: maxTokens={}, temperature={}, model={}, messagesCount={}",
-                    params.maxTokens(), params.temperature(), params.model(),
-                    conversation.size());
-
-            Message message = client.messages().create(params);
-
-            log.info(message.content().toString());
-
-            String responseText = String.valueOf(message.content().get(0).text().get().text());
-
-            long inputTokens = 0;
-            long outputTokens = 0;
-            try {
-                var usage = message.usage();
-                if (usage != null) {
-                    inputTokens = usage.inputTokens();
-                    outputTokens = usage.outputTokens();
-                }
-            } catch (Exception e) {
-                log.warn("Could not extract real usage from response, using estimates: {}", e.getMessage());
-                inputTokens = estimateTokens(String.join(" ", conversation));
-                outputTokens = estimateTokens(responseText);
-            }
-
-            try {
-                AnthropicUsage.getInstance().recordUsage(
-                        message,
-                        currentModelId,
-                        inputTokens,
-                        outputTokens);
-                log.info("Recorded token usage: {} input, {} output", inputTokens, outputTokens);
-            } catch (Exception e) {
-                log.error("Failed to record token usage", e);
-            }
-
-            return responseText;
-        } catch (Exception e) {
-            log.error("Error generating response", e);
-            String errorMessage = extractUserFriendlyErrorMessage(e);
-            return "Error: " + errorMessage;
-        }
-    }
-
     private int mapReasoningEffortToBudget(String effort) {
         if (effort == null || effort.equalsIgnoreCase("none") || effort.equalsIgnoreCase("null")) {
             return 0;
@@ -236,13 +128,6 @@ public class ClaudeService implements AiService {
             case "high" -> 32000;
             default -> 10000;
         };
-    }
-
-    private long estimateTokens(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        return Math.max(1, text.length() / 4);
     }
 
     private String extractUserFriendlyErrorMessage(Exception e) {
@@ -283,20 +168,6 @@ public class ClaudeService implements AiService {
         return "An error occurred while communicating with the Anthropic API. Please try again later.";
     }
 
-    public String generateResponse(List<String> conversation, String model) {
-        log.info("Generating response with specified model: {}", model);
-
-        String originalModel = this.currentModelId;
-
-        try {
-            this.currentModelId = model;
-            return generateResponse(conversation);
-        } finally {
-            this.currentModelId = originalModel;
-            log.info("Restored original model: {}", originalModel);
-        }
-    }
-
     public String getName() {
         return "Anthropic Claude";
     }
@@ -312,35 +183,6 @@ public class ClaudeService implements AiService {
         // a false return as fatal. Prefix stripping is AiServiceFactory.bareModelName's
         // job; this method must not re-validate the id.
         return true;
-    }
-
-    @Override
-    public boolean supportsStreaming() {
-        return supportsToolCalling();
-    }
-
-    @Override
-    public void generateResponseStreaming(List<String> conversation, java.util.function.Consumer<String> chunkConsumer) {
-        log.info("Using fallback streaming implementation (non-streaming API)");
-
-        try {
-            String response = generateResponse(conversation);
-            String[] chunks = response.split("(?<=\\s)|(?<=\\n)");
-            for (String chunk : chunks) {
-                if (!chunk.isEmpty()) {
-                    chunkConsumer.accept(chunk);
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("Error in streaming response", e);
-            chunkConsumer.accept("Error: " + extractUserFriendlyErrorMessage(e));
-        }
     }
 
     @Override

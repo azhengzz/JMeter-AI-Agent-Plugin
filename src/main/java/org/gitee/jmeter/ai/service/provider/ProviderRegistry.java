@@ -83,7 +83,6 @@ public class ProviderRegistry {
                 .defaultApiBase("https://api.minimaxi.com/v1")
                 .envKey("minimax.api.key")
                 .keywords("minimax")
-                .rawHttpClientOnly(true)  // MiniMax 纯文本走统一工具路径以注入思考参数；raw HTTP 已废弃（SDK 兼容）
                 .thinkingStyle("minimax_thinking")
                 .build());
 

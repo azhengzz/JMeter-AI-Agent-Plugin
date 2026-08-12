@@ -16,11 +16,6 @@ public final class ProviderSpec {
     private final String backend;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final Set<String> thinkingModels;
-    // When true, plain-text generation routes through the unified tool path
-    // (generatePlainTextViaToolPath) so thinking injection + reasoning_content extraction apply to
-    // plain text. Historical name: originally selected a raw-HTTP path (since removed — the SDK
-    // tolerates provider responses).
-    private final boolean rawHttpClientOnly;
 
     // How to inject the thinking on/off toggle into extra_body.
     // ""                — no extra_body needed (default)
@@ -47,7 +42,6 @@ public final class ProviderSpec {
         this.thinkingModels = builder.thinkingModels != null
                 ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingModels))
                 : Collections.emptySet();
-        this.rawHttpClientOnly = builder.rawHttpClientOnly;
         this.thinkingStyle = builder.thinkingStyle;
         this.thinkingAlwaysOnModels = builder.thinkingAlwaysOnModels != null
                 ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingAlwaysOnModels))
@@ -89,10 +83,6 @@ public final class ProviderSpec {
     public boolean supportsThinking(String model) {
         if (thinkingModels.isEmpty()) return true;
         return model != null && thinkingModels.contains(model.toLowerCase());
-    }
-
-    public boolean isRawHttpClientOnly() {
-        return rawHttpClientOnly;
     }
 
     public String getThinkingStyle() {
@@ -139,7 +129,6 @@ public final class ProviderSpec {
         private String backend = "openai_compat";
         private final Map<String, Map<String, Object>> modelOverrides = new HashMap<>();
         private Set<String> thinkingModels;
-        private boolean rawHttpClientOnly = false;
         private String thinkingStyle = "";
         private Set<String> thinkingAlwaysOnModels;
 
@@ -170,19 +159,6 @@ public final class ProviderSpec {
 
         public Builder backend(String backend) {
             this.backend = backend;
-            return this;
-        }
-
-        /**
-         * Mark this provider so plain-text generation routes through the unified tool path
-         * (thinking injection + reasoning_content extraction). Historical name retained; raw HTTP
-         * is no longer used.
-         *
-         * @param rawHttpClientOnly true to route plain-text via the unified tool path
-         * @return this builder
-         */
-        public Builder rawHttpClientOnly(boolean rawHttpClientOnly) {
-            this.rawHttpClientOnly = rawHttpClientOnly;
             return this;
         }
 

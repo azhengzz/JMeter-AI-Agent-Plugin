@@ -60,8 +60,6 @@ class SubagentTurnConfluenceIT {
         final CountDownLatch sawSubagentResult = new CountDownLatch(1);
         volatile boolean spawnRequested;
 
-        @Override public String generateResponse(List<String> conversation) { return "text"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "text"; }
         @Override public String getName() { return "scripted"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);
@@ -103,8 +101,6 @@ class SubagentTurnConfluenceIT {
         private final long delayMs;
         SubagentAiService(long delayMs) { this.delayMs = delayMs; }
 
-        @Override public String generateResponse(List<String> conversation) { return "x"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "x"; }
         @Override public String getName() { return "subagent-llm"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

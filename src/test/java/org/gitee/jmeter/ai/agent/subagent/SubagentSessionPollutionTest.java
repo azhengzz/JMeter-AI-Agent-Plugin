@@ -24,8 +24,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class SubagentSessionPollutionTest {
 
     private static class InstantAiService implements AiService {
-        @Override public String generateResponse(List<String> conversation) { return "summary"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "summary"; }
         @Override public String getName() { return "fake"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

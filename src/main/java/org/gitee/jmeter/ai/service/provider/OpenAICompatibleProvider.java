@@ -80,10 +80,6 @@ public class OpenAICompatibleProvider implements AiService {
     private final OpenAIClient client;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final ProviderSpec spec;
-    // MiniMax marker: route plain-text via the unified tool path (generatePlainTextViaToolPath) so
-    // thinking injection + reasoning_content extraction apply. Raw HTTP is no longer used (SDK
-    // tolerates MiniMax responses); the flag name is retained for the routing switch it provides.
-    private final boolean useRawHttpClientOnly;
     private final String apiKey;
     private final String baseUrl;
 
@@ -96,7 +92,6 @@ public class OpenAICompatibleProvider implements AiService {
         this.providerName = spec.getName();
         this.spec = spec;
         this.modelOverrides = spec.getModelOverrides();
-        this.useRawHttpClientOnly = spec.isRawHttpClientOnly();
 
         // Get API key from properties
         this.apiKey = AiConfig.getProperty(spec.getEnvKey(), "");
@@ -106,8 +101,8 @@ public class OpenAICompatibleProvider implements AiService {
 
         // Build the client with provider-specific base URL
         this.baseUrl = AiConfig.getProperty(spec.getName() + ".api.base.url", spec.getDefaultApiBase());
-        log.info("Creating OpenAI-compatible provider: {} with base URL: {} (raw HTTP only: {})",
-                providerName, baseUrl, useRawHttpClientOnly);
+        log.info("Creating OpenAI-compatible provider: {} with base URL: {}",
+                providerName, baseUrl);
 
         OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey.isEmpty() ? "no-key" : apiKey);
@@ -124,106 +119,6 @@ public class OpenAICompatibleProvider implements AiService {
         this.systemPrompt = SystemPrompt.get();
 
         log.info("Initialized {} provider with model: {}", providerName, currentModelId);
-    }
-
-    @Override
-    public String generateResponse(List<String> conversation) {
-        return generateResponse(conversation, null);
-    }
-
-    @Override
-    public String generateResponse(List<String> conversation, String model) {
-        String effectiveModel = model != null ? model : currentModelId;
-
-        // MiniMax: route plain-text through the unified tool path (doGenerateWithTools) so the
-        // provider thinking style (minimax_thinking) and reasoning_content extraction apply to plain
-        // text too — makeSdkRequest does not inject the thinking extra_body. The SDK tolerates
-        // MiniMax responses (conclusion A, verified 2026-08-07), so raw HTTP is no longer required.
-        if (useRawHttpClientOnly) {
-            return generatePlainTextViaToolPath(conversation, effectiveModel);
-        }
-
-        // Use OpenAI SDK for compatible providers
-        try {
-            return makeSdkRequest(conversation, effectiveModel);
-        } catch (Exception e) {
-            log.error("Error generating response from {}", providerName, e);
-            return "Error: " + extractErrorMessage(e);
-        }
-    }
-
-    /**
-     * Plain-text generation routed through the unified tool path so the provider thinking style
-     * (e.g. MiniMax {@code minimax_thinking}) and {@code reasoning_content} extraction apply to
-     * plain text — {@link #makeSdkRequest} does not inject the thinking extra_body.
-     */
-    private String generatePlainTextViaToolPath(List<String> conversation, String model) {
-        List<Message> messages = new ArrayList<>();
-        for (int i = 0; i < conversation.size(); i++) {
-            String msg = conversation.get(i);
-            if (msg == null || msg.isEmpty()) continue;
-            Message.Role role = (i % 2 == 0) ? Message.Role.USER : Message.Role.ASSISTANT;
-            messages.add(Message.builder().role(role).content(msg).build());
-        }
-        LLMResponse resp = doGenerateWithTools(messages, null, null,
-                LlmCallOptions.builder().model(model).build());
-        if (resp.isError()) {
-            log.error("Plain-text generation error for {}: {}", providerName, resp.getErrorMessage());
-            return "Error: " + resp.getErrorMessage();
-        }
-        return resp.getContent() != null ? resp.getContent() : "No content available";
-    }
-
-    /**
-     * Make request using OpenAI SDK (for compatible providers).
-     */
-    private String makeSdkRequest(List<String> conversation, String model) {
-        String effectiveModel = model != null ? model : currentModelId;
-        String modelName = stripProviderPrefix(effectiveModel);
-        Map<String, Object> params = buildChatParams(modelName);
-
-        log.info("Generating response for {} with model: {}", providerName, modelName);
-
-        // Create parameters builder
-        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
-                .maxCompletionTokens((Long) params.getOrDefault("max_tokens", 4096L))
-                .temperature((Double) params.getOrDefault("temperature", 0.7))
-                .model(modelName);
-
-        // reasoning_effort 对不支持思考的模型无意义（被 API 忽略），跳过发送。
-        ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
-        boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
-        if (effort != null && modelSupportsThinking) {
-            paramsBuilder.reasoningEffort(effort);
-        }
-
-        // Add system prompt
-        if (!systemPromptInitialized) {
-            paramsBuilder.addSystemMessage(systemPrompt);
-            systemPromptInitialized = true;
-        }
-
-        // Process conversation history
-        for (int i = 0; i < conversation.size(); i++) {
-            String msg = conversation.get(i);
-            if (msg == null || msg.isEmpty()) continue;
-
-            if (i % 2 == 0) {
-                paramsBuilder.addUserMessage(msg);
-            } else {
-                // Assistant messages (odd indices: 1, 3, 5...)
-                // Use addAssistantMessage(String) method from OpenAI SDK 4.x
-                paramsBuilder.addAssistantMessage(msg);
-            }
-        }
-
-        // Create completion
-        ChatCompletionCreateParams requestParams = paramsBuilder.build();
-        log.info("[{}] Request params: {}", providerName, summarizeParams(requestParams));
-        ChatCompletion chatCompletion = client.chat().completions().create(requestParams);
-
-        // Extract response content
-        return chatCompletion.choices().get(0).message().content().orElse("No content available");
     }
 
     @Override
@@ -718,23 +613,6 @@ public class OpenAICompatibleProvider implements AiService {
         return o.map(Object::toString).orElse("");
     }
 
-    // Private helper methods
-
-    private Map<String, Object> buildChatParams(String model) {
-        Map<String, Object> params = new HashMap<>();
-        params.put("temperature", generationSettings.getTemperature());
-        params.put("max_tokens", (long) generationSettings.getMaxTokens());
-
-        // Apply model-specific overrides
-        Map<String, Object> overrides = modelOverrides.get(model);
-        if (overrides != null) {
-            log.info("Applying model overrides for {}: {}", model, overrides);
-            params.putAll(overrides);
-        }
-
-        return params;
-    }
-
     /**
      * Strip the current provider's own "provider:" prefix from a model ID.
      * e.g. for an ollama provider: "ollama:qwen3.5:2b" -> "qwen3.5:2b".
@@ -751,33 +629,6 @@ public class OpenAICompatibleProvider implements AiService {
             }
         }
         return modelId;
-    }
-
-    private String extractErrorMessage(Exception e) {
-        String message = e.getMessage();
-        if (message == null) {
-            return "Unknown error from " + providerName;
-        }
-
-        // Extract user-friendly error messages
-        if (message.contains("insufficient_quota") || message.contains("balance")) {
-            return "Credit balance is too low. Please check your billing information.";
-        }
-        if (message.contains("invalid_api_key") || message.contains("authentication")) {
-            return "Invalid API key. Please check your API key.";
-        }
-        if (message.contains("rate_limit") || message.contains("too many requests")) {
-            return "Rate limit exceeded. Please try again later.";
-        }
-        if (message.contains("model_not_found")) {
-            return "The selected model was not found.";
-        }
-        if (message.contains("context_length")) {
-            return "The conversation is too long. Please start a new conversation.";
-        }
-
-        // Return a cleaned up version of the error message
-        return message.split("\\n")[0];
     }
 
     private static ReasoningEffort toReasoningEffort(String effort) {

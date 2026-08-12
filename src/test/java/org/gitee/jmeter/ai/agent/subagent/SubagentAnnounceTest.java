@@ -24,8 +24,6 @@ class SubagentAnnounceTest {
     private static class InstantAiService implements AiService {
         private final String answer;
         InstantAiService(String answer) { this.answer = answer; }
-        @Override public String generateResponse(List<String> conversation) { return answer; }
-        @Override public String generateResponse(List<String> conversation, String model) { return answer; }
         @Override public String getName() { return "fake"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

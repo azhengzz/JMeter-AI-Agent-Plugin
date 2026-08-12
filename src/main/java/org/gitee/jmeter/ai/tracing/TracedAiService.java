@@ -44,48 +44,6 @@ public class TracedAiService implements AiService {
     }
 
     @Override
-    public String generateResponse(List<String> conversation) {
-        return generateResponse(conversation, null);
-    }
-
-    @Override
-    public String generateResponse(List<String> conversation, String model) {
-        String effectiveModel = model != null ? model : "default";
-        String runName = delegate.getName() + ":" + effectiveModel;
-
-        Map<String, Object> inputs = new HashMap<>();
-        inputs.put("conversation", conversation);
-        inputs.put("message_count", conversation.size());
-
-        List<String> tags = buildTags(effectiveModel);
-        LangSmithClient.LLMRun run = tracer.createRun(runName, inputs, tags);
-
-        try {
-            long startTime = System.currentTimeMillis();
-            String response = delegate.generateResponse(conversation, model);
-            long duration = System.currentTimeMillis() - startTime;
-
-            Map<String, Object> outputs = new HashMap<>();
-            outputs.put("response", response);
-            outputs.put("duration_ms", duration);
-
-            // Estimated tokens (text-only mode has no actual usage)
-            int inputTokens = conversation.stream().mapToInt(String::length).sum() / 4;
-            int outputTokens = response.length() / 4;
-            outputs.put("estimated_input_tokens", inputTokens);
-            outputs.put("estimated_output_tokens", outputTokens);
-
-            run.complete(outputs);
-            return response;
-
-        } catch (Exception e) {
-            log.error("Error in generateResponse for {}", runName, e);
-            run.error(e.getMessage());
-            throw e;
-        }
-    }
-
-    @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
         return generateResponseWithTools(messages, tools, null);
     }

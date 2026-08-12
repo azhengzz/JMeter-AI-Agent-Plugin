@@ -30,8 +30,6 @@ class SubagentExecutorDeadlockTest {
 
     /** Minimal AiService that answers immediately with no tool calls. */
     private static class InstantAiService implements AiService {
-        @Override public String generateResponse(List<String> conversation) { return "done"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "done"; }
         @Override public String getName() { return "fake"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

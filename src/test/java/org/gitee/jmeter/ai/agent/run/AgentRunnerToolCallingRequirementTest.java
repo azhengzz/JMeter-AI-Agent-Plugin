@@ -32,8 +32,6 @@ class AgentRunnerToolCallingRequirementTest {
     private static class TextOnlyAiService implements AiService {
         final AtomicBoolean toolPathCalled = new AtomicBoolean();
 
-        @Override public String generateResponse(List<String> conversation) { return "x"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "x"; }
         @Override public String getName() { return "text-only"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);
