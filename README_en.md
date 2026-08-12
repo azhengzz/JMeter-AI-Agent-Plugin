@@ -274,12 +274,7 @@ The table below lists recommended values for mainstream models.
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `ollama.enabled` | Enable Ollama | `false` |
-| `ollama.host` | Server host | `http://localhost` |
-| `ollama.port` | Server port | `11434` |
-| `ollama.thinking.mode` | Thinking mode (ENABLED / DISABLED) | `DISABLED` |
-| `ollama.thinking.level` | Thinking depth (LOW / MEDIUM / HIGH); only used when thinking.mode=ENABLED | Follows `jmeter.ai.reasoning.effort` |
-| `ollama.request.timeout.seconds` | Request timeout (seconds); consider increasing when thinking mode is on | `120` |
+| `ollama.api.base.url` | API base URL (OpenAI-compatible endpoint; must include the `/v1` suffix) | `http://localhost:11434/v1` |
 
 #### Chinese LLM Providers
 

@@ -203,7 +203,6 @@ mvn clean package -DskipTests
 - **AiService** 接口定义了 AI 提供者的契约
 - **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Claude
 - **OpenAiService** - 使用 openai-java SDK 集成 OpenAI GPT
-- **OllamaAiService** - 使用 ollama4j 集成本地 Ollama 模型
 
 #### 服务提供者 (`service/provider`)
 - **AiServiceFactory** - AI 服务工厂
@@ -222,7 +221,6 @@ mvn clean package -DskipTests
 - **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
-- **ChatUIManager** - 管理聊天 UI 状态
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
 - **ElementSuggestionManager** - 为 AI 响应中提到的 JMeter 元素创建可点击按钮
 - **ComponentFinder** - 查找 JMeter 组件
@@ -239,7 +237,6 @@ mvn clean package -DskipTests
 
 ### 工具类 (`org.gitee.jmeter.ai.utils`)
 - **AiConfig** - AI 配置工具类
-- **Models** - 模型常量定义
 - **SystemPrompt** - 系统提示模板
 - **TextUtils** - 文本处理工具
 - **VersionUtils** - 版本比较工具
@@ -343,7 +340,6 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 |------|------|------|
 | anthropic-java | 2.18.0 | Anthropic Claude SDK |
 | openai-java | 4.43.0 | OpenAI GPT SDK（ReasoningEffort 自 4.42.0 起含 MAX） |
-| ollama4j | 1.1.6 | Ollama 本地模型 |
 | langsmith-java | 0.1.0-alpha.24 | LangSmith 链路追踪 |
 | ApacheJMeter_core | 5.6.3 | JMeter 核心 |
 | snakeyaml | 2.2 | YAML 解析 |
@@ -355,7 +351,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 所有配置通过 JMeter 属性完成（通常在 `user.properties` 或 `jmeter.properties` 中）：
 
 - `anthropic.api.key` / `openai.api.key` - API 凭证
-- `claude.default.model` / `openai.default.model` / `ollama.default.model` - 模型选择
+- `jmeter.ai.default.provider` / `jmeter.ai.default.model` - 全局默认提供者与模型选择（读于 `AiConfig.java:47-48`；无 per-provider 默认模型属性）
 - `claude.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
 - `claude.max.history.size` / `openai.max.history.size` - 对话历史限制
 - `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）

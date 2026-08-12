@@ -271,12 +271,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `ollama.enabled` | 是否启用 | `false` |
-| `ollama.host` | 服务地址 | `http://localhost` |
-| `ollama.port` | 服务端口 | `11434` |
-| `ollama.thinking.mode` | 思考模式（ENABLED / DISABLED） | `DISABLED` |
-| `ollama.thinking.level` | 思考深度（LOW / MEDIUM / HIGH），仅在 thinking.mode=ENABLED 时生效 | 跟随 `jmeter.ai.reasoning.effort` |
-| `ollama.request.timeout.seconds` | 请求超时（秒），思考模式下建议增大 | `120` |
+| `ollama.api.base.url` | API 基础 URL（OpenAI 兼容端点，需含 `/v1` 后缀） | `http://localhost:11434/v1` |
 
 #### 国产大模型
 

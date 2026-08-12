@@ -36,7 +36,6 @@ import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.VersionUtils;
 import org.gitee.jmeter.ai.service.OpenAiService;
-import org.gitee.jmeter.ai.service.OllamaAiService;
 import org.gitee.jmeter.ai.service.provider.ProviderRegistry;
 import org.gitee.jmeter.ai.service.provider.AiServiceFactory;
 import org.gitee.jmeter.ai.tracing.TracedAiService;
@@ -65,7 +64,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private AgentLoop agentLoop;
     private ClaudeService claudeService; // Keep for model loading
     private OpenAiService openAiService; // Keep for model loading
-    private OllamaAiService ollamaService; // Keep for model loading
     private AiService currentAiService; // Track current service
 
     // Store the base font sizes for scaling
@@ -97,7 +95,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Initialize services (keep for model loading)
         claudeService = new ClaudeService();
         openAiService = new OpenAiService();
-        ollamaService = new OllamaAiService();
 
         // Initialize AgentLoop with ClaudeService as the default AI service
         initializeAgentLoop();
@@ -148,13 +145,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     // Set the model in the appropriate service
                     // Note: We pass the FULL model ID (with prefix) so OpenAiService can detect the provider
                     switch (provider) {
-                        case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
+                        case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat", "ollama" -> {
                             openAiService.setModel(selectedModel);  // Pass full ID with prefix
                             log.info("Using {} provider for model: {}", provider, modelName);
-                        }
-                        case "ollama" -> {
-                            ollamaService.setModel(modelName);  // Ollama doesn't need prefix
-                            log.info("Using ollama provider for model: {}", modelName);
                         }
                         default -> {
                             // Anthropic (provider tag "anthropic:"): needs the bare model id.
@@ -529,7 +522,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     if (modelSelector.getItemCount() > 0) {
                         modelSelector.setSelectedIndex(0);
                         String selectedModel = (String) modelSelector.getSelectedItem();
-                        setModelForProvider(selectedModel);
+                        updateRawServiceForModel(selectedModel);
                         switchAiService();
                         log.info("Model selector set to: {}", selectedModel);
                     }
@@ -604,42 +597,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String modelName = parts[1];
 
             switch (provider) {
-                case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
-                    openAiService.setModel(modelId);
-                }
-                case "ollama" -> {
-                    ollamaService.setModel(modelName);  // Ollama needs the bare model id
-                }
-                default -> {
-                    claudeService.setModel(modelName);  // Anthropic needs the bare model id
-                }
-            }
-        } else {
-            // No provider prefix, default to Claude
-            claudeService.setModel(modelId);
-        }
-    }
-
-    /**
-     * Set the model on the appropriate service based on the model ID.
-     * Helper method to avoid code duplication.
-     */
-    private void setModelForProvider(String modelId) {
-        if (modelId == null) return;
-
-        if (modelId.contains(":")) {
-            String[] parts = modelId.split(":", 2);
-            String provider = parts[0];
-            String modelName = parts[1];
-
-            switch (provider) {
-                case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat" -> {
+                case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat", "ollama" -> {
                     openAiService.setModel(modelId);  // Pass full ID with prefix
                     log.info("Set {} provider model: {}", provider, modelName);
-                }
-                case "ollama" -> {
-                    ollamaService.setModel(modelName);  // Ollama doesn't need prefix
-                    log.info("Set ollama provider model: {}", modelName);
                 }
                 default -> {
                     claudeService.setModel(modelName);  // Anthropic API needs the bare model id (rejects a "provider:" prefix)

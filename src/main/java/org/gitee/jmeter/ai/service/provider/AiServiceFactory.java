@@ -3,7 +3,6 @@ package org.gitee.jmeter.ai.service.provider;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
 import org.gitee.jmeter.ai.service.OpenAiService;
-import org.gitee.jmeter.ai.service.OllamaAiService;
 import org.gitee.jmeter.ai.tracing.LangSmithClient;
 import org.gitee.jmeter.ai.tracing.TracedAiService;
 import org.slf4j.Logger;
@@ -154,14 +153,6 @@ public class AiServiceFactory {
                     claudeService.setModel(bareModelName(modelId));
                 }
                 yield claudeService;
-            }
-            case "ollama" -> {
-                // Use the existing Ollama service
-                OllamaAiService ollamaService = new OllamaAiService();
-                if (modelId != null) {
-                    ollamaService.setModel(bareModelName(modelId));
-                }
-                yield ollamaService;
             }
             default -> {
                 log.warn("Unknown backend: {}, using OpenAI-compatible provider", backend);
