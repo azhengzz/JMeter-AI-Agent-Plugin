@@ -10,6 +10,7 @@ import org.gitee.jmeter.ai.agent.model.AgentResponse;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.JMeterToolRegistry;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.ipc.protocol.IpcRequest;
 import org.gitee.jmeter.ai.ipc.protocol.IpcResponse;
 import org.gitee.jmeter.ai.service.AiService;
@@ -48,19 +49,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       工具内部已自包 {@code EdtRunner}(invokeAndWait)上 EDT。<b>本 handler 绝不再包 EDT</b>,
  *       否则 EDT 上调 invokeAndWait 会抛 Error/死锁。</li>
  *   <li>{@code POST /agent} —— 调 {@link AgentLoop#processMessage} 推消息进 Agent,
- *       默认复用 {@link #AGENT_SESSION_KEY} 会话,与 GUI 聊天共享历史。</li>
+ *       默认复用本实例 {@code instanceId} 会话(经 {@code InstanceContext}),与 GUI 聊天共享历史。</li>
  *   <li>{@code GET /health} —— 健康检查(需 token)。</li>
  * </ul>
  *
- * <p>安全:默认 {@code jmeter.ai.ipc.enabled=false};仅绑 127.0.0.1(拒绝通配地址);
+ * <p>安全:默认 {@code jmeter.ai.ipc.enabled=true};仅绑 127.0.0.1(拒绝通配地址);
  * 每端点校验 {@code X-IPC-Token}(常量时间比较);白名单排除 exec/fs/web/测试执行类工具。
  */
 public final class IpcServer {
     private static final Logger log = LoggerFactory.getLogger(IpcServer.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    /** Agent 路由默认复用的会话 key(与 AiChatPanel 一致,共享会话/记忆)。 */
-    public static final String AGENT_SESSION_KEY = "jmeter-ai-chat";
 
     /** body 上限 1MB,防止恶意/错误请求 OOM。 */
     private static final int MAX_BODY_BYTES = 1 << 20;
@@ -179,7 +177,8 @@ public final class IpcServer {
         String pid = InstanceRegistry.currentPid();
         try {
             File ipcDir = InstanceRegistry.ipcDir(new File(JMeterUtils.getJMeterHome()));
-            InstanceRegistry.writeInstance(ipcDir, pid, actualPort, expectedToken, bind);
+            InstanceRegistry.writeInstance(ipcDir, pid, actualPort, expectedToken, bind,
+                    InstanceContext.instanceId(), "");
         } catch (Exception e) {
             log.error("IPC server bound on {}:{} but failed to write port file "
                     + "(CLI discovery won't work): {}", bind, actualPort, e.getMessage());
@@ -277,7 +276,7 @@ public final class IpcServer {
                 return;
             }
             String session = (req.getSession() == null || req.getSession().isEmpty())
-                    ? AGENT_SESSION_KEY : req.getSession();
+                    ? InstanceContext.currentSessionKey() : req.getSession();
             long timeout = AiConfig.getIpcAgentTimeoutMs();
             long t0 = System.currentTimeMillis();
             CompletableFuture<AgentResponse> future = loop.processMessage(req.getMessage(), session);

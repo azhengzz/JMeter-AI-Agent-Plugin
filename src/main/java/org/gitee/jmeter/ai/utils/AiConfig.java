@@ -51,10 +51,10 @@ public class AiConfig {
     // ---- IPC server (CLI 驱动运行中 GUI) ----
 
     /**
-     * IPC server 是否启用。默认关闭(安全优先,需显式开启)。
+     * IPC server 是否启用。默认开启(仅 loopback + token 鉴权)。
      */
     public static boolean isIpcEnabled() {
-        return getBoolean("jmeter.ai.ipc.enabled", false);
+        return getBoolean("jmeter.ai.ipc.enabled", true);
     }
 
     /**
@@ -95,5 +95,31 @@ public class AiConfig {
      */
     public static boolean isRunCaptureEnabled() {
         return getBoolean("agent.runcapture.enabled", true);
+    }
+
+    // ---- Multi-instance session / coordination ----
+
+    /**
+     * 每实例独立会话文件(按启动 instanceId)是否启用。默认 true;false 回退到全局 legacy 会话键。
+     */
+    public static boolean isSessionPerInstance() {
+        return getBoolean("agent.session.per-instance", true);
+    }
+
+    /**
+     * 关闭整合"深度提炼"(写 MEMORY.md)的有界超时(毫秒)。默认 120s;超时保留已整合部分并继续退出。
+     */
+    public static long getConsolidateOnExitTimeoutMs() {
+        return getLong("agent.memory.consolidate-on-exit.timeout.ms", 120000L);
+    }
+
+    /**
+     * 孤立会话文件回收的存活 TTL(毫秒):启动期扫描 {@code sessions/} 时,仅回收注册表确认已失活
+     * 且最后修改时间超过本 TTL 的 {@code {pid}-{startedAtMs}.jsonl}。读自 {@code agent.session.reap.ttl.days},
+     * 默认 7 天。
+     */
+    public static long getSessionReapTtlMs() {
+        int days = getInt("agent.session.reap.ttl.days", 7);
+        return days * 24L * 60L * 60L * 1000L;
     }
 }

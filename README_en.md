@@ -143,11 +143,9 @@ Slash commands for session management:
 
 ### Command-Line Client (jmeter-cli)
 
-In addition to the chat panel, you can drive a running JMeter GUI instance via **jmeter-cli** over loopback HTTP/IPC — performing CRUD operations on the test plan or delegating natural-language tasks to the AI Agent. CLI flags match underlying tool schema keys 1:1. Disabled by default for security.
+In addition to the chat panel, you can drive a running JMeter GUI instance via **jmeter-cli** over loopback HTTP/IPC — performing CRUD operations on the test plan or delegating natural-language tasks to the AI Agent. CLI flags match underlying tool schema keys 1:1. IPC is enabled by default (loopback-only + token auth); set `jmeter.ai.ipc.enabled=false` to disable.
 
 ```bash
-# Prerequisite: start JMeter GUI with IPC enabled
-jmeter -Jjmeter.ai.ipc.enabled=true
 
 # Common commands (global options: --pid --token --json --jmeter-home --timeout)
 jmeter-cli list                                                 # discover instances
@@ -170,7 +168,7 @@ See [docs/jmeter-cli-test-cases.md](docs/jmeter-cli-test-cases.md) for the full 
 
 **Prerequisites** (common to all agents):
 
-1. Start the JMeter GUI with IPC enabled: `jmeter -Jjmeter.ai.ipc.enabled=true` (or set the parameter to `true` in the configuration file)
+1. Start the JMeter GUI (IPC is on by default; if you previously disabled it, re-enable with `jmeter.ai.ipc.enabled=true`)
 2. Make `jmeter-cli` invokable: add `$JMETER_HOME/bin` to `PATH`, or set the `JMETER_HOME` environment variable (the CLI uses it to locate `jmeter-cli.bat` / `jmeter-cli.sh`)
 
 **Installation per agent:**

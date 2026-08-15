@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -157,6 +159,58 @@ public class MemoryConsolidator {
             rawArchive(messages);
             return true;
         });
+    }
+
+    /**
+     * 同步归档(无 LLM、无异步池):把 session 未整合消息原样追加进共享 {@code HISTORY.md},
+     * 并把 {@code lastConsolidatedIndex} 推进到末尾。
+     *
+     * <p>幂等:重复调用时未整合集已空即 no-op(不会重复写)。供关闭期"始终静默归档"路径
+     * (跨实例共享日志桥)使用;调用方负责随后 {@code saveSession} 持久化推进后的索引。
+     *
+     * @return 实际归档的消息条数(0 = 无可归档或记忆关闭)。
+     */
+    public int archiveSync(Session session) {
+        if (session == null || !memoryStore.isEnabled()) {
+            return 0;
+        }
+        List<Message> unconsolidated = session.getUnconsolidatedMessages();
+        if (unconsolidated.isEmpty()) {
+            return 0;
+        }
+        rawArchive(unconsolidated);
+        session.setLastConsolidatedIndex(session.getMessageCount());
+        return unconsolidated.size();
+    }
+
+    /**
+     * 同步深度提炼(写 {@code MEMORY.md},复用 {@link #consolidateWithAi},有界超时)。
+     * 在调用方线程阻塞,供关闭整合对话框的 {@code SwingWorker}(非 EDT)调用。
+     * 超时/异常按 best-effort 处理,返回 {@code false};不向上抛。
+     *
+     * @param messages  待提炼的消息(通常为关闭前捕获的未整合快照)
+     * @param timeoutMs 有界超时;超时则取消并返回 {@code false}
+     * @return 提炼是否成功完成
+     */
+    public boolean distillSync(List<Message> messages, long timeoutMs) {
+        if (messages == null || messages.isEmpty() || !memoryStore.isEnabled()) {
+            return true;
+        }
+        CompletableFuture<Boolean> f = CompletableFuture.supplyAsync(() -> consolidateWithAi(messages));
+        try {
+            boolean ok = f.get(timeoutMs, TimeUnit.MILLISECONDS);
+            if (ok) {
+                consecutiveFailures = 0;
+            }
+            return ok;
+        } catch (TimeoutException te) {
+            f.cancel(true);
+            log.warn("Close-time distillation timed out after {}ms (best-effort, proceeding)", timeoutMs);
+            return false;
+        } catch (Exception e) {
+            log.warn("Close-time distillation failed (best-effort): {}", e.toString());
+            return false;
+        }
     }
 
     /**

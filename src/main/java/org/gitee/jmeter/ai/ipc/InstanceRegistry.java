@@ -62,9 +62,12 @@ public final class InstanceRegistry {
 
     /**
      * 原子写入端口文件(临时文件 + ATOMIC_MOVE)。返回写入的实例信息。
+     *
+     * @param instanceId 每实例会话键(格式 {@code {pid}-{startedAtMs}}),供他实例识别/委派;可为 null
+     * @param jmxPath    当前打开的计划文件绝对路径;无计划传空串(后续由动作监听原子写回)
      */
-    public static InstanceInfo writeInstance(File ipcDir, String pid, int port, String token, String bind)
-            throws IOException {
+    public static InstanceInfo writeInstance(File ipcDir, String pid, int port, String token, String bind,
+                                             String instanceId, String jmxPath) throws IOException {
         if (!ipcDir.exists() && !ipcDir.mkdirs()) {
             throw new IOException("Cannot create IPC dir: " + ipcDir);
         }
@@ -74,8 +77,42 @@ public final class InstanceRegistry {
         info.setToken(token);
         info.setStartedAt(System.currentTimeMillis());
         info.setBind(bind);
+        info.setInstanceId(instanceId);
+        info.setJmxPath(jmxPath == null ? "" : jmxPath);
 
-        File target = portFile(ipcDir, pid);
+        atomicWrite(ipcDir, info);
+        return info;
+    }
+
+    /**
+     * 读改写地更新某实例端口文件的 {@code jmxPath}(保留其余字段:port/token/startedAt/bind/instanceId),
+     * 供 jmx 打开/关闭/新建动作监听(EDT)原子写回。文件不存在(IPC 尚未启动)或读写失败返回 false,不抛。
+     *
+     * @return 是否成功写回
+     */
+    public static boolean updateJmxPath(File ipcDir, String pid, String jmxPath) {
+        InstanceInfo info = readSilently(portFile(ipcDir, pid));
+        if (info == null) {
+            return false; // 端口文件尚未写入(IPC 未启动),无内容可改
+        }
+        info.setJmxPath(jmxPath == null ? "" : jmxPath);
+        try {
+            atomicWrite(ipcDir, info);
+            return true;
+        } catch (IOException e) {
+            log.warn("Failed to update jmxPath in port file for pid {}: {}", pid, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 临时文件 + ATOMIC_MOVE 原子落盘实例信息(跨盘符/不支持原子移动时退化为普通替换)。
+     */
+    private static void atomicWrite(File ipcDir, InstanceInfo info) throws IOException {
+        if (!ipcDir.exists() && !ipcDir.mkdirs()) {
+            throw new IOException("Cannot create IPC dir: " + ipcDir);
+        }
+        File target = portFile(ipcDir, info.getPid());
         File tmp = new File(ipcDir, target.getName() + ".tmp");
         MAPPER.writeValue(tmp, info);
         try {
@@ -85,7 +122,6 @@ public final class InstanceRegistry {
             // 某些平台/跨盘符不支持原子移动,退化为普通替换
             Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
-        return info;
     }
 
     /**
@@ -228,7 +264,11 @@ public final class InstanceRegistry {
     }
 
     /**
-     * 端口文件内容:PID、端口、token、启动时间戳、绑定地址。
+     * 端口文件内容:PID、端口、token、启动时间戳、绑定地址、每实例标识、当前打开的计划文件。
+     *
+     * <p>{@code instanceId}（格式 {@code {pid}-{startedAtMs}}）是会话键与实例的唯一锚;
+     * {@code jmxPath} 是当前打开的 jmx 绝对路径(无计划时空串),由动作监听(EDT)原子写回,
+     * 供他实例 {@code list_instances}/{@code delegate_to_instance} 据以寻址同任务的伙伴实例。
      */
     public static class InstanceInfo {
         private String pid;
@@ -236,6 +276,8 @@ public final class InstanceRegistry {
         private String token;
         private long startedAt;
         private String bind;
+        private String instanceId;
+        private String jmxPath;
 
         public InstanceInfo() {
         }
@@ -278,6 +320,22 @@ public final class InstanceRegistry {
 
         public void setBind(String bind) {
             this.bind = bind;
+        }
+
+        public String getInstanceId() {
+            return instanceId;
+        }
+
+        public void setInstanceId(String instanceId) {
+            this.instanceId = instanceId;
+        }
+
+        public String getJmxPath() {
+            return jmxPath;
+        }
+
+        public void setJmxPath(String jmxPath) {
+            this.jmxPath = jmxPath;
         }
     }
 }

@@ -143,11 +143,9 @@ AgentLoop（主循环）
 
 ### 命令行客户端 (jmeter-cli)
 
-除聊天面板外，还可通过 **jmeter-cli** 命令行驱动正在运行的 JMeter GUI 实例（经 loopback HTTP/IPC），对测试计划做组件增删改查，或向 AI Agent 推消息。CLI 参数与底层工具 schema **1:1 同名**，默认安全关闭。
+除聊天面板外，还可通过 **jmeter-cli** 命令行驱动正在运行的 JMeter GUI 实例（经 loopback HTTP/IPC），对测试计划做组件增删改查，或向 AI Agent 推消息。CLI 参数与底层工具 schema **1:1 同名**。IPC 服务默认开启（仅 loopback + token 鉴权），如需关闭设 `jmeter.ai.ipc.enabled=false`。
 
 ```bash
-# 前置:GUI 启动时开启 IPC
-jmeter -Jjmeter.ai.ipc.enabled=true
 
 # 常用命令(全局选项:--pid --token --json --jmeter-home --timeout)
 jmeter-cli list                                                 # 发现实例
@@ -167,7 +165,7 @@ jmeter-cli agent "再加一个 5 用户的线程组"
 
 **前置条件**（所有 Agent 通用）：
 
-1. 启动 JMeter GUI 并开启 IPC：`jmeter -Jjmeter.ai.ipc.enabled=true`（或在配置文件中将参数设置为`true`）
+1. 启动 JMeter GUI（IPC 默认开启；若曾显式关闭，需设 `jmeter.ai.ipc.enabled=true` 重新开启）
 2. 让 `jmeter-cli` 可被调用：将 `$JMETER_HOME/bin` 加入 `PATH`，或设置 `JMETER_HOME` 环境变量（CLI 会据此定位 `jmeter-cli.bat` / `jmeter-cli.sh`）
 
 **各 Agent 安装方式：**

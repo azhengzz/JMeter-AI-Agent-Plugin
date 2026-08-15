@@ -97,7 +97,7 @@ public class SelectionContextBar extends JPanel {
         }
 
         if (snapshot == null || snapshot.isEmpty()) {
-            lines[0].text = "未选中任何元素";
+            lines[0].text = "No element selected";
             lines[0].color = secondaryColor;
             return;
         }
@@ -109,7 +109,7 @@ public class SelectionContextBar extends JPanel {
 
         if (isLogContext) {
             // Row 1: 📜 Log (no id, no child count)
-            lines[0].text = "📜 日志面板";
+            lines[0].text = "📜 Log Panel";
             lines[0].color = defaultColor;
             lines[0].boldPrefix = "📜 ";
         } else {

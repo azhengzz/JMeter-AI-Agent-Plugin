@@ -1,6 +1,7 @@
 package org.gitee.jmeter.ai.cli;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.gitee.jmeter.ai.ipc.IpcClient;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
 import org.gitee.jmeter.ai.ipc.protocol.IpcRequest;
@@ -454,16 +455,9 @@ public final class JmeterCli {
         if (inst == null) {
             return null;
         }
-        long timeout = timeoutOf(opts);
-        String body = MAPPER.writeValueAsString(req);
-        HttpRequest httpReq = HttpRequest.newBuilder()
-                .uri(URI.create("http://" + host(inst) + ":" + inst.getPort() + endpoint))
-                .timeout(Duration.ofMillis(timeout))
-                .header("Content-Type", "application/json")
-                .header("X-IPC-Token", tokenFor(inst, opts))
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        return HTTP.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        // 复用进程内 IPC 客户端(与跨实例委派工具同一传输),CLI 仅保留实例发现 + 超时解析。
+        IpcClient client = new IpcClient(host(inst), inst.getPort(), tokenFor(inst, opts));
+        return client.post(endpoint, req, timeoutOf(opts));
     }
 
     /** Calls an allowed IPC tool and returns the parsed response (null if no instance resolved). */
@@ -936,13 +930,13 @@ public final class JmeterCli {
             "jmeter-cli agent \"<message>\" [--session <key>] [--timeout <ms>]",
             """
             Forwards your message to the Agent Loop running in the GUI, sharing the same chat session
-            (jmeter-ai-chat) and memory as the GUI chat panel - so the reply also appears in the GUI. Blocks
+            and memory as the GUI chat panel - so the reply also appears in the GUI. Blocks
             until the agent turn completes or --timeout is reached. If the agent is not yet initialized it is
             warmed up with the configured default model. Reply text goes to stdout; toolsUsed / iterations show
             with --json.""",
             new String[][]{
                 {"\"<message>\"", "message text (positional); --message <text> is an alias"},
-                {"--session <key>", "session key (default: jmeter-ai-chat)"},
+                {"--session <key>", "session key (default: target instance's instanceId)"},
                 {"--timeout <ms>", "wait timeout, in ms (default: 130000)"},
                 {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
             },

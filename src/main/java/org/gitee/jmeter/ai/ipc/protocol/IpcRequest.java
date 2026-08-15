@@ -8,7 +8,7 @@ import java.util.Map;
  * <p>op 取值:
  * <ul>
  *   <li>{@code "tool"} —— 调用白名单内的工具,需填 {@link #tool} + {@link #params}</li>
- *   <li>{@code "agent"} —— 把 {@link #message} 推给 AgentLoop,可选 {@link #session}(默认 jmeter-ai-chat)</li>
+ *   <li>{@code "agent"} —— 把 {@link #message} 推给 AgentLoop,可选 {@link #session}(默认目标实例的 instanceId)</li>
  *   <li>{@code "health"} —— 健康检查(由 GET /health 处理,通常不发 body)</li>
  * </ul>
  *
