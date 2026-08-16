@@ -186,11 +186,16 @@ public final class JmeterCli {
             System.out.println("(no running JMeter AI instance in " + ipcDir + ")");
             return 0;
         }
-        System.out.printf("%-10s %-7s %-12s %s%n", "PID", "PORT", "BIND", "STARTED(UTC)");
+        System.out.printf("%-10s %-7s %-12s %-22s %s%n",
+                "PID", "PORT", "BIND", "INSTANCE_ID", "STARTED(UTC) / JMX");
         for (InstanceInfo i : all) {
-            System.out.printf("%-10s %-7d %-12s %s%n",
+            String jmx = str(i.getJmxPath(), "");
+            System.out.printf("%-10s %-7d %-12s %-22s %s%n",
                     i.getPid(), i.getPort(), str(i.getBind(), "127.0.0.1"),
-                    Instant.ofEpochMilli(i.getStartedAt()));
+                    str(i.getInstanceId(), "-"), Instant.ofEpochMilli(i.getStartedAt()));
+            if (!jmx.isEmpty()) {
+                System.out.printf("%-10s %-7s %-12s %-22s jmx: %s%n", "", "", "", "", jmx);
+            }
         }
         return 0;
     }

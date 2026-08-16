@@ -68,4 +68,20 @@ class InstanceRegistrySerializationTest {
         assertFalse(InstanceRegistry.updateJmxPath(ipcDir, "999", "/x.jmx"),
                 "updateJmxPath must return false when no port file exists");
     }
+
+    @Test
+    void unknownFieldsAreToleratedOnRead() throws Exception {
+        // 前向兼容:未来版本向端口文件新增字段时,本版本读者不得因 Jackson 默认的
+        // FAIL_ON_UNKNOWN_PROPERTIES 解析失败——否则实例会被 listInstances 整条跳过。
+        File ipcDir = new File(tmp, "ipc");
+        InstanceRegistry.writeInstance(ipcDir, "42", 4000, "tok", "127.0.0.1", "42-1", "/a.jmx");
+        File pf = InstanceRegistry.portFile(ipcDir, "42");
+        String json = java.nio.file.Files.readString(pf.toPath());
+        json = json.substring(0, json.length() - 1) + ",\"futureField\":{\"nested\":[1,2]}}";
+        java.nio.file.Files.writeString(pf.toPath(), json);
+
+        InstanceInfo read = MAPPER.readValue(pf, InstanceInfo.class);
+        assertEquals("42-1", read.getInstanceId(), "unknown fields must not break parsing");
+        assertEquals(4000, read.getPort(), "known fields must still deserialize");
+    }
 }

@@ -130,17 +130,40 @@ public class AgentLoop {
     public CompletableFuture<AgentResponse> processMessage(
             String message,
             String sessionKey) {
-        return processMessage(message, sessionKey, progressCallback);
+        return processMessage(message, sessionKey, progressCallback, false);
+    }
+
+    /**
+     * Process a message through the agent loop, optionally marking the turn as
+     * cross-instance delegated ({@link DelegationGuard}: tools in that turn refuse
+     * to delegate again). Used by IPC {@code /agent} for peer delegation requests.
+     */
+    public CompletableFuture<AgentResponse> processMessage(
+            String message,
+            String sessionKey,
+            boolean delegated) {
+        return processMessage(message, sessionKey, progressCallback, delegated);
     }
 
     /**
      * Process a message through the agent loop with progress callback (legacy API).
-     * Supports slash command routing before agent execution.
      */
     public CompletableFuture<AgentResponse> processMessage(
             String message,
             String sessionKey,
             ProgressCallback callback) {
+        return processMessage(message, sessionKey, callback, false);
+    }
+
+    /**
+     * Process a message through the agent loop with progress callback.
+     * Supports slash command routing before agent execution.
+     */
+    public CompletableFuture<AgentResponse> processMessage(
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated) {
 
         String raw = message.trim();
 
@@ -158,6 +181,14 @@ public class AgentLoop {
         // pickup 后置位,留有 [提交→pickup] 窗口,突发并发请求会绕过注入短路各自进
         // Phase 3 排队,挤满 ipc-worker 且队尾纯排队耗光 120s 超时。补 activeTasks 闭合该窗口。
         if (activeTasks.containsKey(sessionKey) || injectionManager.hasActiveRun(sessionKey)) {
+            // 委派回合绝不并入注入队列:委派方阻塞等待的是任务结果,不是"已注入"回执;
+            // 且注入队列只存 String,并入会静默丢失 delegated 标记 → 深度守卫被绕过
+            // (队列消息要么被并入正在跑的本地用户回合、要么以 delegated=false 重发布)。
+            if (delegated) {
+                return CompletableFuture.completedFuture(AgentResponse.error(
+                    "session busy: this instance has a turn in flight for session " + sessionKey
+                        + "; retry the delegation later"));
+            }
             // Non-priority commands must not be queued for injection.
             // dispatch them directly (same pattern as priority commands).
             if (commandRouter.isDispatchable(raw)) {
@@ -213,6 +244,7 @@ public class AgentLoop {
                     .reasoningEffort(generationSettings.getReasoningEffort())
                     .abortFlag(abortFlag)
                     .injectionCallback(limit -> drainInjected(sessionKey, limit))
+                    .delegated(delegated)
                     .build();
 
                 // Run agent
@@ -253,7 +285,9 @@ public class AgentLoop {
                     log.info("Re-publishing {} leftover message(s) for session {}",
                         remaining.size(), sessionKey);
                     for (String msg : remaining) {
-                        processMessage(msg, sessionKey, callback);
+                        // 队列里只可能是用户消息(委派请求在 Phase 2 即被拒,不入队),
+                        // 故重发布无需委派标记
+                        processMessage(msg, sessionKey, callback, false);
                     }
                 }
             }

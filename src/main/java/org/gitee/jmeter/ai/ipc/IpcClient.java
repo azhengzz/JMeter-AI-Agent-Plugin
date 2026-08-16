@@ -56,12 +56,21 @@ public final class IpcClient {
      * @param timeoutMs 阻塞超时(复用 {@code jmeter.ai.ipc.agent.timeout.ms});超时由调用方据此取消目标活动任务
      */
     public IpcResponse postAgent(String message, String session, long timeoutMs) throws Exception {
+        return postAgent(message, session, timeoutMs, false);
+    }
+
+    /**
+     * 投递 agent 消息(POST /agent)并声明来源:跨实例委派传 {@code delegated=true},
+     * 接收侧在该回合内禁止再次委派(深度 1 硬阻断,防 A↔B ping-pong);CLI 直连传 false。
+     */
+    public IpcResponse postAgent(String message, String session, long timeoutMs, boolean delegated) throws Exception {
         IpcRequest req = new IpcRequest();
         req.setOp("agent");
         req.setMessage(message);
         if (session != null && !session.isEmpty()) {
             req.setSession(session);
         }
+        req.setDelegated(delegated);
         HttpResponse<String> resp = post("/agent", req, timeoutMs);
         return MAPPER.readValue(resp.body(), IpcResponse.class);
     }

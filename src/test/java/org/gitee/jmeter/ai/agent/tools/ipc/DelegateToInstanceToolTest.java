@@ -89,6 +89,13 @@ class DelegateToInstanceToolTest {
         assertTrue(r.getContent().contains("reply-A"), "must surface the peer agent's reply");
         assertTrue(r.getContent().contains("peer-A"), "must name the target instanceId");
         assertEquals(1, peer.hits, "the matching peer's server must have been hit exactly once");
+        // 来源前缀 + 委派标记:对端可审计这轮来自哪个实例,并据此在该回合内禁止再委派
+        assertNotNull(peer.lastBody, "peer must have received a request body");
+        assertTrue(peer.lastBody.contains("[delegated-from instanceId=" + InstanceContext.instanceId() + " "),
+                "payload must carry the provenance prefix: " + peer.lastBody);
+        assertTrue(peer.lastBody.contains("] analyze"), "original task must follow the prefix");
+        assertTrue(peer.lastBody.contains("\"delegated\":true"),
+                "request envelope must mark delegated=true: " + peer.lastBody);
     }
 
     @Test
@@ -119,6 +126,24 @@ class DelegateToInstanceToolTest {
         assertTrue(r.getError().toLowerCase().contains("yourself"), r.getError());
     }
 
+    @Test
+    void delegatedTurnCannotDelegateAgain() throws Exception {
+        // 存活对端本可直接命中;DelegationGuard 激活时必须先于寻址拦截(防 A↔B ping-pong)
+        LivePeer peer = createPeer("200002", "peer-B", "/plans/y.jmx", 1_000L, "must-not-be-reached");
+
+        org.gitee.jmeter.ai.instance.DelegationGuard.begin();
+        ToolResult r;
+        try {
+            r = new DelegateToInstanceTool().execute(Map.of("task", "x", "jmxPath", "/plans/y.jmx"));
+        } finally {
+            org.gitee.jmeter.ai.instance.DelegationGuard.end();
+        }
+
+        assertFalse(r.isSuccess());
+        assertTrue(r.getError().contains("Delegation depth"), r.getError());
+        assertEquals(0, peer.hits, "guard must fire before any request leaves this process");
+    }
+
     // ---- helpers ----
 
     /** 建一个存活对端:绑定 loopback 端口、写端口文件、(按需)覆盖 startedAt 以确定多择排序。 */
@@ -142,6 +167,7 @@ class DelegateToInstanceToolTest {
 
     private void reply(HttpExchange ex, String content, LivePeer peer) throws IOException {
         peer.hits++;
+        peer.lastBody = new String(ex.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         org.gitee.jmeter.ai.ipc.protocol.IpcResponse resp = new org.gitee.jmeter.ai.ipc.protocol.IpcResponse();
         resp.setSuccess(true);
         resp.setContent(content);
@@ -156,6 +182,7 @@ class DelegateToInstanceToolTest {
     private static final class LivePeer {
         final HttpServer server;
         int hits;
+        String lastBody;
 
         LivePeer(HttpServer server) {
             this.server = server;

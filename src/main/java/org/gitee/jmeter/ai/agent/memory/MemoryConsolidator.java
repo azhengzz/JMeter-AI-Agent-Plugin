@@ -13,12 +13,15 @@ import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -82,6 +85,20 @@ public class MemoryConsolidator {
      * Loop: archive old messages until estimated tokens <= target (budget / 2).
      */
     public CompletableFuture<Boolean> maybeConsolidate(Session session) {
+        return maybeConsolidate(session, () -> false);
+    }
+
+    /**
+     * {@link #maybeConsolidate(Session)} 的取消感知变体。round loop 跑在 ForkJoinPool
+     * commonPool 载体线程上,而关闭期 {@code cancelActiveTask} 的 interrupt/CF.cancel 都够不到
+     * 那个线程——只有共享的 abort flag(AgentRunSpec 与 {@code abortFlags} map 是同一实例)能到达。
+     * 每轮开始前轮询 {@code aborted},配合 {@link #consolidateWithAi(List, BooleanSupplier)}
+     * 写盘前检查,让被取消的"僵尸回合"不再写 HISTORY/MEMORY/session,避免与关闭对话框的
+     * 深度提炼 + 清会话竞态。
+     *
+     * @param aborted 为 true 时本轮立即停止;关闭前传 {@code () -> spec 的 abort flag},其他调用方传默认。
+     */
+    public CompletableFuture<Boolean> maybeConsolidate(Session session, BooleanSupplier aborted) {
         if (!memoryStore.isEnabled()) {
             return CompletableFuture.completedFuture(true);
         }
@@ -91,6 +108,11 @@ public class MemoryConsolidator {
 
         return CompletableFuture.supplyAsync(() -> {
             for (int round = 0; round < MAX_CONSOLIDATION_ROUNDS; round++) {
+                if (aborted.getAsBoolean()) {
+                    log.info("Memory consolidation aborted before round {} for session {}",
+                            round, session.getKey());
+                    break;
+                }
                 int estimated = estimateSessionTokens(session);
                 if (estimated <= 0) {
                     break;
@@ -120,8 +142,8 @@ public class MemoryConsolidator {
                 log.info("Consolidation round {} for session {}: estimated={}/{} tokens, chunk={} msgs",
                         round, session.getKey(), estimated, contextWindowTokens, chunk.size());
 
-                if (!consolidateWithAi(chunk)) {
-                    log.warn("Consolidation round {} failed, stopping", round);
+                if (!consolidateWithAi(chunk, aborted)) {
+                    log.warn("Consolidation round {} stopped (failed or aborted)", round);
                     break;
                 }
 
@@ -188,15 +210,21 @@ public class MemoryConsolidator {
      * 在调用方线程阻塞,供关闭整合对话框的 {@code SwingWorker}(非 EDT)调用。
      * 超时/异常按 best-effort 处理,返回 {@code false};不向上抛。
      *
+     * <p>预算含等锁 + LLM 全程;超时置共享 {@code timedOut} flag——等锁轮询与写盘前检查
+     * 立即放弃,而非把 commonPool 载体线程留在阻塞式 {@code channel.lock()} 上、随 JVM
+     * 退出被杀(对抗复核 fix-adversarial 确认的丢写路径)。超时后蒸馏不落盘(会话不清、
+     * HISTORY.md 仍由关闭归档兜底),用户在对话框看到"incomplete"而非静默丢失。
+     *
      * @param messages  待提炼的消息(通常为关闭前捕获的未整合快照)
-     * @param timeoutMs 有界超时;超时则取消并返回 {@code false}
+     * @param timeoutMs 有界超时;超时则置 abort flag、取消并返回 {@code false}
      * @return 提炼是否成功完成
      */
     public boolean distillSync(List<Message> messages, long timeoutMs) {
         if (messages == null || messages.isEmpty() || !memoryStore.isEnabled()) {
             return true;
         }
-        CompletableFuture<Boolean> f = CompletableFuture.supplyAsync(() -> consolidateWithAi(messages));
+        AtomicBoolean timedOut = new AtomicBoolean(false);
+        CompletableFuture<Boolean> f = CompletableFuture.supplyAsync(() -> consolidateWithAi(messages, timedOut::get));
         try {
             boolean ok = f.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (ok) {
@@ -204,6 +232,9 @@ public class MemoryConsolidator {
             }
             return ok;
         } catch (TimeoutException te) {
+            // 先置共享 flag(等锁轮询 / 写盘前检查立即放弃),再取消任务本身。
+            // CompletableFuture.cancel 不打断运行线程,flag 才是真正的中止信号。
+            timedOut.set(true);
             f.cancel(true);
             log.warn("Close-time distillation timed out after {}ms (best-effort, proceeding)", timeoutMs);
             return false;
@@ -218,7 +249,45 @@ public class MemoryConsolidator {
      * Uses forced tool_choice → auto retry → failure tracking → raw-archive.
      */
     private boolean consolidateWithAi(List<Message> messages) {
+        return consolidateWithAi(messages, () -> false);
+    }
+
+    /**
+     * {@link #consolidateWithAi(List)} 的取消感知变体。LLM 调用在池化载体线程上执行,
+     * 关闭期 cancelActiveTask 只能置 abort flag、无法打断这个调用;因此本方法只在
+     * <b>写盘前</b>检查 {@code aborted}——被取消的僵尸回合在 LLM 返回后、写 HISTORY/MEMORY 前
+     * 直接放弃落盘(返回 false),不覆盖用户等待的关闭提炼结果。
+     *
+     * <p>全程持有 {@link MemoryStore#lockLongTermMemory(BooleanSupplier)} 跨进程写锁
+     * (读→LLM→写),共享默认 workspace 的双实例并发深度提炼不会互相覆盖(fix-adversarial#2)。
+     * 等锁为 abort 感知轮询:被中止/中断时返回 {@code null} = 未执行,不降级写盘(降级会
+     * 重新打开 lost-update 敞口);仅真实 IO 故障才按 best-effort 降级为无锁执行。
+     */
+    private boolean consolidateWithAi(List<Message> messages, BooleanSupplier aborted) {
+        MemoryStore.MemoryWriteLock lock;
+        try {
+            lock = memoryStore.lockLongTermMemory(aborted);
+        } catch (IOException e) {
+            log.error("Failed to acquire MEMORY.md write lock, proceeding unlocked (best-effort)", e);
+            return consolidateWithAiUnderLock(messages, aborted);
+        }
+        if (lock == null) {
+            // 等锁期间被中止(Stop / 关闭超时)或中断 → 视为未执行、不降级写盘
+            log.info("Memory consolidation aborted while waiting for MEMORY.md write lock");
+            return false;
+        }
+        try (MemoryStore.MemoryWriteLock ignored = lock) {
+            return consolidateWithAiUnderLock(messages, aborted);
+        }
+    }
+
+    /** {@link #consolidateWithAi(List, BooleanSupplier)} 的锁内主体。 */
+    private boolean consolidateWithAiUnderLock(List<Message> messages, BooleanSupplier aborted) {
         String currentMemory = memoryStore.readLongTermMemory();
+        if (aborted.getAsBoolean()) {
+            log.info("Memory consolidation aborted before LLM call ({} messages)", messages.size());
+            return false;
+        }
         String messagesText = formatMessages(messages);
 
         List<Message> chatMessages = List.of(
@@ -250,18 +319,18 @@ public class MemoryConsolidator {
             // Step 3: if no tool calls, track failure (Nanobot line 158-166)
             if (response.isError()) {
                 log.warn("Tool-call consolidation failed: {}", response.getErrorMessage());
-                return handleConsolidationFailure(messages);
+                return handleConsolidationFailure(messages, aborted);
             }
 
             if (!response.hasToolCalls()) {
                 log.warn("LLM did not call save_memory tool (finishReason={}, content_len={})",
                         response.getFinishReason(),
                         response.getContent() != null ? response.getContent().length() : 0);
-                return handleConsolidationFailure(messages);
+                return handleConsolidationFailure(messages, aborted);
             }
 
             // Step 4: extract and save (Nanobot line 168-196)
-            return extractAndSaveToolCallResult(response, currentMemory, messages);
+            return extractAndSaveToolCallResult(response, currentMemory, messages, aborted);
 
         } catch (Exception e) {
             // Step 5: if forced tool_choice caused the exception, try auto
@@ -270,7 +339,7 @@ public class MemoryConsolidator {
                 try {
                     LLMResponse response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
                     if (!response.isError() && response.hasToolCalls()) {
-                        return extractAndSaveToolCallResult(response, currentMemory, messages);
+                        return extractAndSaveToolCallResult(response, currentMemory, messages, aborted);
                     }
                 } catch (Exception e2) {
                     log.warn("Auto tool-call also failed: {}", e2.getMessage());
@@ -278,21 +347,24 @@ public class MemoryConsolidator {
             } else {
                 log.error("Memory consolidation failed", e);
             }
-            return handleConsolidationFailure(messages);
+            return handleConsolidationFailure(messages, aborted);
         }
     }
 
     /**
      * Extract save_memory tool call result and persist (Nanobot line 168-196).
+     * 写盘前检查 {@code aborted}:被关闭期 cancelActiveTask 取消的僵尸回合在此放弃落盘,
+     * 避免覆盖关闭对话框深度提炼刚写好的 MEMORY.md / HISTORY.md。
      */
-    private boolean extractAndSaveToolCallResult(LLMResponse response, String currentMemory, List<Message> originalMessages) {
+    private boolean extractAndSaveToolCallResult(LLMResponse response, String currentMemory,
+                                                 List<Message> originalMessages, BooleanSupplier aborted) {
         ToolCall saveCall = response.getToolCalls().stream()
                 .filter(tc -> "save_memory".equals(tc.getName()))
                 .findFirst().orElse(null);
 
         if (saveCall == null) {
             log.warn("No save_memory tool call in response");
-            return handleConsolidationFailure(originalMessages);
+            return handleConsolidationFailure(originalMessages, aborted);
         }
 
         Map<String, Object> args = saveCall.getArguments();
@@ -301,12 +373,30 @@ public class MemoryConsolidator {
 
         if (historyEntry.isEmpty()) {
             log.warn("history_entry is empty after normalization");
-            return handleConsolidationFailure(originalMessages);
+            return handleConsolidationFailure(originalMessages, aborted);
         }
 
-        memoryStore.appendHistory(historyEntry);
-        if (!memoryUpdate.equals(currentMemory)) {
-            memoryStore.writeLongTermMemory(memoryUpdate);
+        if (aborted.getAsBoolean()) {
+            log.info("Memory consolidation aborted before persist ({} messages)", originalMessages.size());
+            return false;
+        }
+
+        // F10 契约两扇门:先写 MEMORY.md,成功后仅追加 HISTORY.md,任一失败返回 false。
+        // 顺序关键——先 append 再写 MEMORY,写失败会留下已提交的 history 条目,同一批
+        // 消息在下一次重试/关闭时被再次追加(重复条目无限累积,对抗复核 2/2 CONFIRMED);
+        // 先写 MEMORY 则重试时 memoryUpdate==currentMemory 跳过 MEMORY 写、仅补 history,幂等。
+        if (!memoryUpdate.equals(currentMemory) && !memoryStore.writeLongTermMemory(memoryUpdate)) {
+            // F10:写 MEMORY.md 失败(MEMORY.md 只读/盘满)不能报成功——否则关闭对话框显示
+            // "整合完成"并清会话,而内容实际未落盘。返回 false → 调用方视为失败(会话保留,
+            // HISTORY.md 仍由关闭归档兜底;失败的内容本就无法落盘,无数据丢失)。
+            log.error("Failed to write MEMORY.md (memory_update not persisted) — reporting consolidation failure");
+            return false;
+        }
+        if (!memoryStore.appendHistory(historyEntry)) {
+            // F10 历史侧:history 追加失败(MEMORY.md 已更新)同样不得报成功——否则关闭路径
+            // 清会话而 HISTORY.md 无记录,唯一可检索的跨实例日志静默丢失(2/2 CONFIRMED)。
+            log.error("Failed to append HISTORY.md (history_entry not persisted) — reporting consolidation failure");
+            return false;
         }
 
         log.info("Memory consolidation done for {} messages", originalMessages.size());
@@ -324,7 +414,12 @@ public class MemoryConsolidator {
      * Handle consolidation failure — track consecutive failures, raw-archive if threshold reached.
      * Aligned with Nanobot's _fail_or_raw_archive.
      */
-    private boolean handleConsolidationFailure(List<Message> messages) {
+    private boolean handleConsolidationFailure(List<Message> messages, BooleanSupplier aborted) {
+        if (aborted.getAsBoolean()) {
+            // 被取消不是失败:不计数、不 rawArchive(避免再写 HISTORY.md)。
+            log.info("Memory consolidation aborted, skipping failure handling");
+            return false;
+        }
         consecutiveFailures++;
         if (consecutiveFailures >= MAX_RETRIES) {
             rawArchive(messages);

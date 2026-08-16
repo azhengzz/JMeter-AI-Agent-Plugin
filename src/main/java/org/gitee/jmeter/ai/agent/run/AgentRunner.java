@@ -10,6 +10,7 @@ import org.gitee.jmeter.ai.agent.model.*;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.TextUtils;
@@ -93,8 +94,28 @@ public class AgentRunner {
             String runId = DEFAULT_RUN_ID_PREFIX + java.util.UUID.randomUUID().toString().substring(0, 8);
             Instant startTime = Instant.now();
 
+            // Track this thread from the very start of the run — NOT only inside
+            // runAgentLoop — so Stop/cancel can interrupt the pre-loop consolidation
+            // window too (interrupt() targets runningThread, which is null during
+            // maybeConsolidate().join() otherwise).
+            runningThread = Thread.currentThread();
+            // 载体线程是池化的:上一轮被 Stop 取消的回合,其 interrupt() 可能晚于 finally 的
+            // Thread.interrupted() 才送达(interrupt() 读→log→interrupt 的 TOCTOU 窗口,
+            // 对抗复核 2/2 CONFIRMED),在复用载体上留下残留中断。入口处清一次,避免这一轮
+            // 一进 while 迭代 1 就因 isInterrupted() 直接 break 返回空回复。取消语义不受影响:
+            // signalCancel 先置 abort flag 再 interrupt,flag 才是取消的唯一事实来源。
+            Thread.interrupted();
+
             // Bind the run identity so tools (e.g. spawn) can learn their session.
             AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId));
+            // Delegated turn: arm the depth-1 guard HERE, inside the task on the
+            // carrier thread that executes the run — serial tool calls run inline
+            // on this same thread, so DelegateToInstanceTool sees the ThreadLocal.
+            // (Arming it on the agent-loop thread that parks in join() would be
+            // invisible to tools; same pooled-carrier reasoning as AgentRunContext.)
+            if (spec.isDelegated()) {
+                DelegationGuard.begin();
+            }
             try {
                 log.info("Starting agent run {} for session: {}", runId, spec.getSessionKey());
 
@@ -104,9 +125,13 @@ public class AgentRunner {
                     ? sessionManager.getOrCreate(spec.getSessionKey())
                     : new Session(spec.getSessionKey());
 
-                // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync])
+                // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync]).
+                // The round loop runs on a pooled carrier, unreachable by interrupt/CF.cancel —
+                // abort-awareness is via the shared abort flag (spec's flag IS the one the
+                // cancelActiveTask map holds), so a cancelled turn stops writing before the
+                // close dialog's distill + clearCurrentSession.
                 if (spec.isPersistSession()) {
-                    memoryConsolidator.maybeConsolidate(session).join();
+                    memoryConsolidator.maybeConsolidate(session, () -> isAbortedFlag(spec)).join();
                 }
 
                 // Create hook context
@@ -132,7 +157,13 @@ public class AgentRunner {
                 if (spec.isPersistSession() && !isAborted(spec)) {
                     int skipCount = Math.max(0, messages.size() - 1);
                     saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
-                    memoryConsolidator.maybeConsolidate(session);
+                    // 后置蒸馏 join 同步化(F4):与 :128 前置蒸馏一致。若不 join,蒸馏以僵尸
+                    // 回合在 run future 完成后仍在飞——AgentLoop.whenComplete 立即把 abort flag
+                    // 从 map 移除,关闭期 signalCancel 找不到 flag 置位,僵尸回合写盘前 abort
+                    // 检查恒过,会与关闭对话框对同一批消息重复蒸馏(HISTORY.md 重复条目、
+                    // MEMORY.md 被后写者覆盖)。join 后蒸馏在 run future 完成前落盘,关闭窗口
+                    // 内无僵尸回合。等锁/写盘 abort 感知由共享 flag 保证,与前置一致。
+                    memoryConsolidator.maybeConsolidate(session, () -> isAbortedFlag(spec)).join();
                 }
 
                 log.info("Agent run {} completed with success={}", runId, result.isSuccess());
@@ -148,9 +179,15 @@ public class AgentRunner {
                     .endTime(Instant.now())
                     .build();
             } finally {
+                // Pooled carrier thread: clear the guard so a later run on this
+                // thread is not wrongly blocked from delegating.
+                DelegationGuard.end();
                 // Carrier threads are pooled — a stale context would misroute a
                 // later subagent result into the wrong session.
                 AgentRunContext.clear();
+                // runningThread cleanup moved to the run task (set at task start, cleared
+                // here in the same finally) — covers the pre-loop consolidation window too.
+                runningThread = null;
                 // Consume an interrupt raised to abort this run, so the pooled carrier
                 // does not hand it to the next run (which would bail at iteration 1 and
                 // answer with nothing). Cleared only here, AFTER the persistence guard
@@ -241,9 +278,9 @@ public class AgentRunner {
             AgentHookContext context,
             Instant startTime) {
 
-        // Track the running thread so cancellation can interrupt it
-        runningThread = Thread.currentThread();
-        try {
+        // runningThread is set/cleared by the run task (covers pre-loop consolidation);
+        // runAgentLoop itself just runs inline on that same thread.
+        {
         List<Message> currentMessages = new ArrayList<>(messages);
         List<String> toolsUsed = new ArrayList<>();
         String finalContent = null;
@@ -526,8 +563,6 @@ public class AgentRunner {
             .stopReason(context.getStopReason())
             .hadInjections(hadInjections)
             .build();
-        } finally {
-            runningThread = null;
         }
     }
 
@@ -645,6 +680,16 @@ public class AgentRunner {
     private boolean isAborted(AgentRunSpec spec) {
         return (spec.getAbortFlag() != null && spec.getAbortFlag().get())
                 || Thread.currentThread().isInterrupted();
+    }
+
+    /**
+     * Abort-flag-only check, safe to evaluate on pooled carrier threads other than the
+     * run's own thread. Pre-loop/post-run consolidation runs on a ForkJoinPool carrier
+     * that {@link AgentRunner#interrupt()} never targets, so the thread-interrupt half
+     * of {@link #isAborted} would be meaningless there — only the shared flag reaches it.
+     */
+    private boolean isAbortedFlag(AgentRunSpec spec) {
+        return spec.getAbortFlag() != null && spec.getAbortFlag().get();
     }
 
     /**

@@ -118,7 +118,7 @@ mvn clean package -DskipTests
 
 #### 会话管理 (`agent/session`)
 - **Session** - 单次 Agent 会话
-- **SessionManager** - 管理多个会话的生命周期
+- **SessionManager** - 管理多个会话的生命周期（每实例会话模式只加载当前 instanceId 的 jsonl，不解析历史遗留/其他实例文件）
 
 #### Agent 运行 (`agent/run`)
 - **AgentRunner** - 执行 Agent 运行
@@ -139,7 +139,7 @@ mvn clean package -DskipTests
 - **ProgressCallbackHookAdapter** - 进度回调适配器
 
 #### Agent 记忆 (`agent/memory`)
-- **MemoryStore** - Agent 记忆存储
+- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`——原生文件锁等待对中断/abort 均不可达、会饿死并泄漏 commonPool 载体），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
 - **MemoryConsolidator** - 跨会话记忆整合
 - **CloseConsolidationCoordinator** - 关闭期记忆整合协调器（静默归档 HISTORY.md 的幂等守卫 + 深度提炼入口，供关闭对话框与 shutdown hook 共用）
 - **SaveMemoryTool** - 保存记忆的工具
@@ -203,7 +203,7 @@ mvn clean package -DskipTests
 #### 跨实例协作工具 (`tools/ipc`)
 仅当 `jmeter.ai.ipc.enabled=true` 时注册（IPC 提供传输通道；关闭则不注册）。
 - **ListInstancesTool** - 列出本机存活实例（instanceId/pid/port/打开的 jmx/启动时间），标注自身
-- **DelegateToInstanceTool** - 把任务委派给持有某 jmx 或某 instanceId 的对端实例，阻塞等待其 Agent 回合回复
+- **DelegateToInstanceTool** - 把任务委派给持有某 jmx 或某 instanceId 的对端实例，阻塞等待其 Agent 回合回复；载荷带 `[delegated-from …]` 来源前缀，被委派回合内再委派被 DelegationGuard 硬阻断（深度 1，防跨实例 ping-pong）
 
 ### 服务层 (`org.gitee.jmeter.ai.service`)
 - **AiService** 接口定义了 AI 提供者的契约
@@ -248,7 +248,7 @@ mvn clean package -DskipTests
 - **ElementSuggestionManager** - 为 AI 响应中提到的 JMeter 元素创建可点击按钮
 - **ComponentFinder** - 查找 JMeter 组件
 - **TreeNavigationButtons** - 测试计划树导航按钮
-- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N，选"是"经 SwingWorker 后台深度提炼并回传进度；N=0/测试运行中/开关关闭时不弹）
+- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N（仅 user/assistant 口径），选"是"先 `cancelActiveTask` 停掉在跑回合、再经 SwingWorker 后台深度提炼并回传进度，提供"Skip & Exit"逃生按钮；N=0/测试运行中/开关关闭时不弹）。被取消的整合回合经共享 abort flag 写盘前放弃落盘（不会覆盖提炼结果）
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
 - **CommandIntellisenseProvider** - 提供命令建议（/new、/status、/help）

@@ -30,14 +30,28 @@ public class SessionManager {
 
     private final Map<String, Session> sessions;
     private final Path sessionStorage;
+    /** 非 null 时启动只加载该会话键的 jsonl(每实例会话隔离);null 加载全部(默认/通用行为)。 */
+    private final String focusSessionKey;
 
     public SessionManager() {
         this(WorkspacePaths.resolveWorkspace());
     }
 
     public SessionManager(Path workspace) {
+        this(workspace, null);
+    }
+
+    /**
+     * @param focusSessionKey 每实例会话模式下传入当前 {@code instanceId} 会话键,实例只需
+     *                        解析自己的 jsonl——历史遗留 {@code jmeter-ai-chat.jsonl} 与失活
+     *                        孤立实例文件不再被整文件载入内存(启动成本归零;遗留迁移与回收
+     *                        {@code SessionReaper} 均直接读文件,不受影响)。null 保持原行为
+     *                        (加载全部),供通用/单测场景使用。
+     */
+    public SessionManager(Path workspace, String focusSessionKey) {
         this.sessionStorage = workspace.resolve("sessions");
         this.sessions = new ConcurrentHashMap<>();
+        this.focusSessionKey = focusSessionKey;
 
         ensureDirectories();
         loadSessions();
@@ -147,6 +161,8 @@ public class SessionManager {
 
             Files.list(sessionStorage)
                     .filter(p -> p.toString().endsWith(".jsonl"))
+                    .filter(p -> focusSessionKey == null
+                            || p.getFileName().toString().equals(safeFileName(focusSessionKey)))
                     .forEach(this::loadSessionFile);
 
             log.info("Loaded {} sessions from disk", sessions.size());
@@ -206,10 +222,16 @@ public class SessionManager {
         }
     }
 
+    /**
+     * Sanitize a session key into a safe filename ({@code {safeKey}.jsonl}).
+     * 与 {@link #loadSessions} 的 focus 过滤共用同一规范化,保证读写命中同一文件。
+     */
+    private static String safeFileName(String sessionKey) {
+        return sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_") + ".jsonl";
+    }
+
     private Path getSessionFile(String sessionKey) {
-        // Sanitize session key for filename
-        String safeKey = sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_");
-        return sessionStorage.resolve(safeKey + ".jsonl");
+        return sessionStorage.resolve(safeFileName(sessionKey));
     }
 
     /**

@@ -35,6 +35,7 @@ public class AgentRunSpec {
     private final AtomicBoolean abortFlag;
     private final Function<Integer, List<String>> injectionCallback;
     private final boolean persistSession;
+    private final boolean delegated;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -52,6 +53,7 @@ public class AgentRunSpec {
         this.abortFlag = builder.abortFlag;
         this.injectionCallback = builder.injectionCallback;
         this.persistSession = builder.persistSession;
+        this.delegated = builder.delegated;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -75,6 +77,13 @@ public class AgentRunSpec {
      */
     public boolean isPersistSession() { return persistSession; }
 
+    /**
+     * Whether this run executes a cross-instance delegated task (IPC {@code /agent}
+     * with {@code delegated=true}). The runner arms {@code DelegationGuard} inside
+     * the run task so tools executed in this turn refuse to delegate again.
+     */
+    public boolean isDelegated() { return delegated; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -95,6 +104,7 @@ public class AgentRunSpec {
         private AtomicBoolean abortFlag;
         private Function<Integer, List<String>> injectionCallback;
         private boolean persistSession = true;
+        private boolean delegated = false;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -175,6 +185,12 @@ public class AgentRunSpec {
          */
         public Builder persistSession(boolean persist) {
             this.persistSession = persist;
+            return this;
+        }
+
+        /** Mark this run as a cross-instance delegated turn (arms DelegationGuard). */
+        public Builder delegated(boolean delegated) {
+            this.delegated = delegated;
             return this;
         }
 

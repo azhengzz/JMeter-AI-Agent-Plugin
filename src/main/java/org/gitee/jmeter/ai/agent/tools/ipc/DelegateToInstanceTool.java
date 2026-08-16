@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.tools.ipc;
 import org.apache.jmeter.util.JMeterUtils;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
+import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
@@ -30,6 +31,11 @@ import java.util.Map;
  * <p>目标经 {@link InstanceRegistry#listInstances} 的 TCP+PID 双确认存活过滤;禁止委派给自身。
  * 超时复用 {@code jmeter.ai.ipc.agent.timeout.ms}(加 5s 宽限,使目标侧 504+自取消 先于本端 HTTP 超时到达)。
  * 运行于工具执行线程,不阻塞 EDT(6.4)。
+ *
+ * <p>深度 1 硬阻断({@link DelegationGuard}):被委派回合内再委派直接报错——否则 A↔B 互相委派
+ * 会让两侧互卡满超时。委派载荷带 {@code [delegated-from instanceId=… pid=… script=…]} 来源前缀,
+ * 让对端会话/GUI 可审计这轮是委派任务及其出处;请求信封同时带 {@code delegated=true}
+ * (接收侧据此在该回合内置同一守卫)。
  */
 public class DelegateToInstanceTool extends AbstractTool {
     public static final String NAME = "delegate_to_instance";
@@ -48,7 +54,7 @@ public class DelegateToInstanceTool extends AbstractTool {
                 + "until the peer's agent turn completes or times out (bounded by jmeter.ai.ipc.agent.timeout.ms); "
                 + "use it when you need the result in this turn. If the user references a script this instance "
                 + "does not have open, a peer instance may hold it — call list_instances first to discover "
-                + "peers and their open scripts.";
+                + "peers and their open scripts. Cannot be used from within a delegated turn (depth limit 1).";
     }
 
     @Override
@@ -80,6 +86,12 @@ public class DelegateToInstanceTool extends AbstractTool {
         String task = getStringParameter(parameters, "task", "");
         if (task.isBlank()) {
             return ToolResult.error("Parameter 'task' is required");
+        }
+        // 深度 1 硬阻断:被委派回合内再委派会形成 A↔B ping-pong(两侧互卡满超时),先于寻址拦截
+        if (DelegationGuard.isActive()) {
+            return ToolResult.error("Delegation depth limit: this task was itself delegated from a peer "
+                    + "instance, so it cannot delegate again (prevents cross-instance ping-pong). "
+                    + "Complete the task using this instance's own tools.");
         }
         String instanceId = getStringParameter(parameters, "instanceId", null);
         String jmxPath = getStringParameter(parameters, "jmxPath", null);
@@ -130,8 +142,9 @@ public class DelegateToInstanceTool extends AbstractTool {
         // 先于本端 HttpClient 超时,从而拿到结构化错误而非 HttpTimeoutException。
         long timeoutMs = AiConfig.getIpcAgentTimeoutMs() + 5_000L;
         IpcClient client = new IpcClient(hostOf(target), target.getPort(), target.getToken());
+        String payload = withProvenance(task, self, selfJmxPath(all, self));
         try {
-            IpcResponse resp = client.postAgent(task, null, timeoutMs);
+            IpcResponse resp = client.postAgent(payload, null, timeoutMs, true);
             if (resp.isSuccess()) {
                 String content = resp.getContent();
                 return ToolResult.success("Delegated to peer " + target.getInstanceId()
@@ -144,6 +157,22 @@ public class DelegateToInstanceTool extends AbstractTool {
             return ToolResult.error("Failed to delegate to peer " + target.getInstanceId()
                     + ": " + rootMessage(e));
         }
+    }
+
+    /** 委派载荷加来源前缀,让对端会话/GUI 可审计这轮是委派任务、来自哪个实例与其打开的脚本。 */
+    private static String withProvenance(String task, String selfInstanceId, String selfJmx) {
+        String script = (selfJmx == null || selfJmx.isEmpty()) ? "" : " script=" + selfJmx;
+        return "[delegated-from instanceId=" + selfInstanceId
+                + " pid=" + InstanceRegistry.currentPid() + script + "] " + task;
+    }
+
+    /** 本实例端口文件里的 jmxPath(未开脚本为空);无端口文件(IPC 未启动等)返回 null。 */
+    private static String selfJmxPath(List<InstanceInfo> all, String selfInstanceId) {
+        return all.stream()
+                .filter(i -> selfInstanceId.equals(i.getInstanceId()))
+                .map(InstanceInfo::getJmxPath)
+                .findFirst()
+                .orElse(null);
     }
 
     /** 规范路径比较(容忍大小写/相对-绝对/盘符差异);解析失败退回字面相等。 */

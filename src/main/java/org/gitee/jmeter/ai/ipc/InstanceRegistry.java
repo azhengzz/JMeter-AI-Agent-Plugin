@@ -1,5 +1,6 @@
 package org.gitee.jmeter.ai.ipc;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -269,7 +270,12 @@ public final class InstanceRegistry {
      * <p>{@code instanceId}（格式 {@code {pid}-{startedAtMs}}）是会话键与实例的唯一锚;
      * {@code jmxPath} 是当前打开的 jmx 绝对路径(无计划时空串),由动作监听(EDT)原子写回,
      * 供他实例 {@code list_instances}/{@code delegate_to_instance} 据以寻址同任务的伙伴实例。
+     *
+     * <p>{@link JsonIgnoreProperties} 容忍未知字段:未来版本向端口文件新增字段(或外部工具
+     * 写入额外字段)时,本类解析不会失败——实例仍可被发现,而非被 {@code readSilently}
+     * 当损坏文件整条跳过。
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class InstanceInfo {
         private String pid;
         private int port;

@@ -279,7 +279,8 @@ public final class IpcServer {
                     ? InstanceContext.currentSessionKey() : req.getSession();
             long timeout = AiConfig.getIpcAgentTimeoutMs();
             long t0 = System.currentTimeMillis();
-            CompletableFuture<AgentResponse> future = loop.processMessage(req.getMessage(), session);
+            // delegated=true → 该回合内置 DelegationGuard,回合内 delegate_to_instance 直接报错(防 ping-pong)
+            CompletableFuture<AgentResponse> future = loop.processMessage(req.getMessage(), session, req.isDelegated());
             AgentResponse ar;
             try {
                 ar = future.get(timeout, TimeUnit.MILLISECONDS);
