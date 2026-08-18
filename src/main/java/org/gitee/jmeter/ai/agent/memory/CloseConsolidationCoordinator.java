@@ -70,7 +70,7 @@ public final class CloseConsolidationCoordinator {
             return n;
         } catch (Throwable t) {
             // 关闭路径绝不能因归档失败而阻断 JVM 退出
-            log.warn("Close-time silent archive failed (best-effort): {}", t.toString());
+            log.error("Close-time silent archive failed (best-effort): {}", t.toString());
             return 0;
         }
     }

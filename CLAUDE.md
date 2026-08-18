@@ -139,7 +139,7 @@ mvn clean package -DskipTests
 - **ProgressCallbackHookAdapter** - 进度回调适配器
 
 #### Agent 记忆 (`agent/memory`)
-- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`——原生文件锁等待对中断/abort 均不可达、会饿死并泄漏 commonPool 载体），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
+- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`：`distillSync` 路径在 commonPool 载体上 interrupt 不可达；内联整合线程虽可被 interrupt 命中，但阻塞式 `channel.lock()` 被 interrupt 会抛 `ClosedByInterruptException` 关闭通道；统一以 abort flag 为取消事实来源），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
 - **MemoryConsolidator** - 跨会话记忆整合
 - **CloseConsolidationCoordinator** - 关闭期记忆整合协调器（静默归档 HISTORY.md 的幂等守卫 + 深度提炼入口，供关闭对话框与 shutdown hook 共用）
 - **SaveMemoryTool** - 保存记忆的工具

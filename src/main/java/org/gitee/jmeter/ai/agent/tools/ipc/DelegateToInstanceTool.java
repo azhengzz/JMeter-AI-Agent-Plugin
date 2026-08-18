@@ -19,9 +19,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 把一个任务委派给本机另一个 JMeter AI 实例,阻塞等待其 Agent 回合的回复(D4:阻塞式跨进程 RPC)。
+ * 把一个任务委派给本机另一个 JMeter AI 实例,阻塞等待其 Agent 回合的回复(阻塞式跨进程 RPC)。
  *
- * <p>解析顺序(D4/6.5):
+ * <p>解析顺序:
  * <ol>
  *   <li>给 {@code instanceId} → 精确匹配;</li>
  *   <li>给 {@code jmxPath} → 匹配持有该脚本的存活实例,多个则按最近 {@code startedAt} 确定性择一;</li>

@@ -17,13 +17,13 @@ import java.util.List;
 /**
  * 关闭期记忆整合交互对话框。由 {@code ExitCommand} 前置动作监听在 EDT 调用。
  *
- * <p><b>职责切分</b>(经实现期校正——见 design.md D2/D3):
+ * <p><b>职责切分</b>:
  * <ul>
  *   <li>本对话框(EDT 前置监听):捕获未整合快照、询问是否深度提炼、选"是"则在
  *       {@code SwingWorker}(非 EDT)执行深度提炼并回传进度/结果。<b>提炼成功后清空当前会话
  *       (数据 + 消息区,视觉效果对齐 {@code /new})</b>——提炼结果已落入 {@code MEMORY.md}
  *       (经系统提示持续生效),原会话消息不再有价值;清空使 {@code unconsolidatedSnapshot()}
- *       返回空,<b>杜绝退出被取消后二次触发提炼同一批消息</b>(D3 校正,反转 D2 的"不清空"权衡)。</li>
+ *       返回空,<b>杜绝退出被取消后二次触发提炼同一批消息</b>(反转此前"提炼后不清空"的权衡)。</li>
  *   <li>静默归档(把消息原样追加进 {@code HISTORY.md} 并推进索引)交由 JVM shutdown hook,
  *       仅在真实 {@code System.exit} 时执行;提炼成功已清空会话后,该路径为 no-op。</li>
  * </ul>
@@ -46,11 +46,9 @@ public final class CloseConsolidationDialog {
             return;
         }
         List<Message> snapshot = CloseConsolidationCoordinator.unconsolidatedSnapshot();
-        // 展示口径:只数 user/assistant 消息(工具消息不参与计数,避免 N 被虚高);
+        // 展示口径:按全量消息计数(含工具消息,对齐 /status 与 max.history.size 的口径)。
         // 快照本身仍全量交给深度提炼(工具上下文对提炼有价值)。
-        long n = snapshot.stream()
-                .filter(m -> m.getRole() == Message.Role.USER || m.getRole() == Message.Role.ASSISTANT)
-                .count();
+        long n = snapshot.size();
 
         if (n == 0
                 || !AiConfig.getBoolean("agent.memory.enabled", true)) {
@@ -113,10 +111,10 @@ public final class CloseConsolidationDialog {
                 } catch (IllegalStateException ignore) {
                     // agent 未初始化则必无活动回合,无需取消
                 }
-                // F4 残留(对抗复核 2/2 CONFIRMED):EDT 快照先于 cancel 取得,模态等待期间
-                // run 的后置蒸馏(AgentRunner 回合后 maybeConsolidate)可能已完成——写完
+                // EDT 快照先于 cancel 取得,模态等待期间
+                // run 的后置整合(AgentRunner 回合后 maybeConsolidate)可能已完成——写完
                 // HISTORY/MEMORY、推进 lastConsolidatedIndex、run future 完成后 abort flag 被
-                // 移除,cancelActiveTask 空转。此处 cancel 后重读当前未整合集:已空则后置蒸馏
+                // 移除,cancelActiveTask 空转。此处 cancel 后重读当前未整合集:已空则后置整合
                 // 已覆盖,视为完成(不二次提炼);否则只提炼仍未整合的部分,杜绝重复 HISTORY 条目。
                 List<Message> fresh = CloseConsolidationCoordinator.unconsolidatedSnapshot();
                 if (fresh.isEmpty()) {

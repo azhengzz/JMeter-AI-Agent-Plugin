@@ -21,8 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
 /**
- * Verification tests for the LangCat provider registration
- * (OpenSpec change: add-langcat-provider).
+ * Verification tests for the LangCat provider registration.
  * <p>
  * Same scope discipline as {@link OpenAICompatibleProviderTest}: no real SDK
  * calls — tests cover registry registration, provider detection, factory

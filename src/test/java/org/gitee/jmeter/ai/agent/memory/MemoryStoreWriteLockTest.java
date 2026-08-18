@@ -20,12 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 跨进程写锁回归测试(fix-adversarial#2):两个共享同一 workspace 的"实例"(两个
+ * 跨进程写锁回归测试:两个共享同一 workspace 的"实例"(两个
  * {@link MemoryStore} 对象)并发对 MEMORY.md 做 read-modify-write 时,写锁把整个
- * 读改写串行化——后写者重读到前者结果再追加,双方蒸馏都存活。
+ * 读改写串行化——后写者重读到前者结果再追加,双方提炼都存活。
  *
  * <p>无锁时两条线程都在对方写入前读走空内容,后写者基于陈旧读覆盖前者,必有
- * 一方蒸馏静默丢失(该测试会失败)。
+ * 一方提炼静默丢失(该测试会失败)。
  */
 class MemoryStoreWriteLockTest {
 
@@ -73,7 +73,7 @@ class MemoryStoreWriteLockTest {
     }
 
     /**
-     * 跨进程互斥的真实回归(fix-adversarial#2 依赖的那一半):fork 一个子 JVM 独占
+     * 跨进程互斥的真实回归:fork 一个子 JVM 独占
      * memory.lock,本进程等锁时置 abort 谓词——若 OS 级 {@link FileLock} 确实跨进程互斥,
      * 本进程在子进程释放前拿不到锁、abort 后放弃返回 {@code null};若锁退化/回归(如改锁
      * 每实例文件、或整个 OS 锁被移除),本进程 tryLock 立即成功、result 非 null → 测试失败。
@@ -100,7 +100,7 @@ class MemoryStoreWriteLockTest {
                             ready.set("CHILD_READY");
                             return;
                         }
-                        prefix.append(line).append('\n'); // 前导日志行:循环跳过而非单次 readLine(F5)
+                        prefix.append(line).append('\n'); // 前导日志行:循环跳过而非单次 readLine
                     }
                     ready.set("<EOF before CHILD_READY; output so far: " + prefix + ">");
                 } catch (IOException e) {
@@ -127,7 +127,7 @@ class MemoryStoreWriteLockTest {
                 }
             });
             waiter.start();
-            // 握手而非盲等(F3):等到 waiter 已进入 lockLongTermMemory 轮询(谓词首次被调用)
+            // 握手而非盲等:等到 waiter 已进入 lockLongTermMemory 轮询(谓词首次被调用)
             // 再断言其被子进程 OS 锁挡住——盲等 300ms 在 waiter 慢启动/被调度延迟时会空真通过。
             long deadline = System.currentTimeMillis() + 10_000;
             while (!polled.get() && System.currentTimeMillis() < deadline) {
@@ -153,7 +153,7 @@ class MemoryStoreWriteLockTest {
     }
 
     /**
-     * F1 回归:锁文件 open 抛 IOException(锁文件被目录占位)时,静态 INTRA_JVM_LOCK
+     * 回归:锁文件 open 抛 IOException(锁文件被目录占位)时,静态 INTRA_JVM_LOCK
      * 必须释放——否则后续所有 lockLongTermMemory 永久轮询 tryLock 至 abort/死锁。
      * 无修复时(open 在 try 外)第二次调用会永久阻塞 → join 超时 → isAlive 断言失败。
      */
@@ -186,7 +186,7 @@ class MemoryStoreWriteLockTest {
         t.start();
         t.join(10_000);
 
-        assertFalse(t.isAlive(), "lock leaked after open failure — INTRA_JVM_LOCK never released (F1)");
+        assertFalse(t.isAlive(), "lock leaked after open failure — INTRA_JVM_LOCK never released");
         assertNull(failure.get(), "unexpected exception: " + failure.get());
         assertTrue(Files.readString(memoryDir.resolve("MEMORY.md")).contains("after-fix"));
     }

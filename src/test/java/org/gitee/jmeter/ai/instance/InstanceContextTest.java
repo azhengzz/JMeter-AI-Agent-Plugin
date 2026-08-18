@@ -12,7 +12,7 @@ import java.util.Properties;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * {@link InstanceContext} 的进程单例 idempotency、instanceId 格式与会话键回退行为。
+ * {@link InstanceContext} 的进程单例 idempotency、instanceId 格式与 session key 回退行为。
  *
  * <p>JMeter 的 {@code appProperties} 在纯单测中未初始化,反射置一个空 {@link Properties} 以支持
  * {@code agent.session.per-instance} 的写入/回退断言。

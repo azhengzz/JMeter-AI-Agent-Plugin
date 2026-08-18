@@ -64,7 +64,7 @@ public final class InstanceRegistry {
     /**
      * 原子写入端口文件(临时文件 + ATOMIC_MOVE)。返回写入的实例信息。
      *
-     * @param instanceId 每实例会话键(格式 {@code {pid}-{startedAtMs}}),供他实例识别/委派;可为 null
+     * @param instanceId 每实例 session key(格式 {@code {pid}-{startedAtMs}}),供他实例识别/委派;可为 null
      * @param jmxPath    当前打开的计划文件绝对路径;无计划传空串(后续由动作监听原子写回)
      */
     public static InstanceInfo writeInstance(File ipcDir, String pid, int port, String token, String bind,
@@ -267,7 +267,7 @@ public final class InstanceRegistry {
     /**
      * 端口文件内容:PID、端口、token、启动时间戳、绑定地址、每实例标识、当前打开的计划文件。
      *
-     * <p>{@code instanceId}（格式 {@code {pid}-{startedAtMs}}）是会话键与实例的唯一锚;
+     * <p>{@code instanceId}（格式 {@code {pid}-{startedAtMs}}）是 session key 与实例的唯一锚;
      * {@code jmxPath} 是当前打开的 jmx 绝对路径(无计划时空串),由动作监听(EDT)原子写回,
      * 供他实例 {@code list_instances}/{@code delegate_to_instance} 据以寻址同任务的伙伴实例。
      *

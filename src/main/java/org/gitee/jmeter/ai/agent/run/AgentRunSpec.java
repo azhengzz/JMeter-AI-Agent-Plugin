@@ -199,7 +199,7 @@ public class AgentRunSpec {
 
             // Enforce the subagent isolation invariants at construction time so a
             // mis-wired subagent run fails fast instead of silently polluting the
-            // main session (see design.md blocker 2). Checked before the
+            // main session. Checked before the
             // userMessage requirement so a subagent gets the actionable error.
             if (sessionKey.startsWith(SUBAGENT_SESSION_PREFIX)) {
                 if (persistSession) {

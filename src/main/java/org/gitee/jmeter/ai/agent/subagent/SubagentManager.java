@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * own ephemeral session, then hands its result back through a {@link ResultSink}
  * so the main agent can absorb it within the same turn.
  *
- * <p>Two invariants matter (see design.md):
+ * <p>Two invariants matter:
  * <ul>
  *   <li>Every spawn builds its OWN {@link AgentRunner}. The runner tracks its
  *       running thread in a single field, so a shared instance would let

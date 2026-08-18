@@ -82,7 +82,7 @@ public class SaveMemoryTool extends AbstractTool {
             memoryStore.appendHistory(historyEntry);
 
             // Save memory update if changed (跨进程写锁:与并发深度提炼的 MEMORY.md 读改写
-            // 串行化,防基于陈旧读覆盖丢蒸馏;等锁失败按 best-effort 降级为无锁执行)
+            // 串行化,防基于陈旧读覆盖丢提炼;等锁失败按 best-effort 降级为无锁执行)
             boolean memoryChanged = persistMemoryUpdate(memoryUpdate);
 
             log.info("Memory saved successfully: history_entry={}, memory_changed={}",

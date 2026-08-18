@@ -52,7 +52,7 @@ public final class IpcClient {
      * 投递 agent 消息(POST /agent),阻塞至目标 Agent 回合完成或超时。返回解析后的 {@link IpcResponse}。
      *
      * @param message   委派给目标实例 Agent 的自然语言指令
-     * @param session   目标会话键;null/空 则用目标实例默认会话(其 instanceId)
+     * @param session   目标 session key;null/空 则用目标实例默认会话(其 instanceId)
      * @param timeoutMs 阻塞超时(复用 {@code jmeter.ai.ipc.agent.timeout.ms});超时由调用方据此取消目标活动任务
      */
     public IpcResponse postAgent(String message, String session, long timeoutMs) throws Exception {

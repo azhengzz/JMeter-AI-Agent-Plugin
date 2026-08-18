@@ -100,7 +100,7 @@ public class AiConfig {
     // ---- Multi-instance session / coordination ----
 
     /**
-     * 每实例独立会话文件(按启动 instanceId)是否启用。默认 true;false 回退到全局 legacy 会话键。
+     * 每实例独立会话文件(按启动 instanceId)是否启用。默认 true;false 回退到全局 legacy session key。
      */
     public static boolean isSessionPerInstance() {
         return getBoolean("agent.session.per-instance", true);

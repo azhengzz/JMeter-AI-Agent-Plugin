@@ -285,8 +285,11 @@ public class AgentLoop {
                     log.info("Re-publishing {} leftover message(s) for session {}",
                         remaining.size(), sessionKey);
                     for (String msg : remaining) {
-                        // 队列里只可能是用户消息(委派请求在 Phase 2 即被拒,不入队),
-                        // 故重发布无需委派标记
+                        // 注入队列里只可能是用户消息:委派请求在 Phase 2 的 delegated 分支即被
+                        // 拒绝返回(见上文"委派回合绝不并入注入队列"),从不 offer 入队。故此处
+                        // 写死 delegated=false 语义上必然正确、没有委派标记可丢;若委派消息被
+                        // 并入队列又以此 false 重发布,DelegationGuard(深度守卫)会被绕过,被
+                        // 委派回合可再委派出去(跨实例 ping-pong)。
                         processMessage(msg, sessionKey, callback, false);
                     }
                 }

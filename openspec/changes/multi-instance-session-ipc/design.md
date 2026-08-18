@@ -112,28 +112,28 @@ D2 校正点 1 故意让深度提炼**不推进** `lastConsolidatedIndex`、不�
 
 对抗性复核（fix-adversarial 审计）确认两条 minor 后的处置（2026-08）：
 
-1. **MEMORY.md 双实例并发 lost-update 加固（fix-adversarial#2）**：审计确认共享默认 workspace（`{jmeter.home}/bin/jmeter-agent`）的双实例同时关闭深度提炼时，`MemoryConsolidator` 的 read-modify-write（read → LLM → write）会让后写者基于陈旧读覆盖前者、整份蒸馏静默丢失。原设计接受 last-writer-wins；复核确认后决定加固：`MemoryStore` 新增 `lockLongTermMemory()`（`memory.lock` 文件 + OS 级 `FileLock`，跨进程互斥、阻塞可中断），`consolidateWithAi` 与 `save_memory` 工具（`SaveMemoryTool.persistMemoryUpdate`）的整个读改写全程持锁——后写者重读到前者结果再提炼，不再覆盖。（注：`SaveMemoryTool` 实为死代码、从未接线，其锁语义还与活路径分叉，见 D5 四次校正第 5 条。）同一 JVM 内先经静态互斥串行（`FileLock` 是 JVM 级持有，防 `OverlappingFileLockException`）；等锁失败按 best-effort 降级为无锁执行，阻塞中被中断视为未执行、不落盘。
+1. **MEMORY.md 双实例并发 lost-update 加固（fix-adversarial#2）**：审计确认共享默认 workspace（`{jmeter.home}/bin/jmeter-agent`）的双实例同时关闭深度提炼时，`MemoryConsolidator` 的 read-modify-write（read → LLM → write）会让后写者基于陈旧读覆盖前者、整份提炼静默丢失。原设计接受 last-writer-wins；复核确认后决定加固：`MemoryStore` 新增 `lockLongTermMemory()`（`memory.lock` 文件 + OS 级 `FileLock`，跨进程互斥、阻塞可中断），`consolidateWithAi` 与 `save_memory` 工具（`SaveMemoryTool.persistMemoryUpdate`）的整个读改写全程持锁——后写者重读到前者结果再提炼，不再覆盖。（注：`SaveMemoryTool` 实为死代码、从未接线，其锁语义还与活路径分叉，见 D5 四次校正第 5 条。）同一 JVM 内先经静态互斥串行（`FileLock` 是 JVM 级持有，防 `OverlappingFileLockException`）；等锁失败按 best-effort 降级为无锁执行，阻塞中被中断视为未执行、不落盘。
 2. **委派 busy 检查残余 TOCTOU（fix-adversarial#3，已接受不修）**：`AgentLoop` Phase 2 的 busy 检查与 `activeTasks.put` 之间无原子性，两次同会话并发提交（peer 委派 + 本机用户消息）都过检查时，先跑完回合的 `whenComplete` 按 key 删除取消映射——后提交（委派）回合的 abortFlag/latch/future 被删，`cancelActiveTask` 对该回合静默失效（对端已 504 但委派回合继续跑）。窗口毫秒级、需会话超 token 预算（pre-loop 整合期）且同会话双提交，对抗复核后判定可接受、不修。
 
 #### D5 三次校正：写锁等锁可中止化（对抗复核 3 major → 修复）
 
 针对写锁加固本身的对抗性复核（writelock-adversarial-round，5 镜头 + 双席位反驳，2026-08）确认 **3 个 major + 1 个 minor**，全部源于同一根因：**阻塞式 `FileChannel.lock()` 等锁不可中止**——`cancelActiveTask` 的 `interrupt()` 只打到 `join()` 中的 run 载体、`CompletableFuture.cancel(true)` 不打断运行线程、原生文件锁等待对中断无响应（Windows 实测），abort 谓词仅在获锁后才轮询。后果：
 
-1. **`distillSync` 超时预算计入等锁（major）**：并发关闭时后到实例的蒸馏被等锁挤占预算，`f.cancel` 后等锁/跑 LLM 的 daemon 载体随 JVM 退出被杀——fix-adversarial#2 本要防住的场景从"丢一份"退化为"可两份全丢"（静默）。
+1. **`distillSync` 超时预算计入等锁（major）**：并发关闭时后到实例的提炼被等锁挤占预算，`f.cancel` 后等锁/跑 LLM 的 daemon 载体随 JVM 退出被杀——fix-adversarial#2 本要防住的场景从"丢一份"退化为"可两份全丢"（静默）。
 2. **pre-loop 整合 `join()` 等锁不可中止（major）**：对端持锁（其 LLM 无超时、可挂起数分钟）时，本机整个 agent 循环停摆，Stop/cancel 全失效，并泄漏 commonPool 载体。
 3. **`channel.lock()` 阻塞等待不可中断（major）**：两个逃生口（distill 的 `f.cancel`、GUI 的 `agentRunner.interrupt`）都够不到等锁线程；`commonPool` 载体被外部 I/O 永久占用（未声明 `managedBlock`，不补位）。
 4. **测试盲区（minor）**：`MemoryStoreWriteLockTest` 两线程同 JVM，静态 `INTRA_JVM_LOCK` 单独即可串行化，OS 级跨进程互斥从未被测到。
 
-**修复（等锁改 abort 感知轮询）**：`MemoryStore.lockLongTermMemory(BooleanSupplier aborted)` 不再调用阻塞式 `lock()`，改 `tryLock()` 轮询（同 JVM 锁与 OS 锁皆然，间隔 50ms），每轮先查 `aborted`、可被中断——Stop / 蒸馏超时置位后 ≤50ms 放弃，返回 `null` = 未执行，不占载体、不泄漏。`distillSync` 超时先置共享 `timedOut` flag 再 `cancel`（flag 才是真正的中止信号），等锁轮询与写盘前检查立即放弃。锁放弃不降级写盘（降级会重新打开 lost-update 敞口），仅真实 IO 故障（盘满/权限）best-effort 降级。`MemoryWriteLock.close()` 幂等（`AtomicBoolean` 守卫 + `RuntimeException` 兜底），防静态锁永久泄漏。新增跨进程 fork-JVM 测试验证 OS 锁互斥 + abort 放弃。
+**修复（等锁改 abort 感知轮询）**：`MemoryStore.lockLongTermMemory(BooleanSupplier aborted)` 不再调用阻塞式 `lock()`，改 `tryLock()` 轮询（同 JVM 锁与 OS 锁皆然，间隔 50ms），每轮先查 `aborted`、可被中断——Stop / 提炼超时置位后 ≤50ms 放弃，返回 `null` = 未执行，不占载体、不泄漏。`distillSync` 超时先置共享 `timedOut` flag 再 `cancel`（flag 才是真正的中止信号），等锁轮询与写盘前检查立即放弃。锁放弃不降级写盘（降级会重新打开 lost-update 敞口），仅真实 IO 故障（盘满/权限）best-effort 降级。`MemoryWriteLock.close()` 幂等（`AtomicBoolean` 守卫 + `RuntimeException` 兜底），防静态锁永久泄漏。新增跨进程 fork-JVM 测试验证 OS 锁互斥 + abort 放弃。
 
-**修复后残余行为（已接受）**：并发关闭且两者合计超 120s 预算时，后到者蒸馏**可见跳过**（对话框报 incomplete、会话保留、HISTORY.md 由关闭归档兜底）——从"静默丢两份"回到"至多可见丢一份且原始数据不丢"，且单实例超 120s 属锁前既有行为。单实例/串行关闭、或双实例合计在预算内（常见 LLM 时长）时仍完整串行化、双蒸馏共存。
+**修复后残余行为（已接受）**：并发关闭且两者合计超 120s 预算时，后到者提炼**可见跳过**（对话框报 incomplete、会话保留、HISTORY.md 由关闭归档兜底）——从"静默丢两份"回到"至多可见丢一份且原始数据不丢"，且单实例超 120s 属锁前既有行为。单实例/串行关闭、或双实例合计在预算内（常见 LLM 时长）时仍完整串行化、双提炼共存。
 
-#### D5 四次校正：锁泄漏 + 后置蒸馏重复 + 写失败吞错（对抗复核 4 → 修复）
+#### D5 四次校正：锁泄漏 + 后置整合重复 + 写失败吞错（对抗复核 4 → 修复）
 
 对三次校正修复 diff 的对抗性再验证（5 镜头 + 双席位反驳，2026-08）确认 **2 major + 1 minor + 2 nit**，全部修复：
 
 1. **`FileChannel.open` 在 try 外（F1, major, 2/2 CONFIRMED）**：`lockLongTermMemory` 的锁文件通道在进入 try/finally 之前打开，`open` 抛 IOException（只读目录/锁文件不可创建）时 finally 不执行——静态 `INTRA_JVM_LOCK` 永久泄漏，后续所有 MEMORY.md 写永久轮询 tryLock 至 abort/死锁。修复：`open` 移入 try 内，`channel` 置 null、finally 以 null 守卫关闭通道再释放 JVM 锁。
-2. **post-run 蒸馏关闭期不可中止（F4, major, 2/2 CONFIRMED）**：AgentRunner 回合后的 `maybeConsolidate` 为 fire-and-forget，run future 完成时 AgentLoop `whenComplete` 立即把 abort flag 从 `abortFlags` map 移除——关闭期 `signalCancel` 找不到 flag，僵尸蒸馏回合写盘前 abort 检查恒过，与关闭对话框对同一批消息重复蒸馏（HISTORY.md 重复条目、MEMORY.md 被后写者覆盖）。修复：后置蒸馏 `join()` 同步化（与 pre-loop 一致），蒸馏在 run future 完成前落盘，关闭窗口内无僵尸回合。
+2. **post-run 整合关闭期不可中止（F4, major, 2/2 CONFIRMED）**：AgentRunner 回合后的 `maybeConsolidate` 为 fire-and-forget，run future 完成时 AgentLoop `whenComplete` 立即把 abort flag 从 `abortFlags` map 移除——关闭期 `signalCancel` 找不到 flag，僵尸整合回合写盘前 abort 检查恒过，与关闭对话框对同一批消息重复整合（HISTORY.md 重复条目、MEMORY.md 被后写者覆盖）。修复：后置整合 `join()` 同步化（与 pre-loop 一致），整合在 run future 完成前落盘，关闭窗口内无僵尸回合。
 3. **写失败吞错（F10, minor, 2/2 CONFIRMED）**：`writeLongTermMemory` 吞 IOException、`extractAndSaveToolCallResult` 无条件返回 true——MEMORY.md 只读时对话框报"整合完成"并清会话，内容实际未落盘。修复：写方法返回 boolean，写失败时整合返回 false（对话框报 incomplete、会话保留，HISTORY.md 仍由关闭归档兜底；失败内容本就未落盘，无数据丢失）。
 4. **测试盲等握手（F3/F5, nit）**：跨进程测试 300ms 盲等会在 waiter 慢启动时空真通过——改为谓词握手（waiter 真正进入等锁轮询后置位）+ 存活/结果断言；`CHILD_READY` 单次 `readLine` 在出现前导日志行时误判——改循环读到标记。
 5. **`SaveMemoryTool` 确认为死代码（F2/F6/F8, minor）**：全仓库无 `new SaveMemoryTool`，从未接线进任何 `ToolRegistry`；其锁语义（仅 read-compare-write）与活路径 `MemoryConsolidator` 的 read→LLM→write 全程持锁分叉，留着是维护陷阱（误接线会以陈旧 `memoryUpdate` 覆盖并发提炼结果）。处置：保留 + 类 javadoc 标注 `@deprecated 死代码`，design.md 不再将其描述为活路径参与者。
@@ -143,20 +143,30 @@ D2 校正点 1 故意让深度提炼**不推进** `lastConsolidatedIndex`、不�
 对四次校正修复 diff 的对抗性再验证（5 镜头 + 双席位反驳，2026-08）：13 发现去重后 10 条，**3 条被 2/2 反驳推翻、7 条确认存活**。
 
 **推翻（不修）**：
-1. **post-run join 自死锁（AgentRunner:160, REFUTED）**：`CompletableFuture.join()` 走 `ForkJoinPool.managedBlock → compensate()`，commonPool 为停车的 run 载体起补偿线程，排队蒸馏能拿到 worker，不构成死锁。唯一会挂的 parallelism=1 场景是前置 pre-loop join（:128）早已存在，非 F4 引入——**F4 的 join 保留**。
+1. **post-run join 自死锁（AgentRunner:160, REFUTED）**：`CompletableFuture.join()` 走 `ForkJoinPool.managedBlock → compensate()`，commonPool 为停车的 run 载体起补偿线程，排队提炼能拿到 worker，不构成死锁。唯一会挂的 parallelism=1 场景是前置 pre-loop join（:128）早已存在，非 F4 引入——**F4 的 join 保留**。
 2. **`consecutiveFailures` 非 volatile（MemoryConsolidator:414, REFUTED）**：需同 session 级并发失败才丢计数，未证实可达。
 3. **`SaveMemoryTool` 假成功（:86, REFUTED）**：死代码不可达。
 
 **确认存活并修复（C1 F10 契约补全）**：
-1. **`writeLongTermMemory` finally 清理翻转布尔（MemoryStore:105, nit）**：`Files.deleteIfExists(tmp)` 在 move 成功后抛 IOException（如 Windows AV 暂时占用临时文件）会落入外层 catch 返回 false——内容已落盘却报"未整合"，重蒸馏出重复 HISTORY 条目。修复：清理独立 try/catch，仅记录、不翻返回值。
+1. **`writeLongTermMemory` finally 清理翻转布尔（MemoryStore:105, nit）**：`Files.deleteIfExists(tmp)` 在 move 成功后抛 IOException（如 Windows AV 暂时占用临时文件）会落入外层 catch 返回 false——内容已落盘却报"未整合"，重提炼出重复 HISTORY 条目。修复：清理独立 try/catch，仅记录、不翻返回值。
 2. **`appendHistory` 吞 IOException（MemoryStore:232 + MemoryConsolidator:384, minor）**：F10 只门控了 MEMORY.md，历史侧 append 失败（HISTORY.md 只读/目录占位）仍报成功 → 关闭路径清会话而 HISTORY.md 无记录，唯一可检索日志静默丢失。修复：`appendHistory` 返回 boolean，`extractAndSaveToolCallResult` 双门控。
 3. **append 先于 MEMORY 写检查（MemoryConsolidator:384, minor）**：MEMORY 写失败时 history 条目已提交、索引未推进，同一批消息每次重试/关闭被再次追加，重复条目无限累积。修复：**先写 MEMORY 后 append**——重试时 `memoryUpdate==currentMemory` 跳过 MEMORY 写、仅补 history，幂等。
 
 **确认存活并修复（C2/C3）**：
 4. **残留中断泄漏到池化载体（AgentRunner:190, minor）**：`interrupt()` 读→log→interrupt 的 TOCTOU 窗口内 run 的 finally 已清中断，晚到中断落在复用载体上，下一轮在迭代 1 因 `isInterrupted()` 空回复。修复：run 任务入口清一次遗留中断（`signalCancel` 先置 abort flag，flag 才是取消唯一事实来源，清中断不影响取消语义）。
-5. **关闭对话框快照竞态（CloseConsolidationDialog:48, minor）**：EDT 快照先于 `cancelActiveTask`，模态等待期间后置蒸馏完成（写完 HISTORY/MEMORY、推进索引、run future 完成后 flag 被移除）→ cancel 空转 → 对同一批消息二次提炼。修复：worker 内 cancel 后重读未整合快照，已空则视为完成、否则只提炼仍未整合部分。
+5. **关闭对话框快照竞态（CloseConsolidationDialog:48, minor）**：EDT 快照先于 `cancelActiveTask`，模态等待期间后置整合完成（写完 HISTORY/MEMORY、推进索引、run future 完成后 flag 被移除）→ cancel 空转 → 对同一批消息二次提炼。修复：worker 内 cancel 后重读未整合快照，已空则视为完成、否则只提炼仍未整合部分。
 
-**接受不修（C4）**：**`saveSession` 吞 IOException（SessionManager:127, minor）**——关闭路径索引推进/清会话不落盘，重启后消息以旧索引复活、下次关闭重复归档；或"已清空"会话从磁盘复活。接受理由：根因是 HISTORY.md 与 session 索引的**两文件非原子提交**，即便 `saveSession` 返回 boolean 也只能让关闭路径打"响亮失败"日志，重启后的重复归档仍挡不住（诊断价值 > 防错价值）；且它是热路径（每次持久 run + 每轮蒸馏都调），改签名波及多处忽略返回值的调用点。数据本身不丢（消息仍在 jsonl，仅重复归档/会话复活），与 fix-adversarial#3 同档接受。
+**接受不修（C4）**：**`saveSession` 吞 IOException（SessionManager:127, minor）**——关闭路径索引推进/清会话不落盘，重启后消息以旧索引复活、下次关闭重复归档；或"已清空"会话从磁盘复活。接受理由：根因是 HISTORY.md 与 session 索引的**两文件非原子提交**，即便 `saveSession` 返回 boolean 也只能让关闭路径打"响亮失败"日志，重启后的重复归档仍挡不住（诊断价值 > 防错价值）；且它是热路径（每次持久 run + 每轮整合都调），改签名波及多处忽略返回值的调用点。数据本身不丢（消息仍在 jsonl，仅重复归档/会话复活），与 fix-adversarial#3 同档接受。
+
+#### D5 六次校正：`maybeConsolidate` 内联化（简化复核 4 候选 → 2 落地，2026-08）
+
+对 abort/`BooleanSupplier` 传播机制的简化专项复核（3 读者测绘 → 提案 → 双席位对抗验证，4 候选全 SAFE）推翻了一条"砍不动"的初判：`maybeConsolidate` 内部的 `supplyAsync + join` 异步包装可整体拆除。
+
+- **前提事实**：循环体所有 break 路径后恒 `return true`，返回值信息量为零；全仓库仅 AgentRunner 前置/后置两处调用，均立即 `.join()` 且丢弃返回值——异步性从未被消费。现状是"两条 commonPool 载体挂同一时长"（run 载体停车 join、整合独占另一载体），内联收敛为一。
+- **安全性论据（2/2 SAFE）**：`signalCancel` 先置 abort flag 再 interrupt（AgentLoop:421-428），flag 是取消唯一事实来源；interrupt 落在内联整合的任何阶段（等锁 sleep 抛 `InterruptedException` → 锁返回 `null`"未执行"；LLM 调用异常 → catch-all → 失败处理按"取消非失败"）都收敛到与 flag 相同的"不落盘"结局。`saveSession` 本就同线程暴露于 interrupt，非新暴露面。
+- **收益**：F4 防僵尸从"靠 join 兜住"变为结构性保证（内联代码不可能活过 run future，`whenComplete` 移除 flag 必然后于整合完成）；commonPool 载体占用减半；顺带删除零调用方的 `maybeConsolidate(Session)` 单参重载。
+- **签名**：`void maybeConsolidate(Session, BooleanSupplier)`——旧包装恒返回 true 且无人消费，保留 boolean 是死信息。
+- **保持不动**：supplier 逐层传参（flag 是 per-run，consolidator 共享实例，字段化错误）；5 个 aborted 检查点（各守独立窗口）；`distillSync` 的 `supplyAsync + 有界 get + timedOut`（唯一真跨线程超时观测路径，`orTimeout` 不能停运行中任务）；`consolidateWithAi(List)` 单参重载（`/new` 后台归档 `archiveMessagesAsync` 唯一调用方，"无取消语义"是故意——快照取自 signalCancel 之前，仍应归档）；`SaveMemoryTool`（依 D5 五次校正处置保留 + `@deprecated`，复核确认可删但遵循既有决定）。
 
 ### D6. 遗留 `jmeter-ai-chat.jsonl` 的迁移
 

@@ -7,7 +7,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
 
 /**
- * 进程单例:持有本次 JVM 启动生成的 {@code instanceId},作为每实例会话键与实例注册表的锚点。
+ * 进程单例:持有本次 JVM 启动生成的 {@code instanceId},作为每实例 session key 与实例注册表的锚点。
  *
  * <p>{@code instanceId} 格式 {@code {pid}-{startedAtMs}},其中:
  * <ul>
@@ -16,7 +16,7 @@ import java.lang.management.RuntimeMXBean;
  *       保证 PID 被 OS 复用时也不继承上一次启动遗留的会话文件。</li>
  * </ul>
  *
- * <p>这是会话键的<b>单一来源</b>:GUI 聊天与 IPC {@code /agent} 端点都读
+ * <p>这是 session key 的<b>单一来源</b>:GUI 聊天与 IPC {@code /agent} 端点都读
  * {@link #currentSessionKey()},消除原先两处各自硬编码的 {@code "jmeter-ai-chat"} 漂移。
  * 关闭期记忆整合、委派寻址等同样经此获取当前实例标识。
  *
@@ -25,7 +25,7 @@ import java.lang.management.RuntimeMXBean;
  * 的不确定性——正常路径由 {@code SelectionInitCommand} 在 {@code ADD_ALL} 显式 {@link #init()}。
  */
 public final class InstanceContext {
-    /** 旧的全局会话键;{@code agent.session.per-instance=false} 回退时使用。 */
+    /** 旧的全局 session key;{@code agent.session.per-instance=false} 回退时使用。 */
     public static final String LEGACY_SESSION_KEY = "jmeter-ai-chat";
 
     private static volatile InstanceContext instance;
@@ -83,7 +83,7 @@ public final class InstanceContext {
     }
 
     /**
-     * 当前会话键:每实例会话启用(默认)时返回 {@link #instanceId()},否则回退到
+     * 当前 session key:每实例会话启用(默认)时返回 {@link #instanceId()},否则回退到
      * 全局 {@link #LEGACY_SESSION_KEY}(backcompat)。
      */
     public static String currentSessionKey() {

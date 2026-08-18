@@ -54,7 +54,7 @@ public class SelectionInitCommand implements Command {
         }
         log.info("SelectionInitCommand received ADD_ALL, scheduling SelectionTracker.install()");
         EventQueue.invokeLater(() -> {
-            // 生成每实例会话键(= instanceId),供 AiChatPanel / IpcServer / 关闭整合 / 委派共用。
+            // 生成每实例 session key(= instanceId),供 AiChatPanel / IpcServer / 关闭整合 / 委派共用。
             org.gitee.jmeter.ai.instance.InstanceContext.init();
             SelectionTracker.install();
             registerRunCaptureListeners();
@@ -142,7 +142,7 @@ public class SelectionInitCommand implements Command {
                     // 前置监听在 EDT 上、doAction 之前同步执行(ExitCommand 随后才 CHECK_DIRTY + System.exit)
                     org.gitee.jmeter.ai.gui.CloseConsolidationDialog.handleExit();
                 } catch (Throwable t) {
-                    log.warn("Close-consolidation dialog failed (best-effort): {}", t.toString());
+                    log.error("Close-consolidation dialog failed (best-effort): {}", t.toString());
                 }
             });
             Runtime.getRuntime().addShutdownHook(new Thread(
@@ -190,7 +190,7 @@ public class SelectionInitCommand implements Command {
             File ipcDir = InstanceRegistry.ipcDir(new File(JMeterUtils.getJMeterHome()));
             InstanceRegistry.updateJmxPath(ipcDir, InstanceRegistry.currentPid(), file == null ? "" : file);
         } catch (Throwable t) {
-            log.warn("jmxPath sync failed (best-effort): {}", t.toString());
+            log.error("jmxPath sync failed (best-effort): {}", t.toString());
         }
     }
 
@@ -207,7 +207,7 @@ public class SelectionInitCommand implements Command {
             org.gitee.jmeter.ai.instance.SessionReaper.reap(
                     sessionsDir, ipcDir, ttlMs, org.gitee.jmeter.ai.instance.InstanceContext.instanceId());
         } catch (Throwable t) {
-            log.warn("Session reap failed (best-effort): {}", t.toString());
+            log.error("Session reap failed (best-effort): {}", t.toString());
         }
     }
 }

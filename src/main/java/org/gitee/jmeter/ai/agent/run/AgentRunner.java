@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -96,23 +97,22 @@ public class AgentRunner {
 
             // Track this thread from the very start of the run — NOT only inside
             // runAgentLoop — so Stop/cancel can interrupt the pre-loop consolidation
-            // window too (interrupt() targets runningThread, which is null during
-            // maybeConsolidate().join() otherwise).
+            // window too (interrupt() targets runningThread, which is null until
+            // the run task starts otherwise).
             runningThread = Thread.currentThread();
             // 载体线程是池化的:上一轮被 Stop 取消的回合,其 interrupt() 可能晚于 finally 的
-            // Thread.interrupted() 才送达(interrupt() 读→log→interrupt 的 TOCTOU 窗口,
-            // 对抗复核 2/2 CONFIRMED),在复用载体上留下残留中断。入口处清一次,避免这一轮
+            // Thread.interrupted() 才送达(interrupt() 读→log→interrupt 的 TOCTOU 窗口),
+            // 在复用载体上留下残留中断。入口处清一次,避免这一轮
             // 一进 while 迭代 1 就因 isInterrupted() 直接 break 返回空回复。取消语义不受影响:
             // signalCancel 先置 abort flag 再 interrupt,flag 才是取消的唯一事实来源。
             Thread.interrupted();
 
             // Bind the run identity so tools (e.g. spawn) can learn their session.
             AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId));
-            // Delegated turn: arm the depth-1 guard HERE, inside the task on the
-            // carrier thread that executes the run — serial tool calls run inline
-            // on this same thread, so DelegateToInstanceTool sees the ThreadLocal.
-            // (Arming it on the agent-loop thread that parks in join() would be
-            // invisible to tools; same pooled-carrier reasoning as AgentRunContext.)
+            // isDelegated() == true 标识"当前这一个 Agent 回合是被别的实例委派过来的"，
+            // DelegationGuard.begin() 在这个回合的执行线程上做一个 ThreadLocal 标记，
+            // 用于禁止这个回合里再往别的实例委派（深度 1 硬阻断）。
+            // 工具 DelegateToInstanceTool 在委派前会判单该标识。
             if (spec.isDelegated()) {
                 DelegationGuard.begin();
             }
@@ -126,12 +126,14 @@ public class AgentRunner {
                     : new Session(spec.getSessionKey());
 
                 // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync]).
-                // The round loop runs on a pooled carrier, unreachable by interrupt/CF.cancel —
-                // abort-awareness is via the shared abort flag (spec's flag IS the one the
-                // cancelActiveTask map holds), so a cancelled turn stops writing before the
-                // close dialog's distill + clearCurrentSession.
+                // Runs inline on this run thread; the cancel truth is the shared abort flag —
+                // signalCancel sets the flag BEFORE interrupt, so an interrupt landing inside
+                // the lock wait or the LLM call converges to the same no-write outcome as the
+                // flag (spec's flag IS the one the cancelActiveTask map holds). The supplier
+                // is flag-only and declared once, reused by the post-loop call below.
+                BooleanSupplier abortSignal = () -> isAbortedFlag(spec);
                 if (spec.isPersistSession()) {
-                    memoryConsolidator.maybeConsolidate(session, () -> isAbortedFlag(spec)).join();
+                    memoryConsolidator.maybeConsolidate(session, abortSignal);
                 }
 
                 // Create hook context
@@ -157,13 +159,18 @@ public class AgentRunner {
                 if (spec.isPersistSession() && !isAborted(spec)) {
                     int skipCount = Math.max(0, messages.size() - 1);
                     saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
-                    // 后置蒸馏 join 同步化(F4):与 :128 前置蒸馏一致。若不 join,蒸馏以僵尸
-                    // 回合在 run future 完成后仍在飞——AgentLoop.whenComplete 立即把 abort flag
-                    // 从 map 移除,关闭期 signalCancel 找不到 flag 置位,僵尸回合写盘前 abort
-                    // 检查恒过,会与关闭对话框对同一批消息重复蒸馏(HISTORY.md 重复条目、
-                    // MEMORY.md 被后写者覆盖)。join 后蒸馏在 run future 完成前落盘,关闭窗口
-                    // 内无僵尸回合。等锁/写盘 abort 感知由共享 flag 保证,与前置一致。
-                    memoryConsolidator.maybeConsolidate(session, () -> isAbortedFlag(spec)).join();
+                    // 后置整合必须同步内联、跑在 run 任务线程上,不能丢到后台线程。前提:
+                    // run future 一旦 complete,AgentLoop.whenComplete 会立即把本回合的 abort
+                    // flag 从 map 移除,cancelActiveTask 靠查这个 map 才能取消一个回合。
+                    //
+                    // 时序保证:整合和回合同线程、顺序执行 → 整合必然在 future complete 之前
+                    // 跑完,whenComplete 移除 flag 必然发生在整合之后 → 关闭期间 cancelActiveTask
+                    // 一直能找到这个 flag,整合可被正常取消。若丢到后台线程,flag 可能先被移除,
+                    // 整合就成了取消不到的"僵尸回合",关闭时照常写盘,与关闭对话框的深度提炼
+                    // 抢写 HISTORY/MEMORY(重复条目、后写覆盖)。
+                    //
+                    // 取消兜底:整合等锁/写盘前都查 abortSignal 共享 flag,被取消则不落盘,与前置整合一致。
+                    memoryConsolidator.maybeConsolidate(session, abortSignal);
                 }
 
                 log.info("Agent run {} completed with success={}", runId, result.isSuccess());
@@ -278,8 +285,12 @@ public class AgentRunner {
             AgentHookContext context,
             Instant startTime) {
 
-        // runningThread is set/cleared by the run task (covers pre-loop consolidation);
-        // runAgentLoop itself just runs inline on that same thread.
+        // runningThread 的职责边界:它由外层 run 任务在开头设置(见 run() 内 runningThread =
+        // Thread.currentThread())、在任务的 finally 里清除,runAgentLoop 对这个字段只是只读。
+        // 把设置提前到 run 任务开头而非此处的原因:runAgentLoop 被调用之前还有一段"前置记忆
+        // 整合"的窗口,runningThread 若此时还是 null,cancel/interrupt 就够不到正在跑前置整合
+        // 的线程。runAgentLoop 本身内联跑在 run 任务那条载体线程上,不自己管这个字段——这里
+        // 无论如何赋值/清空都会破坏上面的窗口覆盖,所以不要在这里动它。
         {
         List<Message> currentMessages = new ArrayList<>(messages);
         List<String> toolsUsed = new ArrayList<>();

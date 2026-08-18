@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Live smoke test for the MiniMax raw-HTTP decision and thinking control.
- * (OpenSpec change: fix-minimax-thinking-control, tasks 3.1 / 3.4 / 6.2.)
  *
  * <p>Auto-disabled unless {@code -Dminimax.smoke.key=<key>} is set, so it is a no-op
  * (counted as skipped) in the normal {@code mvn test} suite. Run manually:

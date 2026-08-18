@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
-import org.gitee.jmeter.ai.utils.WorkspacePaths;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,23 +30,22 @@ public class SessionManager {
 
     private final Map<String, Session> sessions;
     private final Path sessionStorage;
-    /** 非 null 时启动只加载该会话键的 jsonl(每实例会话隔离);null 加载全部(默认/通用行为)。 */
+    /** 启动只加载该 session key 的 jsonl(每实例会话隔离),不解析历史遗留/其他实例文件。 */
     private final String focusSessionKey;
 
-    public SessionManager() {
-        this(WorkspacePaths.resolveWorkspace());
-    }
-
+    /**
+     * 便捷构造:聚焦全局遗留会话键 {@link InstanceContext#LEGACY_SESSION_KEY} 加载
+     * (等价于 {@code agent.session.per-instance=false} 的回退行为)。
+     */
     public SessionManager(Path workspace) {
-        this(workspace, null);
+        this(workspace, InstanceContext.LEGACY_SESSION_KEY);
     }
 
     /**
-     * @param focusSessionKey 每实例会话模式下传入当前 {@code instanceId} 会话键,实例只需
+     * @param focusSessionKey 每实例会话模式下传入当前 {@code instanceId} session key,实例只需
      *                        解析自己的 jsonl——历史遗留 {@code jmeter-ai-chat.jsonl} 与失活
      *                        孤立实例文件不再被整文件载入内存(启动成本归零;遗留迁移与回收
-     *                        {@code SessionReaper} 均直接读文件,不受影响)。null 保持原行为
-     *                        (加载全部),供通用/单测场景使用。
+     *                        {@code SessionReaper} 均直接读文件,不受影响)。始终非 null。
      */
     public SessionManager(Path workspace, String focusSessionKey) {
         this.sessionStorage = workspace.resolve("sessions");
@@ -161,8 +160,7 @@ public class SessionManager {
 
             Files.list(sessionStorage)
                     .filter(p -> p.toString().endsWith(".jsonl"))
-                    .filter(p -> focusSessionKey == null
-                            || p.getFileName().toString().equals(safeFileName(focusSessionKey)))
+                    .filter(p -> p.getFileName().toString().equals(safeFileName(focusSessionKey)))
                     .forEach(this::loadSessionFile);
 
             log.info("Loaded {} sessions from disk", sessions.size());
