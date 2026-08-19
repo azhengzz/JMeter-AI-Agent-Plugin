@@ -26,7 +26,7 @@
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
-        <jmeter.home>D:/apache-jmeter-5.6.3</jmeter.home>
+        <jmeter.home>${env.JMETER_HOME}</jmeter.home>
         <flexmark.version>0.64.8</flexmark.version>
     </properties>
     <repositories>
@@ -222,9 +222,6 @@
                     <source>17</source>
                     <target>17</target>
                     <encoding>UTF-8</encoding>
-                    <executable>D:/IDE/Java/jdk-17.0.8/bin/javac</executable>
-                    <compilerVersion>17.0.8</compilerVersion>
-                    <fork>true</fork>
                     <meminitial>128m</meminitial>
                     <maxmem>512m</maxmem>
                 </configuration>
@@ -257,24 +254,24 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.5.1</version>
-                        <configuration>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                            <artifactSet>
-                                <excludes>
-                                    <exclude>org.apache.jmeter:*</exclude>
-                                    <exclude>net.sf.saxon:*</exclude>
-                                </excludes>
-                            </artifactSet>
+                <configuration>
+                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                    <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <exclude>META-INF/*.SF</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                    <artifactSet>
+                        <excludes>
+                            <exclude>org.apache.jmeter:*</exclude>
+                            <exclude>net.sf.saxon:*</exclude>
+                        </excludes>
+                    </artifactSet>
                     <transformers>
                         <!-- 设 Main-Class 让 java -jar jmeter-agent-<ver>.jar 可直接跑 CLI。
                              不影响插件加载(JMeter 经 lib/ext + META-INF/services 加载,不看 manifest)。 -->
@@ -282,7 +279,7 @@
                             <mainClass>org.gitee.jmeter.ai.cli.JmeterCli</mainClass>
                         </transformer>
                     </transformers>
-                        </configuration>
+                </configuration>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -299,7 +296,6 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.3</version>
                 <configuration>
-                    <jvm>D:/IDE/Java/jdk-17.0.8/bin/java.exe</jvm>
                     <forkCount>1</forkCount>
                 </configuration>
             </plugin>

@@ -84,12 +84,15 @@ mvn test
 mvn test -Dtest=ClassNameTest
 ```
 
-**安装到本地 JMeter（修改 pom.xml 的 antrun 配置路径）：**
+**安装到本地 JMeter（`jmeter.home` 读自 `JMETER_HOME` 环境变量，可用 `-Djmeter.home=...` 覆盖）：**
 ```bash
 mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
+mvn clean install -Djmeter.home=C:/path/to/apache-jmeter-5.6.3  # 未设 JMETER_HOME 时显式传路径
 mvn clean install "-Dlaunch.gui=true"  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
+
+> **前提**：pom.xml 中 `<jmeter.home>` 写为 `${env.JMETER_HOME}`，不再写死机器路径。未设置 `JMETER_HOME` 环境变量且未传 `-Djmeter.home` 时，`${jmeter.home}` 解析为空，antrun copy 的目标退化为项目根下的相对路径 `lib/ext`（静默复制到错处，不报错）。故**裸跑 `mvn install` 前须先配 `JMETER_HOME`**。JDK 相关写死也已移除：编译器/测试 JVM 均归零为 `JAVA_HOME`（当前 `D:\IDE\Java\jdk-17.0.8`），换 JDK 版本靠改 `JAVA_HOME`。
 
 **跳过测试构建：**
 ```bash
