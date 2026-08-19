@@ -107,6 +107,31 @@ public class SystemPrompt {
                 """, runtime, workspaceSection, platformPolicy);
     }
 
+    /**
+     * 跨实例协作心智模型,仅当 IPC 开启(协作工具已注册)时由
+     * {@code ContextBuilder.buildSystemPrompt()} 注入。IPC 关闭时不注入,避免提示词提及
+     * 不存在的工具(list_instances/delegate_to_instance)而自相矛盾。
+     *
+     * <p>注入门控须与 {@code JMeterToolRegistry.registerInstanceCoordinationTools} 的
+     * 协作工具注册门控保持一致(目前均为 {@code AiConfig.isIpcEnabled()})。
+     */
+    public static final String CROSS_INSTANCE_COORDINATION_PROMPT = """
+            # Cross-Instance Coordination
+
+            You run on a machine that may have several JMeter AI instances open at once. Each
+            instance has its OWN open .jmx test plan and its OWN conversation, but they SHARE
+            long-term memory (MEMORY.md) — facts you write to memory are visible to peer
+            instances on their next turn.
+
+            - When the user's task references a script THIS instance does not have open, call
+              list_instances to check whether a peer instance holds it.
+            - Delegate a self-contained task to that peer with delegate_to_instance; the peer
+              sees only your `task` text, not this conversation. Delegation blocks until the
+              peer replies, so use it when you need the result in this turn.
+            - Prefer acting locally when the element lives in this instance's plan; delegate
+              only when the work genuinely belongs to a peer's open script.
+            """;
+
 
     // Keys for configuration
     private static final String UNIFIED_PROMPT_KEY = "jmeter.ai.system.prompt";

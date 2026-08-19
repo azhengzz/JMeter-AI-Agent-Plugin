@@ -7,6 +7,7 @@ import org.gitee.jmeter.ai.agent.memory.MemoryStore;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.JMeterToolRegistry;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
 import org.slf4j.Logger;
@@ -62,7 +63,10 @@ public class AgentLoopFactory {
         // Create components
         ToolRegistry toolRegistry = new ToolRegistry();
         MemoryStore memoryStore = new MemoryStore(config.getWorkspacePath());
-        SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
+        // 每实例会话:只加载当前 instanceId 的 jsonl,不解析历史遗留/其他实例文件
+        // (currentSessionKey 受 agent.session.per-instance 门控,false 回退全局 legacy 键)。
+        SessionManager sessionManager = new SessionManager(
+                config.getWorkspacePath(), InstanceContext.currentSessionKey());
 
         ContextBuilder contextBuilder = new ContextBuilder(
                 memoryStore,

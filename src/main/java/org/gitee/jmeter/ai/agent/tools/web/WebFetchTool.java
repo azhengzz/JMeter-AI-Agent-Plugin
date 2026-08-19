@@ -59,6 +59,11 @@ public class WebFetchTool extends AbstractWebTool {
         return "web_fetch";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: fetches a URL, no local side effects. Visible to subagents. */
     @Override
     public java.util.Set<String> getScopes() {

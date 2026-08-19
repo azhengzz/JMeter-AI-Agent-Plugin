@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
-import org.gitee.jmeter.ai.utils.WorkspacePaths;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,14 +30,27 @@ public class SessionManager {
 
     private final Map<String, Session> sessions;
     private final Path sessionStorage;
+    /** 启动只加载该 session key 的 jsonl(每实例会话隔离),不解析历史遗留/其他实例文件。 */
+    private final String focusSessionKey;
 
-    public SessionManager() {
-        this(WorkspacePaths.resolveWorkspace());
+    /**
+     * 便捷构造:聚焦全局遗留会话键 {@link InstanceContext#LEGACY_SESSION_KEY} 加载
+     * (等价于 {@code agent.session.per-instance=false} 的回退行为)。
+     */
+    public SessionManager(Path workspace) {
+        this(workspace, InstanceContext.LEGACY_SESSION_KEY);
     }
 
-    public SessionManager(Path workspace) {
+    /**
+     * @param focusSessionKey 每实例会话模式下传入当前 {@code instanceId} session key,实例只需
+     *                        解析自己的 jsonl——历史遗留 {@code jmeter-ai-chat.jsonl} 与失活
+     *                        孤立实例文件不再被整文件载入内存(启动成本归零;遗留迁移与回收
+     *                        {@code SessionReaper} 均直接读文件,不受影响)。始终非 null。
+     */
+    public SessionManager(Path workspace, String focusSessionKey) {
         this.sessionStorage = workspace.resolve("sessions");
         this.sessions = new ConcurrentHashMap<>();
+        this.focusSessionKey = focusSessionKey;
 
         ensureDirectories();
         loadSessions();
@@ -147,6 +160,7 @@ public class SessionManager {
 
             Files.list(sessionStorage)
                     .filter(p -> p.toString().endsWith(".jsonl"))
+                    .filter(p -> p.getFileName().toString().equals(safeFileName(focusSessionKey)))
                     .forEach(this::loadSessionFile);
 
             log.info("Loaded {} sessions from disk", sessions.size());
@@ -206,10 +220,16 @@ public class SessionManager {
         }
     }
 
+    /**
+     * Sanitize a session key into a safe filename ({@code {safeKey}.jsonl}).
+     * 与 {@link #loadSessions} 的 focus 过滤共用同一规范化,保证读写命中同一文件。
+     */
+    private static String safeFileName(String sessionKey) {
+        return sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_") + ".jsonl";
+    }
+
     private Path getSessionFile(String sessionKey) {
-        // Sanitize session key for filename
-        String safeKey = sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_");
-        return sessionStorage.resolve(safeKey + ".jsonl");
+        return sessionStorage.resolve(safeFileName(sessionKey));
     }
 
     /**

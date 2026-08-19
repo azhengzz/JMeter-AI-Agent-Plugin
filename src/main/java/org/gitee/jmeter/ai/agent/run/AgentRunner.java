@@ -9,7 +9,9 @@ import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.gitee.jmeter.ai.agent.model.*;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.TextUtils;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -93,8 +96,27 @@ public class AgentRunner {
             String runId = DEFAULT_RUN_ID_PREFIX + java.util.UUID.randomUUID().toString().substring(0, 8);
             Instant startTime = Instant.now();
 
+            // Track this thread from the very start of the run — NOT only inside
+            // runAgentLoop — so Stop/cancel can interrupt the pre-loop consolidation
+            // window too (interrupt() targets runningThread, which is null until
+            // the run task starts otherwise).
+            runningThread = Thread.currentThread();
+            // 载体线程是池化的:上一轮被 Stop 取消的回合,其 interrupt() 可能晚于 finally 的
+            // Thread.interrupted() 才送达(interrupt() 读→log→interrupt 的 TOCTOU 窗口),
+            // 在复用载体上留下残留中断。入口处清一次,避免这一轮
+            // 一进 while 迭代 1 就因 isInterrupted() 直接 break 返回空回复。取消语义不受影响:
+            // signalCancel 先置 abort flag 再 interrupt,flag 才是取消的唯一事实来源。
+            Thread.interrupted();
+
             // Bind the run identity so tools (e.g. spawn) can learn their session.
             AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId));
+            // isDelegated() == true 标识"当前这一个 Agent 回合是被别的实例委派过来的"，
+            // DelegationGuard.begin() 在这个回合的执行线程上做一个 ThreadLocal 标记，
+            // 用于禁止这个回合里再往别的实例委派（深度 1 硬阻断）。
+            // 工具 DelegateToInstanceTool 在委派前会判单该标识。
+            if (spec.isDelegated()) {
+                DelegationGuard.begin();
+            }
             try {
                 log.info("Starting agent run {} for session: {}", runId, spec.getSessionKey());
 
@@ -104,9 +126,15 @@ public class AgentRunner {
                     ? sessionManager.getOrCreate(spec.getSessionKey())
                     : new Session(spec.getSessionKey());
 
-                // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync])
+                // Check memory consolidation (Nanobot: maybe_consolidate_by_tokens [sync]).
+                // Runs inline on this run thread; the cancel truth is the shared abort flag —
+                // signalCancel sets the flag BEFORE interrupt, so an interrupt landing inside
+                // the lock wait or the LLM call converges to the same no-write outcome as the
+                // flag (spec's flag IS the one the cancelActiveTask map holds). The supplier
+                // is flag-only and declared once, reused by the post-loop call below.
+                BooleanSupplier abortSignal = () -> isAbortedFlag(spec);
                 if (spec.isPersistSession()) {
-                    memoryConsolidator.maybeConsolidate(session).join();
+                    memoryConsolidator.maybeConsolidate(session, abortSignal);
                 }
 
                 // Create hook context
@@ -132,7 +160,18 @@ public class AgentRunner {
                 if (spec.isPersistSession() && !isAborted(spec)) {
                     int skipCount = Math.max(0, messages.size() - 1);
                     saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
-                    memoryConsolidator.maybeConsolidate(session);
+                    // 后置整合必须同步内联、跑在 run 任务线程上,不能丢到后台线程。前提:
+                    // run future 一旦 complete,AgentLoop.whenComplete 会立即把本回合的 abort
+                    // flag 从 map 移除,cancelActiveTask 靠查这个 map 才能取消一个回合。
+                    //
+                    // 时序保证:整合和回合同线程、顺序执行 → 整合必然在 future complete 之前
+                    // 跑完,whenComplete 移除 flag 必然发生在整合之后 → 关闭期间 cancelActiveTask
+                    // 一直能找到这个 flag,整合可被正常取消。若丢到后台线程,flag 可能先被移除,
+                    // 整合就成了取消不到的"僵尸回合",关闭时照常写盘,与关闭对话框的深度提炼
+                    // 抢写 HISTORY/MEMORY(重复条目、后写覆盖)。
+                    //
+                    // 取消兜底:整合等锁/写盘前都查 abortSignal 共享 flag,被取消则不落盘,与前置整合一致。
+                    memoryConsolidator.maybeConsolidate(session, abortSignal);
                 }
 
                 log.info("Agent run {} completed with success={}", runId, result.isSuccess());
@@ -148,9 +187,15 @@ public class AgentRunner {
                     .endTime(Instant.now())
                     .build();
             } finally {
+                // Pooled carrier thread: clear the guard so a later run on this
+                // thread is not wrongly blocked from delegating.
+                DelegationGuard.end();
                 // Carrier threads are pooled — a stale context would misroute a
                 // later subagent result into the wrong session.
                 AgentRunContext.clear();
+                // runningThread cleanup moved to the run task (set at task start, cleared
+                // here in the same finally) — covers the pre-loop consolidation window too.
+                runningThread = null;
                 // Consume an interrupt raised to abort this run, so the pooled carrier
                 // does not hand it to the next run (which would bail at iteration 1 and
                 // answer with nothing). Cleared only here, AFTER the persistence guard
@@ -241,9 +286,13 @@ public class AgentRunner {
             AgentHookContext context,
             Instant startTime) {
 
-        // Track the running thread so cancellation can interrupt it
-        runningThread = Thread.currentThread();
-        try {
+        // runningThread 的职责边界:它由外层 run 任务在开头设置(见 run() 内 runningThread =
+        // Thread.currentThread())、在任务的 finally 里清除,runAgentLoop 对这个字段只是只读。
+        // 把设置提前到 run 任务开头而非此处的原因:runAgentLoop 被调用之前还有一段"前置记忆
+        // 整合"的窗口,runningThread 若此时还是 null,cancel/interrupt 就够不到正在跑前置整合
+        // 的线程。runAgentLoop 本身内联跑在 run 任务那条载体线程上,不自己管这个字段——这里
+        // 无论如何赋值/清空都会破坏上面的窗口覆盖,所以不要在这里动它。
+        {
         List<Message> currentMessages = new ArrayList<>(messages);
         List<String> toolsUsed = new ArrayList<>();
         String finalContent = null;
@@ -368,10 +417,9 @@ public class AgentRunner {
                     break;
                 }
 
-                // Execute tools (concurrent or serial)
+                // Execute tools (concurrency-safe batches run in parallel; unsafe calls inline)
                 ToolExecutionResult executionResult = executeToolCalls(
-                    response.getToolCalls(),
-                    spec.isConcurrentTools()
+                    response.getToolCalls()
                 );
                 List<ToolResult> toolResults = executionResult.results;
                 List<org.gitee.jmeter.ai.agent.model.ToolEvent> toolEvents = executionResult.events;
@@ -526,8 +574,6 @@ public class AgentRunner {
             .stopReason(context.getStopReason())
             .hadInjections(hadInjections)
             .build();
-        } finally {
-            runningThread = null;
         }
     }
 
@@ -557,22 +603,27 @@ public class AgentRunner {
     }
 
     /**
-     * Execute tool calls (concurrent or serial).
-     * Returns both tool results and tool events.
+     * Execute tool calls with Nanobot-style concurrency-safe batching
+     * ({@code _partition_tool_batches}): consecutive {@link Tool#isConcurrencySafe()}
+     * calls form one parallel batch (via {@code executeAsyncWithEvents}, per-tool
+     * timeout, results restored to call order); every unsafe call is its own
+     * singleton batch executed inline on this run carrier thread — ThreadLocal run
+     * context ({@code AgentRunContext}/{@code DelegationGuard}) stays visible
+     * exactly as in the all-serial era. Batches run in call order; results and
+     * events are returned in original call order. {@code failOnToolError} keeps
+     * its post-hoc semantics (caller inspects events after all batches complete).
      */
-    private ToolExecutionResult executeToolCalls(List<ToolCall> toolCalls, boolean concurrent) {
-        List<ToolResult> results;
+    private ToolExecutionResult executeToolCalls(List<ToolCall> toolCalls) {
+        List<ToolResult> results = new ArrayList<>();
         List<org.gitee.jmeter.ai.agent.model.ToolEvent> events = new ArrayList<>();
 
-        if (concurrent) {
-            // Execute concurrently using ToolRegistry's async support with timeout
-            var batchResult = toolRegistry.executeAsyncWithEvents(toolCalls, toolTimeoutMs).join();
-            results = batchResult.results();
-            events = new ArrayList<>(batchResult.events());
-        } else {
-            // Execute serially
-            results = new ArrayList<>();
-            for (ToolCall call : toolCalls) {
+        for (List<ToolCall> batch : partitionByConcurrencySafety(toolCalls)) {
+            if (batch.size() > 1) {
+                var batchResult = toolRegistry.executeAsyncWithEvents(batch, toolTimeoutMs).join();
+                results.addAll(batchResult.results());
+                events.addAll(batchResult.events());
+            } else {
+                ToolCall call = batch.get(0);
                 var executionResult = toolRegistry.executeWithEvent(call.getName(), call.getArguments());
                 results.add(executionResult.result());
                 events.add(executionResult.event());
@@ -584,6 +635,33 @@ public class AgentRunner {
         }
 
         return new ToolExecutionResult(results, events);
+    }
+
+    /**
+     * Split calls into batches preserving call order: a run of consecutive
+     * concurrency-safe calls becomes one batch (parallel); each unsafe call is a
+     * singleton batch (inline serial). Unknown tool names are treated as unsafe.
+     */
+    private List<List<ToolCall>> partitionByConcurrencySafety(List<ToolCall> toolCalls) {
+        List<List<ToolCall>> batches = new ArrayList<>();
+        List<ToolCall> current = new ArrayList<>();
+        for (ToolCall call : toolCalls) {
+            Tool tool = toolRegistry.get(call.getName());
+            boolean safe = tool != null && tool.isConcurrencySafe();
+            if (safe) {
+                current.add(call);
+                continue;
+            }
+            if (!current.isEmpty()) {
+                batches.add(current);
+                current = new ArrayList<>();
+            }
+            batches.add(new ArrayList<>(List.of(call)));
+        }
+        if (!current.isEmpty()) {
+            batches.add(current);
+        }
+        return batches;
     }
 
     /**
@@ -645,6 +723,16 @@ public class AgentRunner {
     private boolean isAborted(AgentRunSpec spec) {
         return (spec.getAbortFlag() != null && spec.getAbortFlag().get())
                 || Thread.currentThread().isInterrupted();
+    }
+
+    /**
+     * Abort-flag-only check, safe to evaluate on pooled carrier threads other than the
+     * run's own thread. Pre-loop/post-run consolidation runs on a ForkJoinPool carrier
+     * that {@link AgentRunner#interrupt()} never targets, so the thread-interrupt half
+     * of {@link #isAborted} would be meaningless there — only the shared flag reaches it.
+     */
+    private boolean isAbortedFlag(AgentRunSpec spec) {
+        return spec.getAbortFlag() != null && spec.getAbortFlag().get();
     }
 
     /**

@@ -36,7 +36,6 @@ public class AgentConfig {
     private final boolean jmeterToolsEnabled;
     private final boolean filesystemToolsEnabled;
     private final boolean websearchToolsEnabled;
-    private final boolean concurrentToolsEnabled;
     private final boolean failOnToolError;
     private final long toolTimeoutMs;
 
@@ -68,7 +67,6 @@ public class AgentConfig {
         this.jmeterToolsEnabled = AiConfig.getBoolean("agent.tools.jmeter.enabled", true);
         this.filesystemToolsEnabled = AiConfig.getBoolean("agent.tools.filesystem.enabled", false);
         this.websearchToolsEnabled = AiConfig.getBoolean("agent.tools.websearch.enabled", false);
-        this.concurrentToolsEnabled = AiConfig.getBoolean("agent.tools.concurrent.enabled", false);
         this.failOnToolError = AiConfig.getBoolean("agent.tools.fail.on.error", false);
         this.toolTimeoutMs = AiConfig.getLong("agent.tools.timeout.ms", 30000);
 
@@ -95,7 +93,6 @@ public class AgentConfig {
         log.info("  memoryEnabled: {}", memoryEnabled);
         log.info("  workspacePath: {}", workspacePath);
         log.info("  jmeterToolsEnabled: {}", jmeterToolsEnabled);
-        log.info("  concurrentToolsEnabled: {}", concurrentToolsEnabled);
         log.info("  failOnToolError: {}", failOnToolError);
         log.info("  toolTimeoutMs: {}", toolTimeoutMs);
     }
@@ -162,10 +159,6 @@ public class AgentConfig {
 
     public boolean isWebsearchToolsEnabled() {
         return websearchToolsEnabled;
-    }
-
-    public boolean isConcurrentToolsEnabled() {
-        return concurrentToolsEnabled;
     }
 
     public boolean isFailOnToolError() {

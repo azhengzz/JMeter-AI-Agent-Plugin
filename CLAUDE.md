@@ -118,7 +118,7 @@ mvn clean package -DskipTests
 
 #### 会话管理 (`agent/session`)
 - **Session** - 单次 Agent 会话
-- **SessionManager** - 管理多个会话的生命周期
+- **SessionManager** - 管理多个会话的生命周期（每实例会话模式只加载当前 instanceId 的 jsonl，不解析历史遗留/其他实例文件）
 
 #### Agent 运行 (`agent/run`)
 - **AgentRunner** - 执行 Agent 运行
@@ -139,8 +139,9 @@ mvn clean package -DskipTests
 - **ProgressCallbackHookAdapter** - 进度回调适配器
 
 #### Agent 记忆 (`agent/memory`)
-- **MemoryStore** - Agent 记忆存储
+- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`：`distillSync` 路径在 commonPool 载体上 interrupt 不可达；内联整合线程虽可被 interrupt 命中，但阻塞式 `channel.lock()` 被 interrupt 会抛 `ClosedByInterruptException` 关闭通道；统一以 abort flag 为取消事实来源），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
 - **MemoryConsolidator** - 跨会话记忆整合
+- **CloseConsolidationCoordinator** - 关闭期记忆整合协调器（静默归档 HISTORY.md 的幂等守卫 + 深度提炼入口，供关闭对话框与 shutdown hook 共用）
 - **SaveMemoryTool** - 保存记忆的工具
 
 #### Agent 技能 (`agent/skills`)
@@ -153,10 +154,12 @@ mvn clean package -DskipTests
 ### 工具层 (`org.gitee.jmeter.ai.agent.tools`)
 
 #### 工具基础设施
-- **Tool** - 工具接口
+- **Tool** - 工具接口（含 `isConcurrencySafe()` 并行资格分类，默认 false=单例批内联串行；只读工具显式覆盖加入并行白名单）
 - **AbstractTool** - 工具基类
-- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心
+- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心（`executeAsyncWithEvent` 派发时搬运 AgentRunContext + DelegationGuard 到池线程）
 - **ValidationResult** - 工具参数校验结果
+
+工具并发采用 Nanobot 式 `concurrency_safe` 分批（无用户开关，`AgentRunner` 按调用序分批：连续安全调用并行批、非安全单例批内联 run 线程）
 
 #### JMeter 元素工具 (`tools/jmeter`)
 - **AbstractJMeterElementTool** - JMeter 元素工具基类
@@ -199,6 +202,11 @@ mvn clean package -DskipTests
 #### 执行工具 (`tools/exec`)
 - **ExecTool** - 执行 shell 命令
 
+#### 跨实例协作工具 (`tools/ipc`)
+仅当 `jmeter.ai.ipc.enabled=true` 时注册（IPC 提供传输通道；关闭则不注册）。
+- **ListInstancesTool** - 列出本机存活实例（instanceId/pid/port/打开的 jmx/启动时间），标注自身
+- **DelegateToInstanceTool** - 把任务委派给持有某 jmx 或某 instanceId 的对端实例，阻塞等待其 Agent 回合回复；载荷带 `[delegated-from …]` 来源前缀，被委派回合内再委派被 DelegationGuard 硬阻断（深度 1，防跨实例 ping-pong）
+
 ### 服务层 (`org.gitee.jmeter.ai.service`)
 - **AiService** 接口定义了 AI 提供者的契约
 - **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Claude
@@ -216,6 +224,23 @@ mvn clean package -DskipTests
 - **LangSmithClient** - LangSmith API 客户端
 - **TracedAiService** - 带追踪的 AiService 包装器
 
+### 多实例协调与会话隔离
+
+同时打开多个 JMeter 实例时，本插件保证：每个实例用独立的会话文件（互不串扰上下文），关闭时自动归档记忆，且实例间可互相发现并委派任务（共享 IPC 通道）。详见 `openspec/changes/multi-instance-session-ipc/`。
+
+#### 实例上下文 (`org.gitee.jmeter.ai.instance`)
+- **InstanceContext** - 进程单例，持有本次启动的 `instanceId`（`{pid}-{startedAtMs}`），是每实例会话键、注册表锚点与委派寻址的唯一来源（`currentSessionKey()` 受 `agent.session.per-instance` 门控，false 回退全局 legacy 键）
+- **LegacySessionMigrator** - 启动期 best-effort 把遗留 `jmeter-ai-chat.jsonl` 归档进共享 HISTORY.md
+- **SessionReaper** - 启动期 best-effort 回收失活且超 TTL 的孤立 `{instanceId}.jsonl`（经注册表 PID+TCP 双确认失活、且防 PID 复用误判）
+
+#### IPC 通道 (`org.gitee.jmeter.ai.ipc`)
+- **InstanceRegistry** - 端口文件（`port-{pid}.json`：pid/port/token/startedAt/bind/instanceId/jmxPath）的读写与实例发现；**零 JMeter 依赖**（CLI 复用），TCP+PID 双确认探活与残留自清理
+- **IpcServer** - 内嵌 com.sun.net.httpserver loopback 服务，token 鉴权；`/agent` 处理器在自身超时后 `cancelActiveTask` 自取消并回 504
+- **IpcClient** - 进程内可复用的 JMeter-free 传输客户端，供委派工具与 CLI 共用同一传输
+- **IpcServer** 还在 `Load`/`LoadRecentProject`/`Save`/`Close` 的 post-action 监听里把当前 jmx 路径原子写回本实例端口文件（供对端发现）
+
+> **前提**：跨实例协作（list_instances / delegate_to_instance）必须 `jmeter.ai.ipc.enabled=true`——IPC 关闭时无传输通道，协作工具不注册。会话隔离与关闭记忆整合独立于 IPC（始终开启）。
+
 ### GUI 层 (`org.gitee.jmeter.ai.gui`)
 - **AI** - AI 集成入口
 - **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）
@@ -225,6 +250,7 @@ mvn clean package -DskipTests
 - **ElementSuggestionManager** - 为 AI 响应中提到的 JMeter 元素创建可点击按钮
 - **ComponentFinder** - 查找 JMeter 组件
 - **TreeNavigationButtons** - 测试计划树导航按钮
+- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N（仅 user/assistant 口径），选"是"先 `cancelActiveTask` 停掉在跑回合、再经 SwingWorker 后台深度提炼并回传进度，提供"Skip & Exit"逃生按钮；N=0/测试运行中/开关关闭时不弹）。被取消的整合回合经共享 abort flag 写盘前放弃落盘（不会覆盖提炼结果）
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
 - **CommandIntellisenseProvider** - 提供命令建议（/new、/status、/help）
@@ -355,6 +381,15 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - `claude.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
 - `claude.max.history.size` / `openai.max.history.size` - 对话历史限制
 - `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
+
+**多实例会话与协调（会话隔离、关闭整合与 IPC 均默认开启）：** 每个实例用独立会话文件（`sessions/{instanceId}.jsonl`），关闭时把未整合消息归档进共享 HISTORY.md（可选深度提炼写 MEMORY.md 供他实例系统提示可见），并通过 IPC 让实例间互相发现打开的 jmx 并委派任务。关闭记忆整合与跨实例协作无独立开关（整合始终开启，协作随 IPC 开关），详见 `openspec/changes/multi-instance-session-ipc/`。
+
+- `agent.session.per-instance` - 每实例独立会话文件（默认 `true`；false 回退全局 `jmeter-ai-chat` 键）
+- `agent.memory.consolidate-on-exit.timeout.ms` - 关闭整合"深度提炼"有界超时毫秒（默认 `120000`）
+- `agent.session.reap.ttl.days` - 启动期回收孤立会话文件的存活 TTL 天数（默认 `7`）
+- `jmeter.ai.ipc.enabled` - 内嵌 IPC HTTP 服务开关（默认 `true`，仅 loopback + token 鉴权；**多实例协作依赖此开关**）
+- `jmeter.ai.ipc.bind` / `jmeter.ai.ipc.port` / `jmeter.ai.ipc.token` - 绑定地址（仅 loopback）/端口（0 自动分配）/鉴权 token（空则随机生成）
+- `jmeter.ai.ipc.agent.timeout.ms` - `/agent` 路由同步等待超时毫秒（默认 `120000`）
 
 **异步子代理（SubAgent，默认关闭）：** 主代理通过 `spawn` 工具把只读分析任务委派给后台子代理（隔离的只读工具集 + 临时会话，不污染主会话），结果回合内回注。详见 `openspec/changes/add-async-subagent/`。
 

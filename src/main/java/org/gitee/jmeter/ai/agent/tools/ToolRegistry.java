@@ -288,14 +288,21 @@ public class ToolRegistry {
         final long finalTimeout = effectiveTimeout;
         // Concurrent tools run on the pooled tool-executor, which has no run context
         // of its own — carry the caller's over so tools like spawn still know their
-        // session, and clear it so the pooled thread keeps nothing stale.
+        // session, and clear it so the pooled thread keeps nothing stale. The
+        // delegation guard rides the same channel (Nanobot contextvars → Java carry).
         final org.gitee.jmeter.ai.agent.run.AgentRunContext runContext =
                 org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
+        final boolean delegatedTurn =
+                org.gitee.jmeter.ai.instance.DelegationGuard.isActive();
         return CompletableFuture.supplyAsync(() -> {
                     org.gitee.jmeter.ai.agent.run.AgentRunContext.set(runContext);
+                    if (delegatedTurn) {
+                        org.gitee.jmeter.ai.instance.DelegationGuard.begin();
+                    }
                     try {
                         return executeWithEvent(name, parameters);
                     } finally {
+                        org.gitee.jmeter.ai.instance.DelegationGuard.end();
                         org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
                     }
                 }, executor)

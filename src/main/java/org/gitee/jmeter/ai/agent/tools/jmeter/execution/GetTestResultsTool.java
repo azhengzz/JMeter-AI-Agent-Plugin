@@ -19,6 +19,11 @@ public class GetTestResultsTool extends AbstractTool {
         return "get_test_results";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads collected sample data. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

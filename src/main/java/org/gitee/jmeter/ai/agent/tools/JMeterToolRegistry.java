@@ -2,6 +2,8 @@ package org.gitee.jmeter.ai.agent.tools;
 
 import org.gitee.jmeter.ai.agent.tools.exec.ExecTool;
 import org.gitee.jmeter.ai.agent.tools.filesystem.*;
+import org.gitee.jmeter.ai.agent.tools.ipc.DelegateToInstanceTool;
+import org.gitee.jmeter.ai.agent.tools.ipc.ListInstancesTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.*;
 import org.gitee.jmeter.ai.agent.tools.jmeter.execution.*;
 import org.gitee.jmeter.ai.agent.tools.web.*;
@@ -60,6 +62,9 @@ public class JMeterToolRegistry {
 
         // Register exec tool if enabled
         registerExecTools(registry);
+
+        // Register cross-instance coordination tools if IPC + coordination enabled
+        registerInstanceCoordinationTools(registry);
     }
 
     /**
@@ -111,6 +116,21 @@ public class JMeterToolRegistry {
             registry.register(new ExecTool());
         } else {
             log.info("Exec tool is disabled");
+        }
+    }
+
+    /**
+     * Register cross-instance coordination tools (list_instances / delegate_to_instance) when
+     * IPC is enabled. IPC provides the transport (port files + /agent endpoint); without it the
+     * tools would only ever fail, so they are not registered.
+     */
+    public static void registerInstanceCoordinationTools(ToolRegistry registry) {
+        if (AiConfig.isIpcEnabled()) {
+            log.info("Registering instance-coordination tools");
+            registry.register(new ListInstancesTool());
+            registry.register(new DelegateToInstanceTool());
+        } else {
+            log.info("Instance-coordination tools disabled (IPC disabled, no transport)");
         }
     }
 

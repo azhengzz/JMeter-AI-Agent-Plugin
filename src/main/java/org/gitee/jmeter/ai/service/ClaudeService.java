@@ -202,7 +202,7 @@ public class ClaudeService implements AiService {
     }
 
     /**
-     * Shared tool-calling request path for auto and forced tool choice (D6). When
+     * Shared tool-calling request path for auto and forced tool choice. When
      * {@code forcedToolName} is non-null, Anthropic {@code tool_choice} forces that tool —
      * used by MemoryConsolidator's {@code save_memory} consolidation so the call can't be
      * skipped (previously the forced-tool default threw and the fallback never fired).
@@ -275,7 +275,7 @@ public class ClaudeService implements AiService {
 
     /**
      * Build an Anthropic SDK {@link Tool} from a {@link ToolDefinition}, reusing its
-     * JSON-schema parameters as the tool's input schema (D2).
+     * JSON-schema parameters as the tool's input schema.
      */
     private Tool buildTool(ToolDefinition td) {
         return Tool.builder()
@@ -314,7 +314,7 @@ public class ClaudeService implements AiService {
     }
 
     /**
-     * Map our message list onto Anthropic message params (D3/D4). SYSTEM messages are
+     * Map our message list onto Anthropic message params. SYSTEM messages are
      * skipped here (consumed by {@link #extractSystem}); TOOL results are coalesced into
      * single USER messages to keep user/assistant turns strictly alternating.
      */
@@ -380,7 +380,7 @@ public class ClaudeService implements AiService {
     }
 
     /**
-     * Concatenate SYSTEM-role message content for the top-level {@code system} param (D4).
+     * Concatenate SYSTEM-role message content for the top-level {@code system} param.
      * Re-derived on every call, so the system prompt is never dropped on later turns.
      */
     String extractSystem(List<org.gitee.jmeter.ai.agent.model.Message> messages) {
@@ -398,7 +398,7 @@ public class ClaudeService implements AiService {
     }
 
     /**
-     * Convert an Anthropic SDK {@link Message} into our {@link LLMResponse} (D5): tool_use
+     * Convert an Anthropic SDK {@link Message} into our {@link LLMResponse}: tool_use
      * blocks become {@link ToolCall}s, text/thinking blocks become content/reasoning.
      */
     LLMResponse toLLMResponse(Message message, String modelId) {

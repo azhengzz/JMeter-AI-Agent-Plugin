@@ -23,7 +23,6 @@ public class AgentRunSpec {
     private final String userMessage;
     private final String sessionKey;
     private final AgentHook hook;
-    private final boolean concurrentTools;
     private final int maxIterations;
     private final boolean failOnToolError;
     private final Map<String, Object> options;
@@ -35,12 +34,12 @@ public class AgentRunSpec {
     private final AtomicBoolean abortFlag;
     private final Function<Integer, List<String>> injectionCallback;
     private final boolean persistSession;
+    private final boolean delegated;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
         this.sessionKey = builder.sessionKey;
         this.hook = builder.hook;
-        this.concurrentTools = builder.concurrentTools;
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
         this.options = builder.options != null ? builder.options : Collections.emptyMap();
@@ -52,12 +51,12 @@ public class AgentRunSpec {
         this.abortFlag = builder.abortFlag;
         this.injectionCallback = builder.injectionCallback;
         this.persistSession = builder.persistSession;
+        this.delegated = builder.delegated;
     }
 
     public String getUserMessage() { return userMessage; }
     public String getSessionKey() { return sessionKey; }
     public AgentHook getHook() { return hook; }
-    public boolean isConcurrentTools() { return concurrentTools; }
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
     public Map<String, Object> getOptions() { return options; }
@@ -75,6 +74,13 @@ public class AgentRunSpec {
      */
     public boolean isPersistSession() { return persistSession; }
 
+    /**
+     * Whether this run executes a cross-instance delegated task (IPC {@code /agent}
+     * with {@code delegated=true}). The runner arms {@code DelegationGuard} inside
+     * the run task so tools executed in this turn refuse to delegate again.
+     */
+    public boolean isDelegated() { return delegated; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -83,7 +89,6 @@ public class AgentRunSpec {
         private String userMessage;
         private String sessionKey;
         private AgentHook hook;
-        private boolean concurrentTools = false;
         private int maxIterations = 40;
         private boolean failOnToolError = false;
         private Map<String, Object> options;
@@ -95,6 +100,7 @@ public class AgentRunSpec {
         private AtomicBoolean abortFlag;
         private Function<Integer, List<String>> injectionCallback;
         private boolean persistSession = true;
+        private boolean delegated = false;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -108,11 +114,6 @@ public class AgentRunSpec {
 
         public Builder hook(AgentHook hook) {
             this.hook = hook;
-            return this;
-        }
-
-        public Builder concurrentTools(boolean concurrent) {
-            this.concurrentTools = concurrent;
             return this;
         }
 
@@ -178,12 +179,18 @@ public class AgentRunSpec {
             return this;
         }
 
+        /** Mark this run as a cross-instance delegated turn (arms DelegationGuard). */
+        public Builder delegated(boolean delegated) {
+            this.delegated = delegated;
+            return this;
+        }
+
         public AgentRunSpec build() {
             Objects.requireNonNull(sessionKey, "sessionKey is required");
 
             // Enforce the subagent isolation invariants at construction time so a
             // mis-wired subagent run fails fast instead of silently polluting the
-            // main session (see design.md blocker 2). Checked before the
+            // main session. Checked before the
             // userMessage requirement so a subagent gets the actionable error.
             if (sessionKey.startsWith(SUBAGENT_SESSION_PREFIX)) {
                 if (persistSession) {

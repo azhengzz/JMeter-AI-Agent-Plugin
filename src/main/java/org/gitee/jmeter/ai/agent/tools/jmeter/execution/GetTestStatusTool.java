@@ -18,6 +18,11 @@ public class GetTestStatusTool extends AbstractTool {
         return "get_test_status";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads collector summary and thread counts. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

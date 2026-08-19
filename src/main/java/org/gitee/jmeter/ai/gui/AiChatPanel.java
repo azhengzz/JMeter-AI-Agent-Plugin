@@ -25,6 +25,7 @@ import org.gitee.jmeter.ai.agent.model.ToolEvent;
 import org.gitee.jmeter.ai.agent.swing.AgentSwingWorker;
 import org.gitee.jmeter.ai.gui.render.MarkdownParserHolder;
 import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.selection.SelectionListener;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.selection.SelectionTracker;
@@ -49,8 +50,13 @@ import org.slf4j.LoggerFactory;
  */
 public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private static final Logger log = LoggerFactory.getLogger(AiChatPanel.class);
-    private static final String CHAT_SESSION_KEY = "jmeter-ai-chat";
     private static final String REPO_URL = "https://github.com/azhengzz/JMeter-AI-Agent-Plugin";
+
+    /**
+     * 当前面板实例(单实例,由 {@link AiMenuItem} 懒创建)。供关闭整合在深度提炼成功后
+     * 清空消息区使用——面板未创建时为 null(此时 agentLoop 也未初始化,提炼链路不会走到清空)。
+     */
+    private static volatile AiChatPanel INSTANCE;
 
     // UI components (kept for backward compatibility)
     private JTextPane chatArea;
@@ -92,6 +98,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Constructs a new AiChatPanel.
      */
     public AiChatPanel() {
+        INSTANCE = this; // 单实例注册,供关闭整合提炼成功后清空消息区
         // Initialize services (keep for model loading)
         claudeService = new ClaudeService();
         openAiService = new OpenAiService();
@@ -673,7 +680,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Archive current session messages via AI consolidation (Nanobot alignment)
         if (agentLoop != null) {
-            var session = agentLoop.getSessionManager().getOrCreate(CHAT_SESSION_KEY);
+            var session = agentLoop.getSessionManager().getOrCreate(InstanceContext.currentSessionKey());
             var snapshot = session.getUnconsolidatedMessages();
 
             session.clear();
@@ -716,7 +723,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         }
 
         // If there's an active agent run, inject the message instead
-        if (agentLoop != null && agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
+        if (agentLoop != null && agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
             injectMessage();
             return;
         }
@@ -773,7 +780,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         activeWorker = new AgentSwingWorker(
                 agentLoop,
                 message,
-                CHAT_SESSION_KEY,
+                InstanceContext.currentSessionKey(),
                 this::handleAgentResponse,
                 this::handleProgress
         );
@@ -813,14 +820,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Re-check: if the active run finished between sendMessage() and here,
         // fall back to normal send path (AgentSwingWorker) for proper UI handling.
-        if (!agentLoop.hasActiveRun(CHAT_SESSION_KEY)) {
+        if (!agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
             log.info("Active run finished during injection, falling back to normal send");
             startNormalSend(message);
             return;
         }
 
         // Active run confirmed — processMessage will hit Phase 2 (non-blocking)
-        CompletableFuture<AgentResponse> future = agentLoop.processMessage(message, CHAT_SESSION_KEY);
+        CompletableFuture<AgentResponse> future = agentLoop.processMessage(message, InstanceContext.currentSessionKey());
 
         // future should always be done here (Phase 2 returns completedFuture),
         // but guard against an extremely narrow race condition.
@@ -891,7 +898,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // agent-loop thread (Phase 3). Show the response via the normal handler, which
         // also resets the UI the prior run created (loading indicator, Stop button,
         // worker ref). handle (not thenAccept) so a cmdNew failure still surfaces.
-        CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", CHAT_SESSION_KEY);
+        CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", InstanceContext.currentSessionKey());
         future.handle((response, ex) -> {
             final AgentResponse r;
             if (ex != null) {
@@ -904,6 +911,21 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             SwingUtilities.invokeLater(() -> handleAgentResponse(r));
             return null;
         });
+    }
+
+    /**
+     * 深度提炼记忆整合成功后,清空消息区并显示欢迎信息(视觉效果对齐「开启新会话」按钮)。
+     * 由 {@link org.gitee.jmeter.ai.gui.CloseConsolidationDialog} 在提炼完成的 EDT 回调里调用;
+     * 须在 EDT。面板未创建时 no-op。配套的数据层清空见
+     * {@link org.gitee.jmeter.ai.agent.memory.CloseConsolidationCoordinator#clearCurrentSession()}。
+     */
+    public static void resetAfterConsolidation() {
+        AiChatPanel panel = INSTANCE;
+        if (panel == null) {
+            return;
+        }
+        panel.chatArea.setText("");
+        panel.displayWelcomeMessage();
     }
 
     /**
@@ -1121,7 +1143,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             activeWorker = null;
         }
         if (agentLoop != null) {
-            agentLoop.cancelActiveTask(CHAT_SESSION_KEY);
+            agentLoop.cancelActiveTask(InstanceContext.currentSessionKey());
         }
         removeLoadingIndicator();
         try {

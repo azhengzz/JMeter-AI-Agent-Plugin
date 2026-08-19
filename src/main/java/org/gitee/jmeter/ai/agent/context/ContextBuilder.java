@@ -9,6 +9,7 @@ import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.selection.ElementInfo;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.selection.SelectionTracker;
+import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +76,13 @@ public class ContextBuilder {
         String memoryContext = memoryStore.getMemoryContext();
         if (!memoryContext.isEmpty()) {
             parts.add("# Memory\n\n" + memoryContext);
+        }
+
+        // 3.5. Cross-instance coordination: 仅当 IPC 开启(协作工具已注册)时注入,门控与
+        // JMeterToolRegistry.registerInstanceCoordinationTools 一致(isIpcEnabled)。
+        // IPC 关闭则不注入,避免提示词提及不存在的工具而误导 LLM。
+        if (AiConfig.isIpcEnabled()) {
+            parts.add(SystemPrompt.CROSS_INSTANCE_COORDINATION_PROMPT);
         }
 
         // 4. Active Skills (always=true skills with full content)

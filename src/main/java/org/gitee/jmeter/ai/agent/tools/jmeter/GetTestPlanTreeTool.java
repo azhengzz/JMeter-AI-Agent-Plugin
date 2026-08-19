@@ -24,6 +24,11 @@ public class GetTestPlanTreeTool extends AbstractTool {
         return "get_test_plan_tree";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: walks the GUI tree model and serializes it. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

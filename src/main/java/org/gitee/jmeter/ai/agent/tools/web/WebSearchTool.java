@@ -63,6 +63,11 @@ public class WebSearchTool extends AbstractWebTool {
         return "web_search";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: queries a search API, no local side effects. Visible to subagents. */
     @Override
     public java.util.Set<String> getScopes() {

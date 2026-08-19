@@ -29,6 +29,11 @@ public class ReadFileTool extends AbstractFsTool {
         return "read_file";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads file content. Visible to subagents. */
     @Override
     public Set<String> getScopes() {
