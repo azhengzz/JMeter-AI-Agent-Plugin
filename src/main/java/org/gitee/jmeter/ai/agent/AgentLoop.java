@@ -237,7 +237,6 @@ public class AgentLoop {
                     .sessionKey(sessionKey)
                     .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
                     .maxIterations(defaultMaxIterations)
-                    .concurrentTools(false)
                     .model(AiConfig.getDefaultModel())
                     .temperature(generationSettings.getTemperature())
                     .maxTokens(generationSettings.getMaxTokens())

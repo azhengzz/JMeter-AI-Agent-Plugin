@@ -29,6 +29,11 @@ public class QueryElementPropertiesTool extends AbstractTool {
         return "query_element_properties";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: matches element properties, never writes them. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

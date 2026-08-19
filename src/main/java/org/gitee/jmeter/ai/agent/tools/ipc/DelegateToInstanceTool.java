@@ -21,21 +21,31 @@ import java.util.Map;
 /**
  * 把一个任务委派给本机另一个 JMeter AI 实例,阻塞等待其 Agent 回合的回复(阻塞式跨进程 RPC)。
  *
- * <p>解析顺序:
+ * <p><b>目标寻址:按 {@code instanceId} 或 {@code jmxPath}(互斥)</b>
  * <ol>
  *   <li>给 {@code instanceId} → 精确匹配;</li>
  *   <li>给 {@code jmxPath} → 匹配持有该脚本的存活实例,多个则按最近 {@code startedAt} 确定性择一;</li>
  *   <li>都缺 → 明确错误。</li>
  * </ol>
  *
- * <p>目标经 {@link InstanceRegistry#listInstances} 的 TCP+PID 双确认存活过滤;禁止委派给自身。
- * 超时复用 {@code jmeter.ai.ipc.agent.timeout.ms}(加 5s 宽限,使目标侧 504+自取消 先于本端 HTTP 超时到达)。
- * 运行于工具执行线程,不阻塞 EDT(6.4)。
+ * <p><b>目标约束:</b>经 {@link InstanceRegistry#listInstances} 的 TCP+PID 双确认存活过滤;
+ * 禁止委派给自身({@code instanceId} 或寻址到本实例必拒)。
+ * <p><b>阻塞与超时:</b>复用 {@code jmeter.ai.ipc.agent.timeout.ms}
+ * (加 5s 宽限,使目标侧 504+自取消 先于本端 HTTP 超时到达);运行于工具执行线程,不阻塞 EDT(6.4)。
  *
- * <p>深度 1 硬阻断({@link DelegationGuard}):被委派回合内再委派直接报错——否则 A↔B 互相委派
- * 会让两侧互卡满超时。委派载荷带 {@code [delegated-from instanceId=… pid=… script=…]} 来源前缀,
- * 让对端会话/GUI 可审计这轮是委派任务及其出处;请求信封同时带 {@code delegated=true}
- * (接收侧据此在该回合内置同一守卫)。
+ * <p><b>委派链失控的两层防御:</b>
+ * <ol>
+ *   <li><b>深度 1 硬阻断({@link DelegationGuard},主防线)</b>:被委派回合内再委派直接报错,
+ *       挡住委派链经<u>空闲</u>实例不断延长(A→B→C→D…每跳合法、每跳阻塞满
+ *       {@code jmeter.ai.ipc.agent.timeout.ms} 且深度无界)。</li>
+ *   <li><b>接收侧 delegated-busy 兜底</b>:目标实例此刻已有未完成回合占用其单槽
+ *       ({@code activeTasks} 非空,不一定是委派回合)时,新委派快速失败报 "session busy",
+ *       避免同一实例并发执行多个回合。这是并发碰撞的保护,与委派链的线性/环状形状无关。</li>
+ * </ol>
+ *
+ * <p><b>委派动销来源标记:</b>载荷带 {@code [delegated-from instanceId=… pid=… script=…]} 来源前缀
+ * 让对端会话/GUI 可审计这轮是委派任务及其出处;请求信封同时带 {@code delegated=true},
+ * 接收侧据此在本回合内置同一守卫。
  */
 public class DelegateToInstanceTool extends AbstractTool {
     public static final String NAME = "delegate_to_instance";

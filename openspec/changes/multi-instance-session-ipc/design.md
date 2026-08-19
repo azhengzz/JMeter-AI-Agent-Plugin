@@ -94,6 +94,17 @@ D2 校正点 1 故意让深度提炼**不推进** `lastConsolidatedIndex`、不�
 2. **信封 `delegated` 仅委派时上线（对抗性验证补强）**：`IpcRequest.delegated` 若对每个请求都序列化（`false` 也上线），新→旧版本混布（lib/ext 旧 jar 残留）时，旧端 strict Jackson（`FAIL_ON_UNKNOWN_PROPERTIES=true`、不认此字段）会把每个普通请求 400。改为 `@JsonInclude(NON_DEFAULT)`：`false` 不上线，旧读者不受影响；委派请求 `true` 照常上线——旧对端本就不支持深度 1 守卫，显式失败是正确行为。
 3. **僵尸回合竞态（对抗性验证补强）**：`cancelActiveTask` 的 interrupt 与 `future.cancel(true)` 都够不到 pre-loop 整合回合——整合 round loop 跑在无执行器 `supplyAsync` 的 ForkJoinPool 载体线程上；`runningThread` 原先只在 `runAgentLoop` 内赋值（pre-loop 阶段为 null）；`future.cancel(true)` 只标记 CF 取消、不打断执行线程，反而立即 `countDown` latch 让 `cancelActiveTask` 快速"成功"返回。修复：abort 谓词（spec 与 `abortFlags` map 持有的是**同一** AtomicBoolean）穿进 `maybeConsolidate` round loop + `consolidateWithAi`/`extractAndSaveToolCallResult` 写盘前检查——被取消的僵尸回合在 LLM 返回后、写 HISTORY/MEMORY/session 前放弃落盘；`runningThread` 提前到 run 任务开头，覆盖 pre-loop 窗口，Stop 的 interrupt 也能落地。
 
+#### D4 三次校正：并发工具下守卫可见性 + 环 breaking 论述修正（nanobot 对照，2026-08）
+
+对"DelegationGuard 在工具并发执行时失效"的专项分析（对照 nanobot 参考实现）：
+
+- **现状定性**：并发路径当前不可达——`AgentLoop` 构建 spec 硬编码 `concurrentTools(false)`，`AgentConfig.isConcurrentToolsEnabled()`（`agent.tools.concurrent.enabled`）读而未接线（零调用方，死配置：将来要么接线要么删）。
+- **原论述修正**：此前 javadoc 记载"并发失效时退回超时兜底（环上等待方必然超时）"不准确。真正的环 breaking 是**接收侧 delegated-busy 快速失败**（`AgentLoop.processMessage`：`delegated=true` 命中忙碌会话立即报错、绝不入队）——任何委派环中每个成员回合都在飞（`activeTasks` 有键），闭合跳毫秒级失败，与执行模式无关。守卫的独立价值是**封跨空闲第三实例的无界委派链**（A→B→C→D…每跳合法、每跳阻塞满 `jmeter.ai.ipc.agent.timeout.ms`、深度无界）。
+- **nanobot 对照**（agent/runner.py、agent/tools/base.py、agent/tools/context.py）：执行原语 `asyncio.gather` 为同事件循环线程协程、无线程跳变——Java 阻塞工具世界不可移植；`contextvars.ContextVar`（RequestContext/file_states/workspace_scope，token 式 bind/reset）靠 asyncio.Task 创建时自动拷贝 context 进入并发工具——Java 17 无等价物（ScopedValue 需 JDK 21+）；`concurrency_safe` 分批纪律（默认 `read_only && !exclusive`，不安全工具单例批串行）**完全可移植**，且 nanobot loop 默认 `concurrent_tools=True` 正因有此门槛。
+- **将来接线 concurrentTools 时的移植计划（两件套）**：① `Tool` 层加 `concurrency_safe` 分类（默认 false），`executeAsyncWithEvents` 改"安全并行批 + 不安全单例批"——`DelegateToInstanceTool`（阻塞/有副作用）永不上并发批、永远内联 run 载体线程，守卫天然可见（主修复）；② 守卫随 `AgentRunContext` 在 `ToolRegistry.executeAsyncWithEvent` 异步派发处 capture/set/clear 搬运（既有 AgentRunContext 搬运模式的同构扩展，contextvars 的 Java 直译，防御纵深）。
+- **当下落地**：仅修正 DelegationGuard/DelegateToInstanceTool javadoc 论述，零机制代码改动。
+- **后续（已落地）**：两件套已由 `concurrency-safe-tool-batching` 变更实施（含开关/死配置移除，并发常开 + 分批纪律）；DelegationGuard javadoc 已更新为双通道保证描述。
+
 ### D5. 特性门控：协作依赖 IPC 开启
 
 - **选择**：`delegate_to_instance`/`list_instances` 仅当 `jmeter.ai.ipc.enabled=true` 且 `agent.instance.coordination.enabled=true`（默认 true）时注册到主 `ToolRegistry`。IPC 关闭则两工具不注册。`agent.session.per-instance`（默认 true）门控每实例会话；`agent.memory.consolidate-on-exit`（默认 true）门控关闭整合。
@@ -167,6 +178,15 @@ D2 校正点 1 故意让深度提炼**不推进** `lastConsolidatedIndex`、不�
 - **收益**：F4 防僵尸从"靠 join 兜住"变为结构性保证（内联代码不可能活过 run future，`whenComplete` 移除 flag 必然后于整合完成）；commonPool 载体占用减半；顺带删除零调用方的 `maybeConsolidate(Session)` 单参重载。
 - **签名**：`void maybeConsolidate(Session, BooleanSupplier)`——旧包装恒返回 true 且无人消费，保留 boolean 是死信息。
 - **保持不动**：supplier 逐层传参（flag 是 per-run，consolidator 共享实例，字段化错误）；5 个 aborted 检查点（各守独立窗口）；`distillSync` 的 `supplyAsync + 有界 get + timedOut`（唯一真跨线程超时观测路径，`orTimeout` 不能停运行中任务）；`consolidateWithAi(List)` 单参重载（`/new` 后台归档 `archiveMessagesAsync` 唯一调用方，"无取消语义"是故意——快照取自 signalCancel 之前，仍应归档）；`SaveMemoryTool`（依 D5 五次校正处置保留 + `@deprecated`，复核确认可删但遵循既有决定）。
+
+#### D5 七次校正：`concurrency-safe-tool-batching` 对抗复核（2026-08）
+
+对工具并发分批变更（`concurrency-safe-tool-batching`）的对抗性复核。多 agent 工作流因限流（429→501）三轮未能完整跑通，最终由逐行读码判定；关键竞态定性经用户纠正后收敛。
+
+- **C1 存量 EDT 读竞态（定性修正，记录不修）**：4 个树读工具（`get_test_plan_tree`/`find_element`/`get_selected_element`/`query_element_properties`）在 run 载体线程（非 EDT）同步读 `DefaultTreeModel`（`JMeterTreeModel extends DefaultTreeModel`，无同步），与用户在 EDT 上的树编辑（拖拽/删节点）**从来无互斥**。定性要点：**串行时代同样存在**（`executeWithEvent` 内联在 run 载体线程，一样非 EDT），本变更仅把树读放进并发批使重叠窗口略宽——**存量问题、非新引入**。后果为间歇性 `ConcurrentModificationException`/越界/半吊子快照，被各工具 try/catch 兜成 error 非 kill JVM。
+- **C1 处置与竞态对边界**：Agent 写工具（`create`/`move`/`delete`…）均无并发标记 → 单例批内联执行，`partitionByConcurrencySafety` 保证**读批与 Agent 写批严格顺序、不重叠**；唯一重叠方是**用户 EDT 编辑 vs Agent 并发读**。修复（摘除树读出白名单）不成立——单例批仍内联 run 载体线程，一样非 EDT；**根治需另行变更给树读工具加 `invokeAndWait` EDT 封装**（与并发机制正交，唯一正确解）。
+- **白名单审计补强**：复核中发现 3 个"读但未准入"工具。定论——`parse_jmx_file`（纯 DOM 文件读）、`get_script_info`（String/static 快照）无共享可变状态，**准入**；`get_log_panel_content`（已 `EdtRunner` EDT 封装读）标了无并发收益且徒增 EDT 竞争，**不标**。白名单 11 → 13。
+- **文档发现 2 条**：`proposal.md`「10 个」→ 实为 11→13（已修）；`docs/`+`TODO/`（本次 `.gitignore` 排除、不入库不分发）仍宣扬已删 `concurrentTools` API——判定不修（历史对照文档，编译器纠正，新开发者不可见）。
 
 ### D6. 遗留 `jmeter-ai-chat.jsonl` 的迁移
 

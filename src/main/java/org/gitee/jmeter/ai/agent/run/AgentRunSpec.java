@@ -23,7 +23,6 @@ public class AgentRunSpec {
     private final String userMessage;
     private final String sessionKey;
     private final AgentHook hook;
-    private final boolean concurrentTools;
     private final int maxIterations;
     private final boolean failOnToolError;
     private final Map<String, Object> options;
@@ -41,7 +40,6 @@ public class AgentRunSpec {
         this.userMessage = builder.userMessage;
         this.sessionKey = builder.sessionKey;
         this.hook = builder.hook;
-        this.concurrentTools = builder.concurrentTools;
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
         this.options = builder.options != null ? builder.options : Collections.emptyMap();
@@ -59,7 +57,6 @@ public class AgentRunSpec {
     public String getUserMessage() { return userMessage; }
     public String getSessionKey() { return sessionKey; }
     public AgentHook getHook() { return hook; }
-    public boolean isConcurrentTools() { return concurrentTools; }
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
     public Map<String, Object> getOptions() { return options; }
@@ -92,7 +89,6 @@ public class AgentRunSpec {
         private String userMessage;
         private String sessionKey;
         private AgentHook hook;
-        private boolean concurrentTools = false;
         private int maxIterations = 40;
         private boolean failOnToolError = false;
         private Map<String, Object> options;
@@ -118,11 +114,6 @@ public class AgentRunSpec {
 
         public Builder hook(AgentHook hook) {
             this.hook = hook;
-            return this;
-        }
-
-        public Builder concurrentTools(boolean concurrent) {
-            this.concurrentTools = concurrent;
             return this;
         }
 

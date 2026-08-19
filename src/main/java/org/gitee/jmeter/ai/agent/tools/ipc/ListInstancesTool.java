@@ -30,6 +30,11 @@ public class ListInstancesTool extends AbstractTool {
     }
 
     @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
+    @Override
     public String getDescription() {
         return "List all live JMeter AI instances running on this machine (including yourself), "
                 + "for cross-instance coordination. Each row shows instanceId, pid, port, the .jmx test "

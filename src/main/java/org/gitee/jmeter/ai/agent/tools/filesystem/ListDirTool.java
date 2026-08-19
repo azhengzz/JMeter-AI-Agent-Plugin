@@ -35,6 +35,11 @@ public class ListDirTool extends AbstractFsTool {
         return "list_dir";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: lists directory entries. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

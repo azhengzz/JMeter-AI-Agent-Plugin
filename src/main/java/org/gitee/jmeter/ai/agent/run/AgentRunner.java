@@ -9,6 +9,7 @@ import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.gitee.jmeter.ai.agent.model.*;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
@@ -416,10 +417,9 @@ public class AgentRunner {
                     break;
                 }
 
-                // Execute tools (concurrent or serial)
+                // Execute tools (concurrency-safe batches run in parallel; unsafe calls inline)
                 ToolExecutionResult executionResult = executeToolCalls(
-                    response.getToolCalls(),
-                    spec.isConcurrentTools()
+                    response.getToolCalls()
                 );
                 List<ToolResult> toolResults = executionResult.results;
                 List<org.gitee.jmeter.ai.agent.model.ToolEvent> toolEvents = executionResult.events;
@@ -603,22 +603,27 @@ public class AgentRunner {
     }
 
     /**
-     * Execute tool calls (concurrent or serial).
-     * Returns both tool results and tool events.
+     * Execute tool calls with Nanobot-style concurrency-safe batching
+     * ({@code _partition_tool_batches}): consecutive {@link Tool#isConcurrencySafe()}
+     * calls form one parallel batch (via {@code executeAsyncWithEvents}, per-tool
+     * timeout, results restored to call order); every unsafe call is its own
+     * singleton batch executed inline on this run carrier thread — ThreadLocal run
+     * context ({@code AgentRunContext}/{@code DelegationGuard}) stays visible
+     * exactly as in the all-serial era. Batches run in call order; results and
+     * events are returned in original call order. {@code failOnToolError} keeps
+     * its post-hoc semantics (caller inspects events after all batches complete).
      */
-    private ToolExecutionResult executeToolCalls(List<ToolCall> toolCalls, boolean concurrent) {
-        List<ToolResult> results;
+    private ToolExecutionResult executeToolCalls(List<ToolCall> toolCalls) {
+        List<ToolResult> results = new ArrayList<>();
         List<org.gitee.jmeter.ai.agent.model.ToolEvent> events = new ArrayList<>();
 
-        if (concurrent) {
-            // Execute concurrently using ToolRegistry's async support with timeout
-            var batchResult = toolRegistry.executeAsyncWithEvents(toolCalls, toolTimeoutMs).join();
-            results = batchResult.results();
-            events = new ArrayList<>(batchResult.events());
-        } else {
-            // Execute serially
-            results = new ArrayList<>();
-            for (ToolCall call : toolCalls) {
+        for (List<ToolCall> batch : partitionByConcurrencySafety(toolCalls)) {
+            if (batch.size() > 1) {
+                var batchResult = toolRegistry.executeAsyncWithEvents(batch, toolTimeoutMs).join();
+                results.addAll(batchResult.results());
+                events.addAll(batchResult.events());
+            } else {
+                ToolCall call = batch.get(0);
                 var executionResult = toolRegistry.executeWithEvent(call.getName(), call.getArguments());
                 results.add(executionResult.result());
                 events.add(executionResult.event());
@@ -630,6 +635,33 @@ public class AgentRunner {
         }
 
         return new ToolExecutionResult(results, events);
+    }
+
+    /**
+     * Split calls into batches preserving call order: a run of consecutive
+     * concurrency-safe calls becomes one batch (parallel); each unsafe call is a
+     * singleton batch (inline serial). Unknown tool names are treated as unsafe.
+     */
+    private List<List<ToolCall>> partitionByConcurrencySafety(List<ToolCall> toolCalls) {
+        List<List<ToolCall>> batches = new ArrayList<>();
+        List<ToolCall> current = new ArrayList<>();
+        for (ToolCall call : toolCalls) {
+            Tool tool = toolRegistry.get(call.getName());
+            boolean safe = tool != null && tool.isConcurrencySafe();
+            if (safe) {
+                current.add(call);
+                continue;
+            }
+            if (!current.isEmpty()) {
+                batches.add(current);
+                current = new ArrayList<>();
+            }
+            batches.add(new ArrayList<>(List.of(call)));
+        }
+        if (!current.isEmpty()) {
+            batches.add(current);
+        }
+        return batches;
     }
 
     /**

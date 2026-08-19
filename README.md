@@ -318,7 +318,6 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.concurrent.enabled` | 并发执行独立工具调用 | `false` |
 | `agent.tools.fail.on.error` | 工具执行出错时终止整个 Agent 循环 | `false` |
 | `agent.tools.timeout.ms` | 工具执行默认超时（毫秒） | `30000` |
 

@@ -154,10 +154,12 @@ mvn clean package -DskipTests
 ### 工具层 (`org.gitee.jmeter.ai.agent.tools`)
 
 #### 工具基础设施
-- **Tool** - 工具接口
+- **Tool** - 工具接口（含 `isConcurrencySafe()` 并行资格分类，默认 false=单例批内联串行；只读工具显式覆盖加入并行白名单）
 - **AbstractTool** - 工具基类
-- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心
+- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心（`executeAsyncWithEvent` 派发时搬运 AgentRunContext + DelegationGuard 到池线程）
 - **ValidationResult** - 工具参数校验结果
+
+工具并发采用 Nanobot 式 `concurrency_safe` 分批（无用户开关，`AgentRunner` 按调用序分批：连续安全调用并行批、非安全单例批内联 run 线程）
 
 #### JMeter 元素工具 (`tools/jmeter`)
 - **AbstractJMeterElementTool** - JMeter 元素工具基类

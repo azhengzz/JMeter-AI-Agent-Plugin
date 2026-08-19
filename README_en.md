@@ -321,7 +321,6 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.concurrent.enabled` | Run independent tool calls concurrently | `false` |
 | `agent.tools.fail.on.error` | Stop the entire agent loop on a tool error | `false` |
 | `agent.tools.timeout.ms` | Default tool execution timeout (ms) | `30000` |
 

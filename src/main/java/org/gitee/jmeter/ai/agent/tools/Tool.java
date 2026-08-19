@@ -80,6 +80,22 @@ public interface Tool {
     }
 
     /**
+     * Whether this tool is read-only and side-effect free, and may therefore run
+     * in parallel with other concurrency-safe tools in the same batch (Nanobot's
+     * {@code concurrency_safe}; default-off whitelist admission).
+     *
+     * <p>Tools returning false always execute alone, inline on the run carrier
+     * thread — never dispatched concurrently with other tools. Overriding to
+     * true is a declaration that the tool only reads shared state and is safe
+     * to overlap with other such readers.
+     *
+     * @return true only if the tool is read-only and safe to parallelize
+     */
+    default boolean isConcurrencySafe() {
+        return false;
+    }
+
+    /**
      * Get the scopes this tool belongs to.
      *
      * <p>The subagent toolset is built with INCLUDE semantics: only tools whose
