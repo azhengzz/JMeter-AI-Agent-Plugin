@@ -49,13 +49,13 @@ public class WebSearchTool extends AbstractWebTool {
 
     public WebSearchTool() {
         super();
-        this.defaultProvider = AiConfig.getProperty("agent.tools.websearch.provider", "jina");
-        this.maxResults = Integer.parseInt(AiConfig.getProperty("agent.tools.websearch.max.results", "10"));
-        this.timeoutSeconds = Integer.parseInt(AiConfig.getProperty("agent.tools.websearch.timeout", "30"));
+        this.defaultProvider = AiConfig.getWebsearchProvider();
+        this.maxResults = AiConfig.getWebsearchMaxResults();
+        this.timeoutSeconds = AiConfig.getWebsearchTimeout();
 
         this.braveApiKey = AiConfig.getProperty("agent.tools.websearch.brave.api.key", "");
         this.tavilyApiKey = AiConfig.getProperty("agent.tools.websearch.tavily.api.key", "");
-        this.jinaApiKey = AiConfig.getProperty("agent.tools.websearch.jina.api.key", "");
+        this.jinaApiKey = AiConfig.getWebsearchJinaApiKey();
     }
 
     @Override

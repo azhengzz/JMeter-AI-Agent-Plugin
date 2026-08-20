@@ -50,8 +50,8 @@ public class WebFetchTool extends AbstractWebTool {
 
     public WebFetchTool() {
         super();
-        this.timeoutSeconds = Integer.parseInt(AiConfig.getProperty("agent.tools.webfetch.timeout", "30"));
-        this.jinaApiKey = AiConfig.getProperty("agent.tools.websearch.jina.api.key", "");
+        this.timeoutSeconds = AiConfig.getWebfetchTimeout();
+        this.jinaApiKey = AiConfig.getWebsearchJinaApiKey();
     }
 
     @Override

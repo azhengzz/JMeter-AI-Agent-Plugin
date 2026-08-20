@@ -37,11 +37,9 @@ public abstract class AbstractWebTool extends AbstractTool {
     private final int maxRedirects;
 
     public AbstractWebTool() {
-        this.enabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.websearch.enabled", "false"));
-        this.ssrfProtectionEnabled = Boolean.parseBoolean(
-            AiConfig.getProperty("agent.tools.web.ssrf.protection", "true"));
-        this.maxRedirects = Integer.parseInt(
-            AiConfig.getProperty("agent.tools.web.max.redirects", "5"));
+        this.enabled = AiConfig.isWebsearchToolsEnabled();
+        this.ssrfProtectionEnabled = AiConfig.isWebSsrfProtection();
+        this.maxRedirects = AiConfig.getWebMaxRedirects();
     }
 
     /**

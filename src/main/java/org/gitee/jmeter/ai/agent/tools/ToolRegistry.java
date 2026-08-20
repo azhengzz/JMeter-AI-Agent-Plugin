@@ -216,8 +216,7 @@ public class ToolRegistry {
         if (detail.isEmpty()) return "(empty)";
 
         // Read from configuration (shared with chat UI)
-        int maxDetailLength = Integer.parseInt(
-            org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+        int maxDetailLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         if (detail.length() > maxDetailLength) return detail.substring(0, maxDetailLength) + "...(truncated)";
         return detail;
@@ -233,8 +232,7 @@ public class ToolRegistry {
         }
 
         // Read from configuration (shared with chat UI)
-        int maxDetailLength = Integer.parseInt(
-            org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+        int maxDetailLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         String argsStr = parameters.toString();
         if (argsStr.length() > maxDetailLength) {

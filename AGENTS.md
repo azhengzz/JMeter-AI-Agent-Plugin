@@ -141,7 +141,6 @@ mvn clean package -DskipTests
 #### Agent 记忆 (`agent/memory`)
 - **MemoryStore** - Agent 记忆存储
 - **MemoryConsolidator** - 跨会话记忆整合
-- **SaveMemoryTool** - 保存记忆的工具
 
 #### Agent 技能 (`agent/skills`)
 - **SkillsLoader** - 从文件系统加载技能
@@ -222,9 +221,7 @@ mvn clean package -DskipTests
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
-- **ElementSuggestionManager** - 为 AI 响应中提到的 JMeter 元素创建可点击按钮
 - **ComponentFinder** - 查找 JMeter 组件
-- **TreeNavigationButtons** - 测试计划树导航按钮
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
 - **CommandIntellisenseProvider** - 提供命令建议（/new、/status、/help）

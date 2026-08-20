@@ -1,6 +1,6 @@
 package org.gitee.jmeter.ai.agent.model;
 
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
+import org.gitee.jmeter.ai.utils.AiConfig;
 
 /**
  * Utility for optimizing messages before persistence.
@@ -30,7 +30,7 @@ public class MessageOptimizer {
             content = removeRuntimeContext(content);
         }
 
-        int maxChars = AgentConfig.getInstance().getToolResultMaxChars();
+        int maxChars = AiConfig.getToolResultMaxChars();
 
         // Handle tool result messages - truncate large results
         if (role == Message.Role.TOOL && content.length() > maxChars) {
@@ -65,28 +65,6 @@ public class MessageOptimizer {
             }
         }
         return content;
-    }
-
-    /**
-     * Create an optimized message for persistence.
-     * Returns null if the message should be skipped entirely.
-     */
-    public static Message createOptimized(Message msg) {
-        String optimizedContent = optimizeContent(msg.getRole(), msg.getContent(), msg.hasToolCalls());
-
-        if (optimizedContent == null) {
-            return null;
-        }
-
-        // If content wasn't modified, return original message
-        if (optimizedContent == msg.getContent()) {
-            return msg;
-        }
-
-        // Create new message with optimized content
-        // Since Message constructor is private, we need to use reflection or modify Message class
-        // For now, return original message and let the optimization happen at a different layer
-        return msg;
     }
 
     /**

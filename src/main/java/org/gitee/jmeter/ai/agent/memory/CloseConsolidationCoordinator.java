@@ -142,11 +142,6 @@ public final class CloseConsolidationCoordinator {
         sessions.invalidate(session.getKey());
     }
 
-    /** 仅用于测试重置幂等守卫。 */
-    static void resetForTest() {
-        ARCHIVED.set(false);
-    }
-
     private static AgentLoop agentLoop() {
         try {
             return AgentLoopFactory.getAgentLoop();

@@ -18,11 +18,6 @@ import org.slf4j.LoggerFactory;
 public class JMeterToolRegistry {
     private static final Logger log = LoggerFactory.getLogger(JMeterToolRegistry.class);
 
-    // Configuration keys
-    private static final String FS_TOOLS_ENABLED = "agent.tools.filesystem.enabled";
-    private static final String WEB_TOOLS_ENABLED = "agent.tools.websearch.enabled";
-    private static final String EXEC_TOOLS_ENABLED = "agent.tools.exec.enabled";
-
     /**
      * Register all default JMeter tools with the given registry.
      *
@@ -72,8 +67,8 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerFilesystemTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(FS_TOOLS_ENABLED, "false"));
+    private static void registerFilesystemTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isFilesystemToolsEnabled();
 
         if (enabled) {
             log.info("Registering filesystem tools");
@@ -91,8 +86,8 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerWebTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(WEB_TOOLS_ENABLED, "false"));
+    private static void registerWebTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isWebsearchToolsEnabled();
 
         if (enabled) {
             log.info("Registering web tools");
@@ -108,8 +103,8 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerExecTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(EXEC_TOOLS_ENABLED, "false"));
+    private static void registerExecTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isExecToolsEnabled();
 
         if (enabled) {
             log.info("Registering exec tool");

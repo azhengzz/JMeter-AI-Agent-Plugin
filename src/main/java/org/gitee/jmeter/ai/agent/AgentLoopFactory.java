@@ -1,6 +1,5 @@
 package org.gitee.jmeter.ai.agent;
 
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
 import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.gitee.jmeter.ai.agent.memory.MemoryStore;
@@ -10,6 +9,7 @@ import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
+import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,33 +51,32 @@ public class AgentLoopFactory {
      * Create a new Agent Loop instance
      */
     private static AgentLoop createAgentLoop(AiService aiService) {
-        AgentConfig config = AgentConfig.getInstance();
-
-        if (!config.isEnabled()) {
+        if (!AiConfig.isAgentEnabled()) {
             log.warn("Agent Loop is disabled in configuration");
             return null;
         }
 
+        var workspacePath = AiConfig.getWorkspacePath();
         log.info("Creating Agent Loop with AI service: {}", aiService.getName());
 
         // Create components
         ToolRegistry toolRegistry = new ToolRegistry();
-        MemoryStore memoryStore = new MemoryStore(config.getWorkspacePath());
+        MemoryStore memoryStore = new MemoryStore(workspacePath);
         // 每实例会话:只加载当前 instanceId 的 jsonl,不解析历史遗留/其他实例文件
         // (currentSessionKey 受 agent.session.per-instance 门控,false 回退全局 legacy 键)。
         SessionManager sessionManager = new SessionManager(
-                config.getWorkspacePath(), InstanceContext.currentSessionKey());
+                workspacePath, InstanceContext.currentSessionKey());
 
         ContextBuilder contextBuilder = new ContextBuilder(
                 memoryStore,
-                config.getWorkspacePath()
+                workspacePath
         );
 
         MemoryConsolidator consolidator = new MemoryConsolidator(
                 memoryStore, aiService, sessionManager, contextBuilder, toolRegistry);
 
         // Register tools
-        if (config.isJmeterToolsEnabled()) {
+        if (AiConfig.isJmeterToolsEnabled()) {
             JMeterToolRegistry.registerDefaultTools(toolRegistry);
         }
 
@@ -111,8 +110,7 @@ public class AgentLoopFactory {
                                               ContextBuilder contextBuilder,
                                               SessionManager sessionManager,
                                               AiService aiService) {
-        boolean enabled = Boolean.parseBoolean(
-                org.gitee.jmeter.ai.utils.AiConfig.getProperty("agent.subagent.enabled", "false"));
+        boolean enabled = AiConfig.isSubagentEnabled();
         if (!enabled) {
             log.info("Subagent support is disabled");
             return;

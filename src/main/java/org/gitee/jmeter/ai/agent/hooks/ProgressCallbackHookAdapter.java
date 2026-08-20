@@ -25,8 +25,7 @@ public class ProgressCallbackHookAdapter implements AgentHook {
 
     public ProgressCallbackHookAdapter(AgentLoop.ProgressCallback callback) {
         this.callback = callback;
-        this.showThinking = Boolean.parseBoolean(
-            AiConfig.getProperty("ai.chat.show.thinking", "false"));
+        this.showThinking = AiConfig.isChatShowThinking();
     }
 
     @Override

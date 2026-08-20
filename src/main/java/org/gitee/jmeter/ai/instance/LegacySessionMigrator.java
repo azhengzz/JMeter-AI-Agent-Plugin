@@ -37,7 +37,7 @@ public final class LegacySessionMigrator {
      * 尝试迁移遗留会话。幂等、best-effort:无遗留文件/已迁移/每实例会话关闭时均为 no-op。
      */
     public static void migrate() {
-        if (!AiConfig.getBoolean("agent.session.per-instance", true)) {
+        if (!AiConfig.isSessionPerInstance()) {
             return; // 旧键仍在用,不迁移
         }
         try {

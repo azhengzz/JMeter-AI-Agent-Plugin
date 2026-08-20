@@ -1,7 +1,6 @@
 package org.gitee.jmeter.ai.agent.memory;
 
 import org.gitee.jmeter.ai.utils.AiConfig;
-import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,10 +49,6 @@ public class MemoryStore {
      *  {@code channel.lock()} 在 Windows 上不可中断,CompletableFuture.cancel/join 中断
      *  都够不到等锁的 commonPool 载体线程),会把 commonPool 载体饿死并泄漏。 */
     private static final long LOCK_POLL_MILLIS = 50L;
-
-    public MemoryStore() {
-        this(WorkspacePaths.resolveWorkspace());
-    }
 
     public MemoryStore(Path workspace) {
         this.memoryDir = workspace.resolve("memory");
@@ -315,7 +310,7 @@ public class MemoryStore {
      * Check if memory system is enabled
      */
     public boolean isEnabled() {
-        return AiConfig.getBoolean("agent.memory.enabled", true);
+        return AiConfig.isMemoryEnabled();
     }
 
     public Path getMemoryDir() {

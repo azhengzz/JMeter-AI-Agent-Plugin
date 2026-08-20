@@ -18,8 +18,7 @@ import java.util.List;
  * Usage:
  * <pre>
  * String prompt = SystemPrompt.get();                          // Use unified config + bootstrap files
- * String prompt = SystemPrompt.get("custom prompt");           // Direct override
- * String prompt = SystemPrompt.getWithWorkspace(workspace);    // With workspace info
+ * String prompt = SystemPrompt.getDefaultWithWorkspace(workspace); // With workspace info
  * </pre>
  */
 public class SystemPrompt {
@@ -133,9 +132,6 @@ public class SystemPrompt {
             """;
 
 
-    // Keys for configuration
-    private static final String UNIFIED_PROMPT_KEY = "jmeter.ai.system.prompt";
-
     /**
      * Get the system prompt using unified configuration.
      * <p>
@@ -147,7 +143,7 @@ public class SystemPrompt {
      */
     public static String get() {
         // Check unified configuration
-        String unifiedPrompt = AiConfig.getProperty(UNIFIED_PROMPT_KEY, "");
+        String unifiedPrompt = AiConfig.getSystemPrompt();
         if (!unifiedPrompt.isEmpty()) {
             log.debug("Using unified system prompt");
             return unifiedPrompt;
@@ -160,37 +156,6 @@ public class SystemPrompt {
         String fullPrompt = buildFullSystemPrompt(workspace);
         log.debug("Using built-in default system prompt with bootstrap files (length: {})", fullPrompt.length());
         return fullPrompt;
-    }
-
-    /**
-     * Get the system prompt with direct override.
-     *
-     * @param override  Direct override prompt (takes highest priority)
-     * @return The system prompt to use
-     */
-    public static String get(String override) {
-        if (override != null && !override.isEmpty()) {
-            return override;
-        }
-        return get();
-    }
-
-    /**
-     * Get the built-in default prompt without checking any configuration.
-     *
-     * @return The default JMeter system prompt
-     */
-    public static String getDefault() {
-        return DEFAULT_JMETER_SYSTEM_PROMPT;
-    }
-
-    /**
-     * Check if unified system prompt is configured.
-     *
-     * @return true if unified prompt is configured
-     */
-    public static boolean isUnifiedConfigured() {
-        return !AiConfig.getProperty(UNIFIED_PROMPT_KEY, "").isEmpty();
     }
 
     /**

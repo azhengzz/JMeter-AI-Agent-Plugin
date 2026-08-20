@@ -43,9 +43,9 @@ class OpenAiServiceTest {
     static void setUpAll() {
         aiConfigMock = mockStatic(AiConfig.class);
         aiConfigMock.when(() -> AiConfig.getDefaultModel()).thenReturn("openai:gpt-4o");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.temperature", "0.7")).thenReturn("0.7");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.max.tokens", "4096")).thenReturn("4096");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium")).thenReturn("medium");
+        aiConfigMock.when(() -> AiConfig.getTemperature()).thenReturn(0.7);
+        aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
+        aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");
         // initializeClient reads these via getConfigValue; unmocked calls return null which would NPE
         aiConfigMock.when(() -> AiConfig.getProperty("openai.api.key", null)).thenReturn(null);
         aiConfigMock.when(() -> AiConfig.getProperty("openai.api.key", "")).thenReturn("");

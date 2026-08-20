@@ -39,10 +39,6 @@ public class TracedAiService implements AiService {
         return new TracedAiService(service, LangSmithClient.getInstance());
     }
 
-    public static AiService wrap(AiService service, LangSmithClient tracer) {
-        return new TracedAiService(service, tracer);
-    }
-
     @Override
     public LLMResponse generateResponseWithTools(List<Message> messages, List<ToolDefinition> tools) {
         return generateResponseWithTools(messages, tools, null);

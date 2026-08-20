@@ -51,7 +51,7 @@ public final class CloseConsolidationDialog {
         long n = snapshot.size();
 
         if (n == 0
-                || !AiConfig.getBoolean("agent.memory.enabled", true)) {
+                || !AiConfig.isMemoryEnabled()) {
             return;
         }
 

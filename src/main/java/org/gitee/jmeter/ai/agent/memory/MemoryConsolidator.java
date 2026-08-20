@@ -75,8 +75,8 @@ public class MemoryConsolidator {
         this.sessionManager = sessionManager;
         this.contextBuilder = contextBuilder;
         this.toolRegistry = toolRegistry;
-        this.contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
-        this.maxCompletionTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
+        this.contextWindowTokens = AiConfig.getContextWindowTokens();
+        this.maxCompletionTokens = AiConfig.getMaxTokens();
     }
 
     /**

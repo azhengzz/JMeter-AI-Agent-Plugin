@@ -2,14 +2,14 @@ package org.gitee.jmeter.ai.agent.tools.jmeter.utils;
 
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
+import org.apache.jorphan.collections.HashTree;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
-import org.apache.jorphan.collections.HashTree;
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
+import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 
 import javax.swing.tree.TreePath;
@@ -39,7 +39,7 @@ public class JMeterTreeUtils {
      */
     public static Map<String, Object> buildTreeData(JMeterTreeNode node, boolean includeProperties,
                                                       int maxDepth, int currentDepth) {
-        return buildTreeData(node, includeProperties, maxDepth, currentDepth, AgentConfig.getInstance().getMaxStringLength());
+        return buildTreeData(node, includeProperties, maxDepth, currentDepth, AiConfig.getMaxStringLength());
     }
 
     /**
@@ -149,7 +149,7 @@ public class JMeterTreeUtils {
      * @return Map of property names to values
      */
     public static Map<String, Object> buildPropertiesData(TestElement element) {
-        return buildPropertiesData(element, AgentConfig.getInstance().getMaxStringLength());
+        return buildPropertiesData(element, AiConfig.getMaxStringLength());
     }
 
     /**

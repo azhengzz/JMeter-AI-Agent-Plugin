@@ -56,6 +56,14 @@ public class SelectionInitCommand implements Command {
         EventQueue.invokeLater(() -> {
             // 生成每实例 session key(= instanceId),供 AiChatPanel / IpcServer / 关闭整合 / 委派共用。
             org.gitee.jmeter.ai.instance.InstanceContext.init();
+            // 启动副作用:配置快照日志 + workspace 模板初始化(幂等)。原配置单例构造时的副作用迁此,
+            // 保证进程启动只执行一次,不随 provider 切换 / 关闭整合 / 每次 IPC 解析重复触发。
+            org.gitee.jmeter.ai.utils.AiConfig.logConfiguration();
+            java.nio.file.Path workspacePath = org.gitee.jmeter.ai.utils.AiConfig.getWorkspacePath();
+            if (!org.gitee.jmeter.ai.utils.WorkspaceInitializer.isInitialized(workspacePath)) {
+                log.info("Initializing workspace: {}", workspacePath);
+                org.gitee.jmeter.ai.utils.WorkspaceInitializer.initialize(workspacePath);
+            }
             SelectionTracker.install();
             registerRunCaptureListeners();
             registerCloseConsolidationHooks();

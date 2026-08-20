@@ -47,8 +47,8 @@ public class BuiltinCommands {
         String version = VersionUtils.getVersion();
         String provider = AiConfig.getDefaultProvider();
         String model = AiConfig.getDefaultModel();
-        int contextWindowTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
-        int maxTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
+        int contextWindowTokens = AiConfig.getContextWindowTokens();
+        int maxTokens = AiConfig.getMaxTokens();
 
         Map<String, Integer> lastUsage = ctx.getLoop().getLastUsage();
         int lastIn = lastUsage.getOrDefault("prompt_tokens", 0);

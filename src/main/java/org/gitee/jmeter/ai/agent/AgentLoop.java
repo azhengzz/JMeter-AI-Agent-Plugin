@@ -78,13 +78,12 @@ public class AgentLoop {
             SessionManager sessionManager,
             AiService aiService) {
 
-        int maxIterations = Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tool.iterations", "50"));
-        int toolResultMaxChars = Integer.parseInt(AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
-        long toolTimeoutMs = Long.parseLong(AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
+        int maxIterations = AiConfig.getMaxToolIterations();
+        int toolResultMaxChars = AiConfig.getToolResultMaxChars();
+        long toolTimeoutMs = AiConfig.getToolTimeoutMs();
 
         // Cap at 300s: past that a subagent is presumed hung and the turn moves on.
-        long drainTimeoutSec = Long.parseLong(
-            AiConfig.getProperty("agent.subagent.drain.timeout.seconds", "120"));
+        long drainTimeoutSec = AiConfig.getSubagentDrainTimeoutSeconds();
         this.subagentDrainTimeoutMs = Math.min(drainTimeoutSec, 300L) * 1000L;
 
         this.agentRunner = new AgentRunner(

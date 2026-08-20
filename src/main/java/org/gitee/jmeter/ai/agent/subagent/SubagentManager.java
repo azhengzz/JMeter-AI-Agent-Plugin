@@ -64,8 +64,6 @@ public class SubagentManager {
     private final int maxIterations;
     private final long toolTimeoutMs;
     private final int toolResultMaxChars;
-    private final long statusRetentionMs;
-    private final int maxCompletedStatuses;
 
     private final ExecutorService executor;
 
@@ -101,18 +99,10 @@ public class SubagentManager {
         this.resultSink = resultSink;
         this.generationSettings = aiService != null ? aiService.getGenerationSettings() : null;
 
-        this.maxConcurrent = Math.max(1, Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.max.concurrent", "1")));
-        this.maxIterations = Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.max.iterations", "50"));
-        this.toolTimeoutMs = Long.parseLong(
-            AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
-        this.toolResultMaxChars = Integer.parseInt(
-            AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
-        this.statusRetentionMs = Long.parseLong(
-            AiConfig.getProperty("agent.subagent.status.retention.seconds", "60")) * 1000L;
-        this.maxCompletedStatuses = Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.status.max.completed", "10"));
+        this.maxConcurrent = Math.max(1, AiConfig.getSubagentMaxConcurrent());
+        this.maxIterations = AiConfig.getSubagentMaxIterations();
+        this.toolTimeoutMs = AiConfig.getToolTimeoutMs();
+        this.toolResultMaxChars = AiConfig.getToolResultMaxChars();
 
         AtomicInteger threadSeq = new AtomicInteger();
         ThreadFactory factory = r -> {
@@ -486,28 +476,6 @@ public class SubagentManager {
             log.info("Cancelled {} subagent(s) for session {}", cancelled, sessionKey);
         }
         return cancelled;
-    }
-
-    /** Drop finished statuses past their TTL, keeping the newest few. */
-    private void pruneStatuses() {
-        long now = System.currentTimeMillis();
-        List<SubagentStatus> completed = new ArrayList<>();
-        for (SubagentStatus status : statuses.values()) {
-            if (!status.isTerminal() || status.getFinishedAt() == null) {
-                continue;
-            }
-            if (now - status.getFinishedAt().toEpochMilli() > statusRetentionMs) {
-                statuses.remove(status.getTaskId());
-            } else {
-                completed.add(status);
-            }
-        }
-        if (completed.size() > maxCompletedStatuses) {
-            completed.sort(Comparator.comparing(SubagentStatus::getFinishedAt));
-            for (int i = 0; i < completed.size() - maxCompletedStatuses; i++) {
-                statuses.remove(completed.get(i).getTaskId());
-            }
-        }
     }
 
     /** Cancel everything in flight and shut the pool down. */

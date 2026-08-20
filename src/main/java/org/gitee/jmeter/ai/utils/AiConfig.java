@@ -1,27 +1,47 @@
 package org.gitee.jmeter.ai.utils;
 
 import org.apache.jmeter.util.JMeterUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
 
 public class AiConfig {
+    private static final Logger log = LoggerFactory.getLogger(AiConfig.class);
 
     public static String getProperty(String key, String defaultValue) {
         return JMeterUtils.getPropDefault(key, defaultValue);
     }
 
     /**
-     * Typed accessors. Empty/unset values return {@code defaultValue}; non-numeric
-     * values still throw {@code NumberFormatException} (same as the previous inline
-     * parsing). Unlike {@code Integer.parseInt(getProperty(key, "x"))}, an empty
-     * configured value returns the default instead of throwing.
+     * Typed accessors. Unset (null/empty) values return {@code defaultValue}; a
+     * non-numeric configured value logs an ERROR naming the bad value and falls back
+     * to {@code defaultValue} instead of throwing.
      */
     public static int getInt(String key, int defaultValue) {
         String v = JMeterUtils.getPropDefault(key, null);
-        return (v == null || v.isEmpty()) ? defaultValue : Integer.parseInt(v);
+        if (v == null || v.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(v);
+        } catch (NumberFormatException e) {
+            log.error("Config {} expects an integer but was '{}'; using default {}", key, v, defaultValue);
+            return defaultValue;
+        }
     }
 
     public static long getLong(String key, long defaultValue) {
         String v = JMeterUtils.getPropDefault(key, null);
-        return (v == null || v.isEmpty()) ? defaultValue : Long.parseLong(v);
+        if (v == null || v.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(v);
+        } catch (NumberFormatException e) {
+            log.error("Config {} expects a long but was '{}'; using default {}", key, v, defaultValue);
+            return defaultValue;
+        }
     }
 
     public static boolean getBoolean(String key, boolean defaultValue) {
@@ -31,7 +51,15 @@ public class AiConfig {
 
     public static double getDouble(String key, double defaultValue) {
         String v = JMeterUtils.getPropDefault(key, null);
-        return (v == null || v.isEmpty()) ? defaultValue : Double.parseDouble(v);
+        if (v == null || v.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(v);
+        } catch (NumberFormatException e) {
+            log.error("Config {} expects a double but was '{}'; using default {}", key, v, defaultValue);
+            return defaultValue;
+        }
     }
 
     /**
@@ -121,5 +149,245 @@ public class AiConfig {
     public static long getSessionReapTtlMs() {
         int days = getInt("agent.session.reap.ttl.days", 7);
         return days * 24L * 60L * 60L * 1000L;
+    }
+
+    // ---- Agent 核心循环 ----
+
+    /**
+     * Agent Loop 是否启用。默认 true。
+     */
+    public static boolean isAgentEnabled() {
+        return getBoolean("agent.enabled", true);
+    }
+
+    /** 单次 Agent 回合最大工具迭代次数。默认 50。 */
+    public static int getMaxToolIterations() {
+        return getInt("jmeter.ai.max.tool.iterations", 50);
+    }
+
+    /** 上下文窗口 token 上限。默认 65536。 */
+    public static int getContextWindowTokens() {
+        return getInt("jmeter.ai.context.window.tokens", 65536);
+    }
+
+    /** 生成最大 token 数。默认 4096。 */
+    public static int getMaxTokens() {
+        return getInt("jmeter.ai.max.tokens", 4096);
+    }
+
+    /** 工具结果最大字符数(超过截断)。默认 16000。 */
+    public static int getToolResultMaxChars() {
+        return getInt("agent.tool.result.max.chars", 16000);
+    }
+
+    /** 单次工具调用超时(毫秒)。默认 30000。 */
+    public static long getToolTimeoutMs() {
+        return getLong("agent.tools.timeout.ms", 30000);
+    }
+
+    /** 对话历史消息条数上限。默认 120。 */
+    public static int getMaxHistorySize() {
+        return getInt("jmeter.ai.max.history.size", 120);
+    }
+
+    /** 工具输出字符串最大长度。默认 2048。 */
+    public static int getMaxStringLength() {
+        return getInt("jmeter.ai.tool.max.string.length", 2048);
+    }
+
+    /** 生成温度。默认 0.7。 */
+    public static double getTemperature() {
+        return getDouble("jmeter.ai.temperature", 0.7);
+    }
+
+    /** 推理强度(reasoning effort)。默认 medium。 */
+    public static String getReasoningEffort() {
+        return getProperty("jmeter.ai.reasoning.effort", "medium");
+    }
+
+    /** 自定义系统提示词。默认空串。 */
+    public static String getSystemPrompt() {
+        return getProperty("jmeter.ai.system.prompt", "");
+    }
+
+    /** 注入队列容量。默认 20。 */
+    public static int getInjectionQueueSize() {
+        return getInt("jmeter.ai.injection.queue.size", 20);
+    }
+
+    /** 每回合注入条数上限。默认 3。 */
+    public static int getInjectionMaxPerTurn() {
+        return getInt("jmeter.ai.injection.max.per.turn", 3);
+    }
+
+    // ---- 工具开关与参数 ----
+
+    /** JMeter 工具是否启用。默认 true。 */
+    public static boolean isJmeterToolsEnabled() {
+        return getBoolean("agent.tools.jmeter.enabled", true);
+    }
+
+    /** 文件系统工具是否启用。默认 false。 */
+    public static boolean isFilesystemToolsEnabled() {
+        return getBoolean("agent.tools.filesystem.enabled", false);
+    }
+
+    /** web 工具是否启用。默认 false。 */
+    public static boolean isWebsearchToolsEnabled() {
+        return getBoolean("agent.tools.websearch.enabled", false);
+    }
+
+    /** exec 工具是否启用。默认 false。 */
+    public static boolean isExecToolsEnabled() {
+        return getBoolean("agent.tools.exec.enabled", false);
+    }
+
+    /** 文件系统工具允许的目录(逗号分隔)。默认空串。 */
+    public static String getFilesystemAllowedDirs() {
+        return getProperty("agent.tools.filesystem.allowed.dirs", "");
+    }
+
+    /** 文件系统工具拒绝的目录(逗号分隔)。默认空串。 */
+    public static String getFilesystemDeniedDirs() {
+        return getProperty("agent.tools.filesystem.denied.dirs", "");
+    }
+
+    /** exec 工具超时(秒)。默认 60。 */
+    public static int getExecTimeout() {
+        return getInt("agent.tools.exec.timeout", 60);
+    }
+
+    /** exec 工具工作目录。默认空串。 */
+    public static String getExecWorkingDir() {
+        return getProperty("agent.tools.exec.working.dir", "");
+    }
+
+    /** exec 工具 PATH 追加。默认空串。 */
+    public static String getExecPathAppend() {
+        return getProperty("agent.tools.exec.path.append", "");
+    }
+
+    /** exec 工具拒绝的命令模式。默认空串。 */
+    public static String getExecDenyPatterns() {
+        return getProperty("agent.tools.exec.deny.patterns", "");
+    }
+
+    // ---- web 工具 ----
+
+    /** web 工具 SSRF 防护是否启用。默认 true。 */
+    public static boolean isWebSsrfProtection() {
+        return getBoolean("agent.tools.web.ssrf.protection", true);
+    }
+
+    /** web 工具最大重定向次数。默认 5。 */
+    public static int getWebMaxRedirects() {
+        return getInt("agent.tools.web.max.redirects", 5);
+    }
+
+    /** webfetch 超时(秒)。默认 30。 */
+    public static int getWebfetchTimeout() {
+        return getInt("agent.tools.webfetch.timeout", 30);
+    }
+
+    /** websearch provider。默认 jina。 */
+    public static String getWebsearchProvider() {
+        return getProperty("agent.tools.websearch.provider", "jina");
+    }
+
+    /** websearch 最大结果数。默认 10。 */
+    public static int getWebsearchMaxResults() {
+        return getInt("agent.tools.websearch.max.results", 10);
+    }
+
+    /** websearch 超时(秒)。默认 30。 */
+    public static int getWebsearchTimeout() {
+        return getInt("agent.tools.websearch.timeout", 30);
+    }
+
+    /** websearch Jina API key。默认空串。 */
+    public static String getWebsearchJinaApiKey() {
+        return getProperty("agent.tools.websearch.jina.api.key", "");
+    }
+
+    // ---- 子代理 ----
+
+    /** 异步子代理是否启用。默认 false。 */
+    public static boolean isSubagentEnabled() {
+        return getBoolean("agent.subagent.enabled", false);
+    }
+
+    /** 每主会话并发子代理上限。默认 1。 */
+    public static int getSubagentMaxConcurrent() {
+        return getInt("agent.subagent.max.concurrent", 1);
+    }
+
+    /** 单次子代理工具迭代上限。默认 50。 */
+    public static int getSubagentMaxIterations() {
+        return getInt("agent.subagent.max.iterations", 50);
+    }
+
+    /** 主回合等待子代理结果的阻塞时长(秒)。默认 120。 */
+    public static long getSubagentDrainTimeoutSeconds() {
+        return getLong("agent.subagent.drain.timeout.seconds", 120);
+    }
+
+    // ---- 记忆 / 会话 ----
+
+    /** Agent 记忆是否启用。默认 true。 */
+    public static boolean isMemoryEnabled() {
+        return getBoolean("agent.memory.enabled", true);
+    }
+
+    // ---- GUI / 展示 ----
+
+    /** 聊天输入框字体大小(0=默认)。默认 0。 */
+    public static int getChatFontSize() {
+        return getInt("ai.chat.font.size", 0);
+    }
+
+    /** 是否显示工具调用。默认 true。 */
+    public static boolean isChatShowToolCalls() {
+        return getBoolean("ai.chat.show.tool.calls", true);
+    }
+
+    /** 是否显示思考内容。默认 false。 */
+    public static boolean isChatShowThinking() {
+        return getBoolean("ai.chat.show.thinking", false);
+    }
+
+    /** 聊天工具结果最大展示长度。默认 500。 */
+    public static int getChatToolResultMaxLength() {
+        return getInt("ai.chat.tool.result.max.length", 500);
+    }
+
+    /** JMeter LoggerPanel 最大行数(仅用于 get_log_panel_content 的容量提示)。默认 1000。 */
+    public static int getLoggerPanelMaxLength() {
+        return getInt("jmeter.loggerpanel.maxlength", 1000);
+    }
+
+    // ---- workspace ----
+
+    /**
+     * workspace 路径。解析委托 {@link WorkspacePaths#resolveWorkspace()}(单一事实来源,
+     * 含 {@code agent.workspace.path} 属性 / JMETER_HOME / user.dir 三档回退)。
+     */
+    public static Path getWorkspacePath() {
+        return WorkspacePaths.resolveWorkspace();
+    }
+
+    /**
+     * 打印当前配置快照(仅存活配置项)。供启动路径调用一次。
+     */
+    public static void logConfiguration() {
+        log.info("Agent Configuration:");
+        log.info("  enabled: {}", isAgentEnabled());
+        log.info("  maxToolIterations: {}", getMaxToolIterations());
+        log.info("  contextWindowTokens: {}", getContextWindowTokens());
+        log.info("  maxHistorySize: {}", getMaxHistorySize());
+        log.info("  maxStringLength: {}", getMaxStringLength());
+        log.info("  memoryEnabled: {}", isMemoryEnabled());
+        log.info("  workspacePath: {}", getWorkspacePath());
+        log.info("  jmeterToolsEnabled: {}", isJmeterToolsEnabled());
+        log.info("  toolTimeoutMs: {}", getToolTimeoutMs());
     }
 }

@@ -25,7 +25,6 @@ public class AgentRunSpec {
     private final AgentHook hook;
     private final int maxIterations;
     private final boolean failOnToolError;
-    private final Map<String, Object> options;
     private final String model;
     private final Double temperature;
     private final Integer maxTokens;
@@ -42,7 +41,6 @@ public class AgentRunSpec {
         this.hook = builder.hook;
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
-        this.options = builder.options != null ? builder.options : Collections.emptyMap();
         this.model = builder.model;
         this.temperature = builder.temperature;
         this.maxTokens = builder.maxTokens;
@@ -59,7 +57,6 @@ public class AgentRunSpec {
     public AgentHook getHook() { return hook; }
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
-    public Map<String, Object> getOptions() { return options; }
     public String getModel() { return model; }
     public Double getTemperature() { return temperature; }
     public Integer getMaxTokens() { return maxTokens; }
@@ -91,7 +88,6 @@ public class AgentRunSpec {
         private AgentHook hook;
         private int maxIterations = 40;
         private boolean failOnToolError = false;
-        private Map<String, Object> options;
         private String model;
         private Double temperature;
         private Integer maxTokens;
@@ -124,14 +120,6 @@ public class AgentRunSpec {
 
         public Builder failOnToolError(boolean fail) {
             this.failOnToolError = fail;
-            return this;
-        }
-
-        public Builder option(String key, Object value) {
-            if (this.options == null) {
-                this.options = new HashMap<>();
-            }
-            this.options.put(key, value);
             return this;
         }
 

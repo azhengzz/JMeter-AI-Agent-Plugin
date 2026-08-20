@@ -43,9 +43,9 @@ class LangCatProviderTest {
         aiConfigMock.when(() -> AiConfig.getProperty("langcat.api.key", "")).thenReturn("");
         aiConfigMock.when(() -> AiConfig.getProperty("langcat.api.base.url", DEFAULT_BASE)).thenReturn(DEFAULT_BASE);
         aiConfigMock.when(AiConfig::getDefaultModel).thenReturn("langcat:LongCat-2.0");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.temperature", "0.7")).thenReturn("0.7");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.max.tokens", "4096")).thenReturn("4096");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium")).thenReturn("medium");
+        aiConfigMock.when(() -> AiConfig.getTemperature()).thenReturn(0.7);
+        aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
+        aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");
         // Keep LangSmith tracing off so AiServiceFactory does not wrap the service.
         // (sample.rate is parsed unconditionally in the LangSmithClient constructor.)
         aiConfigMock.when(() -> AiConfig.getProperty("langsmith.enabled", "true")).thenReturn("false");

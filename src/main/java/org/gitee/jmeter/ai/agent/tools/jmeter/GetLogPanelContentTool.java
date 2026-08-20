@@ -4,10 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.LoggerPanel;
-import org.apache.jmeter.util.JMeterUtils;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner;
+import org.gitee.jmeter.ai.utils.AiConfig;
 
 import javax.swing.JTextArea;
 import java.lang.reflect.Field;
@@ -35,8 +35,6 @@ public class GetLogPanelContentTool extends AbstractTool {
     private static final int HARD_MAX_LINES = 500;
 
     private static final String TEXT_AREA_FIELD = "textArea";
-    private static final String CAPACITY_PROP = "jmeter.loggerpanel.maxlength";
-    private static final int DEFAULT_CAPACITY = 1000;
 
     @Override
     public String getName() {
@@ -124,7 +122,7 @@ public class GetLogPanelContentTool extends AbstractTool {
         }
 
         int total = snapshot.size();
-        int capacity = JMeterUtils.getPropDefault(CAPACITY_PROP, DEFAULT_CAPACITY);
+        int capacity = AiConfig.getLoggerPanelMaxLength();
 
         // Resolve startLine / endLine with tail-mode default and boundary clamp
         int start;

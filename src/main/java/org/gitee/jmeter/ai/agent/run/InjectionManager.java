@@ -29,10 +29,8 @@ public class InjectionManager {
     private final ConcurrentHashMap<String, LinkedBlockingQueue<String>> injectionQueues = new ConcurrentHashMap<>();
 
     public InjectionManager() {
-        this.maxQueueSize = Integer.parseInt(
-            AiConfig.getProperty("jmeter.ai.injection.queue.size", "20"));
-        this.maxInjectionsPerTurn = Integer.parseInt(
-            AiConfig.getProperty("jmeter.ai.injection.max.per.turn", "3"));
+        this.maxQueueSize = AiConfig.getInjectionQueueSize();
+        this.maxInjectionsPerTurn = AiConfig.getInjectionMaxPerTurn();
     }
 
     /**

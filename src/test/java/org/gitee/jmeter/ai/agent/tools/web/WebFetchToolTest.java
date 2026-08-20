@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mockStatic;
@@ -61,7 +62,9 @@ class WebFetchToolTest {
     }
 
     private void stubProp(String key, String value) {
-        jmeterUtilsMock.when(() -> JMeterUtils.getPropDefault(eq(key), anyString())).thenReturn(value);
+        // Typed getters call getPropDefault(key, null); getProperty calls getPropDefault(key, "<default>").
+        // Match both via any() so a null second arg still resolves to the stubbed value.
+        jmeterUtilsMock.when(() -> JMeterUtils.getPropDefault(eq(key), any())).thenReturn(value);
     }
 
     private static Map<String, Object> params(String key, Object value) {

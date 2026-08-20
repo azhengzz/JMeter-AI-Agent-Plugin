@@ -116,7 +116,7 @@ public class LangSmithClient {
     public LLMRun createRun(String runId, String name, Map<String, Object> inputs, List<String> tags) {
         if (!isEnabled() || !shouldSample()) {
             log.debug("LangSmith disabled or sampled out, skipping trace");
-            return new LLMRun(runId, name, this, false);
+            return new LLMRun(runId, this, false);
         }
 
         try {
@@ -180,7 +180,7 @@ public class LangSmithClient {
             runService.create(createParams);
             log.info("LangSmith run created successfully: runId={}", runId);
 
-            return new LLMRun(runId, name, this, true);
+            return new LLMRun(runId, this, true);
 
         } catch (Throwable e) {
             // Catch Throwable (not Exception): a Jackson/jar version skew throws
@@ -192,7 +192,7 @@ public class LangSmithClient {
             } else {
                 log.error("Failed to create LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
             }
-            return new LLMRun(runId, name, this, false);
+            return new LLMRun(runId, this, false);
         }
     }
 
@@ -297,25 +297,16 @@ public class LangSmithClient {
     }
 
     /**
-     * Get the sample rate for tracing.
-     */
-    public double getSampleRate() {
-        return sampleRate;
-    }
-
-    /**
      * Represents a single LLM run that can be updated with results.
      */
     public static class LLMRun {
         private final String runId;
-        private final String name;
         private final LangSmithClient client;
         private final boolean active;
         private final long startTime;
 
-        LLMRun(String runId, String name, LangSmithClient client, boolean active) {
+        LLMRun(String runId, LangSmithClient client, boolean active) {
             this.runId = runId;
-            this.name = name;
             this.client = client;
             this.active = active;
             this.startTime = System.currentTimeMillis();
@@ -344,27 +335,5 @@ public class LangSmithClient {
                 client.updateRun(runId, Map.of(), "error", error);
             }
         }
-
-        public String getRunId() {
-            return runId;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public boolean isActive() {
-            return active;
-        }
-    }
-
-    /**
-     * Convert a list of conversation strings to LangSmith message format.
-     */
-    public static Map<String, Object> formatConversation(java.util.List<String> conversation) {
-        Map<String, Object> result = new HashMap<>();
-        result.put("conversation", conversation);
-        result.put("message_count", conversation.size());
-        return result;
     }
 }

@@ -9,7 +9,7 @@ import java.nio.file.Paths;
  * Centralized workspace and built-in resource path resolution for the Agent.
  *
  * <p>Single source of truth for two distinct path concerns, previously duplicated
- * (and inconsistently normalized) across {@code AgentConfig}, {@code MemoryStore},
+ * (and inconsistently normalized) across {@code MemoryStore},
  * {@code SessionManager} and {@code SystemPrompt}:
  * <ul>
  *   <li><b>Workspace</b> — the user data area (MEMORY.md, sessions/, user skills),

@@ -188,7 +188,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         chatArea.setContentType("text/html");
         // Use configured font size if set, otherwise use system default font size
         Font defaultFont = UIManager.getFont("TextField.font");
-        int configuredFontSize = Integer.parseInt(AiConfig.getProperty("ai.chat.font.size", "0"));
+        int configuredFontSize = AiConfig.getChatFontSize();
         int fontSize = configuredFontSize > 0 ? configuredFontSize : defaultFont.getSize();
         Font largerFont = new Font(defaultFont.getFamily(), defaultFont.getStyle(), fontSize);
         largerFont = UiThemeUtil.ensureCjkSupport(largerFont);
@@ -949,8 +949,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } else {
             // Display tool call information only if not already shown progressively
             if (!toolCallsDisplayedProgressively) {
-                boolean showToolCalls = Boolean.parseBoolean(
-                    org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.show.tool.calls", "true"));
+                boolean showToolCalls = org.gitee.jmeter.ai.utils.AiConfig.isChatShowToolCalls();
 
                 if (showToolCalls && response.getToolEvents() != null && !response.getToolEvents().isEmpty()) {
                     displayToolCallInfo(response.getToolEvents());
@@ -1066,8 +1065,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Display a single tool event with styled output.
      */
     private void displaySingleToolEvent(ToolEvent event) throws BadLocationException {
-        int maxToolResultLength = Integer.parseInt(
-            org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+        int maxToolResultLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         Color statusColor;
         String statusIcon;

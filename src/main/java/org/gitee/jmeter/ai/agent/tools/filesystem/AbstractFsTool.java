@@ -25,7 +25,7 @@ public abstract class AbstractFsTool extends AbstractTool {
     public AbstractFsTool() {
         this.allowedDirectories = new ArrayList<>();
         this.deniedPaths = new ArrayList<>();
-        this.enabled = Boolean.parseBoolean(AiConfig.getProperty("agent.tools.filesystem.enabled", "false"));
+        this.enabled = AiConfig.isFilesystemToolsEnabled();
         initializeAllowedDirectories();
         initializeDeniedPaths();
     }
@@ -35,7 +35,7 @@ public abstract class AbstractFsTool extends AbstractTool {
      * Format: agent.tools.filesystem.allowed.dirs=/path1,/path2
      */
     private void initializeAllowedDirectories() {
-        String configDirs = AiConfig.getProperty("agent.tools.filesystem.allowed.dirs", "");
+        String configDirs = AiConfig.getFilesystemAllowedDirs();
         if (configDirs.isEmpty()) {
             // Default to user home and current working directory
             allowedDirectories.add(Path.of(System.getProperty("user.home")));
@@ -68,7 +68,7 @@ public abstract class AbstractFsTool extends AbstractTool {
      * Unlike allowed directories, denied paths do not need to exist and can be files or directories.
      */
     private void initializeDeniedPaths() {
-        String configPaths = AiConfig.getProperty("agent.tools.filesystem.denied.dirs", "");
+        String configPaths = AiConfig.getFilesystemDeniedDirs();
         if (configPaths.isEmpty()) {
             return;
         }

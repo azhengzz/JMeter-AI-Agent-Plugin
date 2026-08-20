@@ -66,11 +66,11 @@ public class ContextWindowManager {
     }
 
     public ContextWindowManager() {
-        this(Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536")), null);
+        this(AiConfig.getContextWindowTokens(), null);
     }
 
     private int getMaxCompletionTokens() {
-        return Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096"));
+        return AiConfig.getMaxTokens();
     }
 
     /**

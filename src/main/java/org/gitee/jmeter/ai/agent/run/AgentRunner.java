@@ -2,7 +2,7 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.context.ContextWindowManager;
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
+import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.hooks.AgentHookContext;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
@@ -72,7 +72,7 @@ public class AgentRunner {
         this.toolRegistry = toolRegistry;
         this.memoryConsolidator = memoryConsolidator;
         this.contextBuilder = contextBuilder;
-        int contextTokens = Integer.parseInt(AiConfig.getProperty("jmeter.ai.context.window.tokens", "65536"));
+        int contextTokens = AiConfig.getContextWindowTokens();
         this.contextWindowManager = new ContextWindowManager(contextTokens, memoryConsolidator);
         this.sessionManager = sessionManager;
         this.aiService = aiService;
@@ -146,7 +146,7 @@ public class AgentRunner {
                     messages = new ArrayList<>(spec.getInitialMessages());
                 } else {
                     messages = contextBuilder.buildMessages(
-                        session.getHistory(AgentConfig.getInstance().getMaxHistorySize()),
+                        session.getHistory(AiConfig.getMaxHistorySize()),
                         spec.getUserMessage(),
                         toolRegistry.getToolDefinitions()
                     );

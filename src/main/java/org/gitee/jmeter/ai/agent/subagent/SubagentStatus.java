@@ -53,7 +53,6 @@ public class SubagentStatus {
 
     public String getTaskId() { return taskId; }
     public String getLabel() { return label; }
-    public String getTaskDescription() { return taskDescription; }
     public String getMainSessionKey() { return mainSessionKey; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getFinishedAt() { return finishedAt; }
