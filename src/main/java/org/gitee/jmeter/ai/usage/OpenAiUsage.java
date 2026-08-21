@@ -35,7 +35,7 @@ public class OpenAiUsage {
      */
     private void initializeClient() {
         try {
-            String apiKey = AiConfig.getProperty("openai.api.key", "");
+            String apiKey = AiConfig.getOpenAiApiKey();
             if (apiKey.isEmpty()) {
                 log.warn("OpenAI API key is empty. Token usage information may not be accurate.");
             }

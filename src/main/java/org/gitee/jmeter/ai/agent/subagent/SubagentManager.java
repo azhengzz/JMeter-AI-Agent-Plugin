@@ -64,6 +64,10 @@ public class SubagentManager {
     private final int maxIterations;
     private final long toolTimeoutMs;
     private final int toolResultMaxChars;
+    /** 完成态状态可查询保留时长(秒),超期由 {@link #pruneTerminalStatuses()} 回收。 */
+    private final long statusRetentionSeconds;
+    /** 每会话完成态状态保留上限,超出按最旧淘汰(内存有界,防晚到结果无限累积)。 */
+    private final int statusMaxCompleted;
 
     private final ExecutorService executor;
 
@@ -103,6 +107,8 @@ public class SubagentManager {
         this.maxIterations = AiConfig.getSubagentMaxIterations();
         this.toolTimeoutMs = AiConfig.getToolTimeoutMs();
         this.toolResultMaxChars = AiConfig.getToolResultMaxChars();
+        this.statusRetentionSeconds = AiConfig.getSubagentStatusRetentionSeconds();
+        this.statusMaxCompleted = Math.max(0, AiConfig.getSubagentStatusMaxCompleted());
 
         AtomicInteger threadSeq = new AtomicInteger();
         ThreadFactory factory = r -> {
@@ -302,6 +308,63 @@ public class SubagentManager {
             ids.remove(taskId);
             if (ids.isEmpty()) {
                 sessionTasks.remove(mainSessionKey);
+            }
+        }
+        pruneTerminalStatuses();
+    }
+
+    /**
+     * Bound the terminal-status store so a long-lived instance never accumulates
+     * unbounded {@code statuses} entries (each late/undeliverable result stays
+     * queryable via {@code subagent_status}, but only for a window).
+     *
+     * <p>Two independent bounds, both evaluated on every finish (cheap relative to a
+     * run). A knob value of {@code 0} disables that bound:
+     * <ul>
+     *   <li><b>TTL</b> — a terminal status whose {@code finishedAt} is older than
+     *       {@code statusRetentionSeconds} is dropped ({@code 0} = never by TTL).</li>
+     *   <li><b>Per-session cap</b> — within one session, terminal statuses are kept
+     *       newest-first; the oldest are dropped beyond {@code statusMaxCompleted}
+     *       ({@code 0} = never by count).</li>
+     * </ul>
+     * Running (non-terminal) statuses are never touched.
+     */
+    private void pruneTerminalStatuses() {
+        Instant now = Instant.now();
+        long retentionMs = statusRetentionSeconds * 1000L;
+
+        // TTL pass + collect terminal statuses grouped by session for the cap pass.
+        Map<String, List<SubagentStatus>> terminalBySession = new java.util.HashMap<>();
+        for (SubagentStatus status : statuses.values()) {
+            if (!status.isTerminal()) {
+                continue;
+            }
+            if (statusRetentionSeconds > 0) {
+                Instant finishedAt = status.getFinishedAt();
+                if (finishedAt != null && now.toEpochMilli() - finishedAt.toEpochMilli() > retentionMs) {
+                    statuses.remove(status.getTaskId());
+                    continue;
+                }
+            }
+            if (statusMaxCompleted > 0) {
+                terminalBySession.computeIfAbsent(status.getMainSessionKey(), k -> new ArrayList<>())
+                    .add(status);
+            }
+        }
+
+        // Per-session cap pass: keep newest, drop oldest beyond the cap.
+        if (statusMaxCompleted <= 0) {
+            return;
+        }
+        for (List<SubagentStatus> sessionTerminal : terminalBySession.values()) {
+            if (sessionTerminal.size() <= statusMaxCompleted) {
+                continue;
+            }
+            sessionTerminal.sort(Comparator.comparing(
+                s -> s.getFinishedAt() != null ? s.getFinishedAt() : s.getStartedAt()));
+            int excess = sessionTerminal.size() - statusMaxCompleted;
+            for (int i = 0; i < excess; i++) {
+                statuses.remove(sessionTerminal.get(i).getTaskId());
             }
         }
     }

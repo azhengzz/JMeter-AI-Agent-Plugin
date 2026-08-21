@@ -43,6 +43,7 @@ class OpenAiServiceTest {
     static void setUpAll() {
         aiConfigMock = mockStatic(AiConfig.class);
         aiConfigMock.when(() -> AiConfig.getDefaultModel()).thenReturn("openai:gpt-4o");
+        aiConfigMock.when(() -> AiConfig.getDefaultProvider()).thenReturn("openai");
         aiConfigMock.when(() -> AiConfig.getTemperature()).thenReturn(0.7);
         aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
         aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");

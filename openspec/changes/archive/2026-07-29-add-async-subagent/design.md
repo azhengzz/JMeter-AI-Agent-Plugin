@@ -207,8 +207,8 @@ SwingWorker(非EDT) ─→ AgentLoop.processMessage(msg, sessionKey)
 | `agent.subagent.max.concurrent` | `1` | 每主会话并发上限 |
 | `agent.subagent.max.iterations` | `50` | 子代理迭代上限 |
 | `agent.subagent.drain.timeout.seconds` | `120` | 阻塞 drain 超时（上限 300） |
-| `agent.subagent.status.retention.seconds` | `60` | 完成态状态保留 TTL |
-| `agent.subagent.status.max.completed` | `10` | 保留的完成态状态上限 |
+| `agent.subagent.status.retention.seconds` | `60` | 完成态状态保留 TTL（晚到结果可查窗口） |
+| `agent.subagent.status.max.completed` | `10` | 每会话保留的完成态状态上限（0 = 不设上限） |
 
 ---
 

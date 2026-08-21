@@ -351,7 +351,6 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - `Codex.default.model` / `openai.default.model` / `ollama.default.model` - 模型选择
 - `Codex.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
 - `Codex.max.history.size` / `openai.max.history.size` - 对话历史限制
-- `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
 
 ## 开发参考
 

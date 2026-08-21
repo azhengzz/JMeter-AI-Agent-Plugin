@@ -49,8 +49,8 @@ public class OpenAiService implements AiService {
         this.currentModelId = AiConfig.getDefaultModel();
         this.generationSettings = GenerationSettings.fromConfig();
 
-        // Initialize client with default (openai) configuration
-        initializeClient("openai");
+        // Initialize client with the global default provider
+        initializeClient(AiConfig.getDefaultProvider());
 
         // Load system prompt using centralized utility
         this.systemPrompt = SystemPrompt.get();
@@ -126,7 +126,7 @@ public class OpenAiService implements AiService {
     /**
      * Extract the provider prefix from a model ID.
      * For example, "minimax:MiniMax-M2.7" returns "minimax".
-     * Returns "openai" if no provider prefix is found.
+     * Falls back to the global default provider when no prefix is found.
      */
     private String extractProvider(String modelId) {
         if (modelId != null && modelId.contains(":")) {
@@ -139,7 +139,7 @@ public class OpenAiService implements AiService {
                 }
             }
         }
-        return "openai"; // Default provider
+        return AiConfig.getDefaultProvider();
     }
 
     /**

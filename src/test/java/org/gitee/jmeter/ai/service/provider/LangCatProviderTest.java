@@ -47,9 +47,7 @@ class LangCatProviderTest {
         aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
         aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");
         // Keep LangSmith tracing off so AiServiceFactory does not wrap the service.
-        // (sample.rate is parsed unconditionally in the LangSmithClient constructor.)
-        aiConfigMock.when(() -> AiConfig.getProperty("langsmith.enabled", "true")).thenReturn("false");
-        aiConfigMock.when(() -> AiConfig.getProperty("langsmith.sample.rate", "1.0")).thenReturn("1.0");
+        aiConfigMock.when(AiConfig::isLangsmithEnabled).thenReturn(false);
 
         systemPromptMock = mockStatic(SystemPrompt.class);
         systemPromptMock.when(SystemPrompt::get).thenReturn("Mocked system prompt");

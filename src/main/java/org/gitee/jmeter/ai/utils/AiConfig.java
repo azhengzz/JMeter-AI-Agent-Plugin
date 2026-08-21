@@ -66,14 +66,14 @@ public class AiConfig {
      * Get the default model from global configuration.
      */
     public static String getDefaultModel() {
-        return JMeterUtils.getPropDefault("jmeter.ai.default.model", "MiniMax-M2.7");
+        return JMeterUtils.getPropDefault("jmeter.ai.default.model", "deepseek-v4-flash");
     }
 
     /**
      * Get the global default provider.
      */
     public static String getDefaultProvider() {
-        return JMeterUtils.getPropDefault("jmeter.ai.default.provider", "openai");
+        return JMeterUtils.getPropDefault("jmeter.ai.default.provider", "deepseek");
     }
 
     // ---- IPC server (CLI 驱动运行中 GUI) ----
@@ -227,19 +227,19 @@ public class AiConfig {
         return getBoolean("agent.tools.jmeter.enabled", true);
     }
 
-    /** 文件系统工具是否启用。默认 false。 */
+    /** 文件系统工具是否启用。默认 true。 */
     public static boolean isFilesystemToolsEnabled() {
-        return getBoolean("agent.tools.filesystem.enabled", false);
+        return getBoolean("agent.tools.filesystem.enabled", true);
     }
 
-    /** web 工具是否启用。默认 false。 */
+    /** web 工具是否启用。默认 true。 */
     public static boolean isWebsearchToolsEnabled() {
-        return getBoolean("agent.tools.websearch.enabled", false);
+        return getBoolean("agent.tools.websearch.enabled", true);
     }
 
-    /** exec 工具是否启用。默认 false。 */
+    /** exec 工具是否启用。默认 true。 */
     public static boolean isExecToolsEnabled() {
-        return getBoolean("agent.tools.exec.enabled", false);
+        return getBoolean("agent.tools.exec.enabled", true);
     }
 
     /** 文件系统工具允许的目录(逗号分隔)。默认空串。 */
@@ -309,6 +309,16 @@ public class AiConfig {
         return getProperty("agent.tools.websearch.jina.api.key", "");
     }
 
+    /** websearch Brave API key。默认空串。 */
+    public static String getWebsearchBraveApiKey() {
+        return getProperty("agent.tools.websearch.brave.api.key", "");
+    }
+
+    /** websearch Tavily API key。默认空串。 */
+    public static String getWebsearchTavilyApiKey() {
+        return getProperty("agent.tools.websearch.tavily.api.key", "");
+    }
+
     // ---- 子代理 ----
 
     /** 异步子代理是否启用。默认 false。 */
@@ -331,11 +341,70 @@ public class AiConfig {
         return getLong("agent.subagent.drain.timeout.seconds", 120);
     }
 
+    /** 完成态子代理状态的可查询保留时长(秒)。默认 60。 */
+    public static long getSubagentStatusRetentionSeconds() {
+        return getLong("agent.subagent.status.retention.seconds", 60);
+    }
+
+    /** 每会话保留的完成态子代理状态上限(超出按最旧淘汰)。默认 10。 */
+    public static int getSubagentStatusMaxCompleted() {
+        return getInt("agent.subagent.status.max.completed", 10);
+    }
+
     // ---- 记忆 / 会话 ----
 
     /** Agent 记忆是否启用。默认 true。 */
     public static boolean isMemoryEnabled() {
         return getBoolean("agent.memory.enabled", true);
+    }
+
+    // ---- Anthropic / OpenAI 服务键 ----
+
+    /** Anthropic API key。默认空串(未配置)。 */
+    public static String getAnthropicApiKey() {
+        return getProperty("anthropic.api.key", "");
+    }
+
+    /** Anthropic 日志级别。默认空串。 */
+    public static String getAnthropicLogLevel() {
+        return getProperty("anthropic.log.level", "");
+    }
+
+    /** Anthropic API base URL。默认空串(走 SDK 默认端点)。 */
+    public static String getAnthropicApiBaseUrl() {
+        return getProperty("anthropic.api.base.url", "");
+    }
+
+    /** OpenAI API key。默认空串。 */
+    public static String getOpenAiApiKey() {
+        return getProperty("openai.api.key", "");
+    }
+
+    // ---- LangSmith 链路追踪 ----
+
+    /** LangSmith 追踪是否启用。默认 false。 */
+    public static boolean isLangsmithEnabled() {
+        return getBoolean("langsmith.enabled", false);
+    }
+
+    /** LangSmith 采样率 (0.0-1.0)。默认 1.0 = 全量追踪。 */
+    public static double getLangsmithSampleRate() {
+        return getDouble("langsmith.sample.rate", 1.0);
+    }
+
+    /** LangSmith 项目名。默认 jmeter-ai。 */
+    public static String getLangsmithProjectName() {
+        return getProperty("langsmith.project.name", "jmeter-ai");
+    }
+
+    /** LangSmith API 端点。默认官方云；可覆盖为自托管/EU 区域。 */
+    public static String getLangsmithEndpoint() {
+        return getProperty("langsmith.endpoint", "https://api.smith.langchain.com");
+    }
+
+    /** LangSmith API key。默认空串。 */
+    public static String getLangsmithApiKey() {
+        return getProperty("langsmith.api.key", "");
     }
 
     // ---- GUI / 展示 ----

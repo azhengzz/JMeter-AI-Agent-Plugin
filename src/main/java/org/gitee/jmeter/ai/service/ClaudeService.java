@@ -46,9 +46,9 @@ public class ClaudeService implements AiService {
     private GenerationSettings generationSettings;
 
     public ClaudeService() {
-        String API_KEY = AiConfig.getProperty("anthropic.api.key", "YOUR_API_KEY");
+        String API_KEY = AiConfig.getAnthropicApiKey();
 
-        String loggingLevel = AiConfig.getProperty("anthropic.log.level", "");
+        String loggingLevel = AiConfig.getAnthropicLogLevel();
         if (!loggingLevel.isEmpty()) {
             System.setProperty("ANTHROPIC_LOG", loggingLevel);
             log.info("Enabled Anthropic client logging with level: {}", loggingLevel);
@@ -57,7 +57,7 @@ public class ClaudeService implements AiService {
         AnthropicOkHttpClient.Builder clientBuilder = AnthropicOkHttpClient.builder()
                 .apiKey(API_KEY);
 
-        String baseUrl = AiConfig.getProperty("anthropic.api.base.url", "");
+        String baseUrl = AiConfig.getAnthropicApiBaseUrl();
         if (!baseUrl.isEmpty()) {
             clientBuilder.baseUrl(baseUrl);
             log.info("Using custom Anthropic API base URL: {}", baseUrl);

@@ -37,7 +37,7 @@ public class AnthropicUsage {
      */
     private void initializeClient() {
         try {
-            String apiKey = AiConfig.getProperty("anthropic.api.key", "");
+            String apiKey = AiConfig.getAnthropicApiKey();
             if (apiKey.isEmpty()) {
                 log.warn("Anthropic API key is empty. Token usage information may not be accurate.");
             }

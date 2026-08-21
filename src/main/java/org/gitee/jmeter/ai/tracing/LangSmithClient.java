@@ -23,18 +23,15 @@ import java.util.UUID;
 /**
  * Client for sending traces to LangSmith using the official SDK.
  *
- * Configuration:
+ * Configuration (all read via {@link AiConfig}):
  * - langsmith.api.key: LangSmith API key (required)
  * - langsmith.project.name: Project name (default: "jmeter-ai")
- * - langsmith.endpoint: API endpoint (reads from environment or uses default)
- * - langsmith.enabled: Enable/disable tracing (default: true)
+ * - langsmith.endpoint: API endpoint (default: https://api.smith.langchain.com; override for self-hosted)
+ * - langsmith.enabled: Enable/disable tracing (default: false)
  * - langsmith.sample.rate: Sampling rate 0.0-1.0 (default: 1.0 = trace all)
  */
 public class LangSmithClient {
     private static final Logger log = LoggerFactory.getLogger(LangSmithClient.class);
-
-    private static final String DEFAULT_PROJECT = "jmeter-ai";
-    private static final double DEFAULT_SAMPLE_RATE = 1.0;
 
     private final String projectName;
     private final boolean enabled;
@@ -45,9 +42,9 @@ public class LangSmithClient {
     private final Map<String, String> dottedOrderCache;
 
     private LangSmithClient() {
-        this.projectName = AiConfig.getProperty("langsmith.project.name", DEFAULT_PROJECT);
-        this.enabled = Boolean.parseBoolean(AiConfig.getProperty("langsmith.enabled", "true"));
-        this.sampleRate = Double.parseDouble(AiConfig.getProperty("langsmith.sample.rate", String.valueOf(DEFAULT_SAMPLE_RATE)));
+        this.projectName = AiConfig.getLangsmithProjectName();
+        this.enabled = AiConfig.isLangsmithEnabled();
+        this.sampleRate = AiConfig.getLangsmithSampleRate();
         this.dottedOrderCache = new LinkedHashMap<>(64, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
@@ -56,7 +53,7 @@ public class LangSmithClient {
         };
 
         RunService service = null;
-        String apiKey = AiConfig.getProperty("langsmith.api.key", "");
+        String apiKey = AiConfig.getLangsmithApiKey();
 
         if (enabled && !apiKey.isEmpty()) {
             try {
@@ -64,6 +61,8 @@ public class LangSmithClient {
                 LangsmithOkHttpClient.Builder clientBuilder = LangsmithOkHttpClient.builder();
                 // Set API key explicitly
                 clientBuilder.apiKey(apiKey);
+                // Endpoint (default official cloud; override for self-hosted)
+                clientBuilder.baseUrl(AiConfig.getLangsmithEndpoint());
 
                 LangsmithClient client = clientBuilder.build();
                 service = client.runs();

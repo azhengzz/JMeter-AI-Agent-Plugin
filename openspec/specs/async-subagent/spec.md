@@ -85,7 +85,7 @@
 #### Scenario: 主代理主动查询子代理状态
 - **WHEN** 主代理调用 `subagent_status`
 - **THEN** 返回该会话子代理的 phase/iteration/tool_events/usage/error 等可读摘要（移植 Nanobot self.py 格式）
-- **AND** 近期完成的状态在 TTL（`agent.subagent.status.retention.seconds`）内可查
+- **AND** 完成态状态在保留窗口内可查：超 `agent.subagent.status.retention.seconds`（默认 60s）被回收，每会话超出 `agent.subagent.status.max.completed`（默认 10）按最旧淘汰
 
 #### Scenario: 终端用户只看到完成态摘要
 - **WHEN** 子代理完成、结果回合内回注主代理

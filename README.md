@@ -214,12 +214,12 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `jmeter.ai.temperature` | 温度参数（0.0-1.0），越低越确定性 | `0.7` |
-| `jmeter.ai.max.tokens` | 单次响应最大 Token 数 | `65536` |
-| `jmeter.ai.max.history.size` | 对话历史保留条数 | `10` |
-| `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high / xhigh / max | `none` |
-| `jmeter.ai.default.model` | 默认模型（所有提供者共用，除非运行时切换） | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | 默认提供者（anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat） | `minimax` |
-| `jmeter.ai.context.window.tokens` | 上下文窗口大小（供 ContextWindowManager、MemoryConsolidator、AgentRunner 使用） | `102400` |
+| `jmeter.ai.max.tokens` | 单次响应最大 Token 数 | `4096` |
+| `jmeter.ai.max.history.size` | 对话历史保留条数 | `120` |
+| `jmeter.ai.reasoning.effort` | 推理强度：none / low / medium / high / xhigh / max | `medium` |
+| `jmeter.ai.default.model` | 默认模型（所有提供者共用，除非运行时切换） | `deepseek-v4-flash` |
+| `jmeter.ai.default.provider` | 默认提供者（anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat） | `deepseek` |
+| `jmeter.ai.context.window.tokens` | 上下文窗口大小（供 ContextWindowManager、MemoryConsolidator、AgentRunner 使用） | `65536` |
 | `jmeter.ai.max.tool.iterations` | 单次 Agent 循环最大工具迭代数 | `50` |
 | `jmeter.ai.system.prompt` | 统一系统提示（覆盖内置默认提示，适用于所有提供者） | 空（使用内置提示） |
 
@@ -296,21 +296,13 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `agent.tool.result.max.chars` | 工具结果截断长度（字符） | `16000` |
 | `jmeter.ai.injection.queue.size` | 单个会话最大排队注入消息数 | `20` |
 | `jmeter.ai.injection.max.per.turn` | 每个 Agent 回合处理的注入消息上限 | `3` |
-| `agent.workspace.path` | 工作空间路径（保存 MEMORY.md、HISTORY.md、会话、技能、模板） | `jmeter-agent`（源码内置默认为 `{user.home}/.jmeter-ai/agent`） |
+| `agent.workspace.path` | 工作空间路径（保存 MEMORY.md、HISTORY.md、会话、技能、模板） | 三档回退：`agent.workspace.path` → `{jmeter.home}/bin/jmeter-agent`（默认）→ `{user.home}/.jmeter-ai/agent`（JMeter home 不可用时） |
 
 ### 记忆配置
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.memory.enabled` | 启用记忆系统 | `true` |
-| `agent.memory.consolidation.threshold` | 上下文窗口占比阈值（0.0-1.0），超出触发记忆整合 | `0.5` |
-
-### 会话配置
-
-| 属性 | 说明 | 默认值 |
-|------|------|--------|
-| `agent.session.timeout` | 会话超时时间（毫秒） | `3600000`（1 小时） |
-| `agent.session.max.sessions` | 最大活跃会话数 | `100` |
 
 ### 工具配置
 
@@ -318,7 +310,6 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.fail.on.error` | 工具执行出错时终止整个 Agent 循环 | `false` |
 | `agent.tools.timeout.ms` | 工具执行默认超时（毫秒） | `30000` |
 
 #### JMeter 工具
@@ -326,12 +317,14 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.tools.jmeter.enabled` | 启用 JMeter 工具 | `true` |
+| `jmeter.ai.tool.max.string.length` | 序列化 JMeter 元素时单个字符串属性值截断长度（字符） | `2048` |
+| `jmeter.loggerpanel.maxlength` | JMeter LoggerPanel 最大行数（用于 get_log_panel_content 容量提示） | `1000` |
 
 #### 文件系统工具
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.filesystem.enabled` | 启用文件系统工具 | `true`（源码内置默认 `false`） |
+| `agent.tools.filesystem.enabled` | 启用文件系统工具 | `true` |
 | `agent.tools.filesystem.allowed.dirs` | 允许访问的目录（逗号分隔） | 空（回落到用户主目录与当前工作目录） |
 | `agent.tools.filesystem.denied.dirs` | 禁止访问的路径（逗号分隔，支持目录或具体文件） | — |
 
@@ -339,7 +332,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.websearch.enabled` | 启用 Web 工具 | `true`（源码内置默认 `false`） |
+| `agent.tools.websearch.enabled` | 启用 Web 工具 | `true` |
 | `agent.tools.websearch.provider` | 搜索引擎（brave / tavily / jina） | `jina` |
 | `agent.tools.websearch.max.results` | 最大搜索结果数 | `10` |
 | `agent.tools.websearch.timeout` | 搜索超时（秒） | `30` |
@@ -353,7 +346,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.exec.enabled` | 启用命令执行工具 | `true`（源码内置默认 `false`） |
+| `agent.tools.exec.enabled` | 启用命令执行工具 | `true` |
 | `agent.tools.exec.timeout` | 默认超时（秒，最大 600） | `60` |
 | `agent.tools.exec.working.dir` | 限定工作目录（设置后仅允许该目录及其子目录） | — |
 | `agent.tools.exec.deny.patterns` | 危险命令拦截规则（正则，逗号分隔） | 内置默认规则（rm -rf、del /f、format、mkfs、shutdown 等） |
@@ -369,8 +362,8 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `agent.subagent.max.concurrent` | 每个主会话的最大并发子代理数（`1` 时串行执行） | `1` |
 | `agent.subagent.max.iterations` | 单次子代理运行的最大工具迭代数 | `50` |
 | `agent.subagent.drain.timeout.seconds` | 主回合等待子代理结果的阻塞时长（秒，硬上限 300）；超时后子代理继续运行，结果可经 `subagent_status` 查询，或在下个回合投递 | `120` |
-| `agent.subagent.status.retention.seconds` | 完成态子代理状态的可查询保留时长（秒） | `60` |
-| `agent.subagent.status.max.completed` | 每会话保留的完成态状态上限（超出按最旧淘汰） | `10` |
+| `agent.subagent.status.retention.seconds` | 完成态子代理状态可经 `subagent_status` 查询的保留时长（秒）；晚到/未投递结果保留此窗口后被回收；0 = 永不按时长回收 | `60` |
+| `agent.subagent.status.max.completed` | 每会话保留的完成态状态上限（超出按最旧淘汰）；0 = 永不按数量淘汰 | `10` |
 
 ### 聊天 UI 配置
 
@@ -379,6 +372,7 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `ai.chat.show.tool.calls` | 显示工具调用信息（工具名、状态、执行时间、结果） | `true` |
 | `ai.chat.show.thinking` | 显示模型思考/推理内容（关闭时移除 `<think>` 块） | `true`（源码内置默认 `false`） |
 | `ai.chat.tool.result.max.length` | 工具结果在聊天面板与日志中的最大显示长度 | `500` |
+| `ai.chat.font.size` | 聊天输入框字体大小（点，0 = 使用系统字体） | `0`（自动） |
 
 ### 链路追踪配置
 
@@ -389,6 +383,16 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `langsmith.project.name` | 项目名称（所有追踪归入该项目） | `jmeter-ai` |
 | `langsmith.endpoint` | API 端点 | `https://api.smith.langchain.com` |
 | `langsmith.sample.rate` | 采样率（0.0-1.0，1.0 = 全量追踪） | `1.0` |
+
+### IPC / CLI 配置
+
+| 属性 | 说明 | 默认值 |
+|------|------|--------|
+| `jmeter.ai.ipc.enabled` | 启用内嵌 IPC HTTP 服务（仅 loopback + token 鉴权），供 jmeter-cli 驱动运行中的 GUI 与跨实例协作 | `true` |
+| `jmeter.ai.ipc.bind` | 绑定地址（仅接受 loopback；`0.0.0.0`/`::`/`*` 会被拒绝） | `127.0.0.1` |
+| `jmeter.ai.ipc.port` | 监听端口（0 = 自动分配，推荐） | `0` |
+| `jmeter.ai.ipc.token` | 鉴权 token（空 = 启动时随机生成并写入端口文件） | 空（随机生成） |
+| `jmeter.ai.ipc.agent.timeout.ms` | `/agent` 路由同步等待超时（毫秒） | `120000` |
 
 ## API 配置指南
 

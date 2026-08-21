@@ -378,9 +378,8 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 - `anthropic.api.key` / `openai.api.key` - API 凭证
 - `jmeter.ai.default.provider` / `jmeter.ai.default.model` - 全局默认提供者与模型选择（读于 `AiConfig.java:47-48`；无 per-provider 默认模型属性）
-- `claude.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
-- `claude.max.history.size` / `openai.max.history.size` - 对话历史限制
-- `jmeter.ai.service.type` - 代码重构服务（"openai" 或 "anthropic"）
+- `jmeter.ai.temperature` - 响应创造力 (0.0-1.0)
+- `jmeter.ai.max.history.size` - 对话历史限制
 
 **多实例会话与协调（会话隔离、关闭整合与 IPC 均默认开启）：** 每个实例用独立会话文件（`sessions/{instanceId}.jsonl`），关闭时把未整合消息归档进共享 HISTORY.md（可选深度提炼写 MEMORY.md 供他实例系统提示可见），并通过 IPC 让实例间互相发现打开的 jmx 并委派任务。关闭记忆整合与跨实例协作无独立开关（整合始终开启，协作随 IPC 开关），详见 `openspec/changes/multi-instance-session-ipc/`。
 
@@ -397,8 +396,8 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - `agent.subagent.max.concurrent` - 每主会话并发子代理上限（默认 `1`）
 - `agent.subagent.max.iterations` - 单次子代理工具迭代上限（默认 `50`）
 - `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `120`，硬上限 `300`）
-- `agent.subagent.status.retention.seconds` - 完成态状态保留 TTL（默认 `60`）
-- `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`）
+- `agent.subagent.status.retention.seconds` - 完成态状态可查询保留 TTL 秒数（默认 `60`；晚到/未投递结果保留此窗口后被回收；0 = 不按时长回收）
+- `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`；超出按最旧淘汰；0 = 不按数量淘汰）
 
 完整可配置项见 `jmeter-ai-sample.properties`。
 

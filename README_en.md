@@ -217,12 +217,12 @@ These settings apply to all AI providers unless overridden by provider-specific 
 | Property | Description | Default |
 |----------|-------------|---------|
 | `jmeter.ai.temperature` | Temperature (0.0-1.0); lower = more deterministic | `0.7` |
-| `jmeter.ai.max.tokens` | Max tokens per response | `65536` |
-| `jmeter.ai.max.history.size` | Conversation history size to retain | `10` |
-| `jmeter.ai.reasoning.effort` | Reasoning effort: none / low / medium / high / xhigh / max | `none` |
-| `jmeter.ai.default.model` | Default model (shared by all providers unless switched at runtime) | `MiniMax-M2.7` |
-| `jmeter.ai.default.provider` | Default provider (anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat) | `minimax` |
-| `jmeter.ai.context.window.tokens` | Context window size (used by ContextWindowManager, MemoryConsolidator, AgentRunner) | `102400` |
+| `jmeter.ai.max.tokens` | Max tokens per response | `4096` |
+| `jmeter.ai.max.history.size` | Conversation history size to retain | `120` |
+| `jmeter.ai.reasoning.effort` | Reasoning effort: none / low / medium / high / xhigh / max | `medium` |
+| `jmeter.ai.default.model` | Default model (shared by all providers unless switched at runtime) | `deepseek-v4-flash` |
+| `jmeter.ai.default.provider` | Default provider (anthropic / openai / ollama / deepseek / zhipu / moonshot / minimax / langcat) | `deepseek` |
+| `jmeter.ai.context.window.tokens` | Context window size (used by ContextWindowManager, MemoryConsolidator, AgentRunner) | `65536` |
 | `jmeter.ai.max.tool.iterations` | Max tool iterations per agent loop | `50` |
 | `jmeter.ai.system.prompt` | Unified system prompt (overrides built-in default, applies to all providers) | Empty (uses built-in prompt) |
 
@@ -299,21 +299,13 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | `agent.tool.result.max.chars` | Tool result truncation length (chars) | `16000` |
 | `jmeter.ai.injection.queue.size` | Max queued injection messages per session | `20` |
 | `jmeter.ai.injection.max.per.turn` | Max injection messages processed per agent turn | `3` |
-| `agent.workspace.path` | Workspace path (stores MEMORY.md, HISTORY.md, sessions, skills, templates) | `jmeter-agent` (source-code built-in default: `{user.home}/.jmeter-ai/agent`) |
+| `agent.workspace.path` | Workspace path (stores MEMORY.md, HISTORY.md, sessions, skills, templates) | Three-tier fallback: `agent.workspace.path` → `{jmeter.home}/bin/jmeter-agent` (default) → `{user.home}/.jmeter-ai/agent` (when JMeter home is unavailable) |
 
 ### Memory Configuration
 
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.memory.enabled` | Enable memory system | `true` |
-| `agent.memory.consolidation.threshold` | Context window ratio threshold (0.0-1.0); exceeding it triggers consolidation | `0.5` |
-
-### Session Configuration
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `agent.session.timeout` | Session timeout (milliseconds) | `3600000` (1 hour) |
-| `agent.session.max.sessions` | Max active sessions | `100` |
 
 ### Tool Configuration
 
@@ -321,7 +313,6 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.fail.on.error` | Stop the entire agent loop on a tool error | `false` |
 | `agent.tools.timeout.ms` | Default tool execution timeout (ms) | `30000` |
 
 #### JMeter Tools
@@ -329,12 +320,14 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | Property | Description | Default |
 |----------|-------------|---------|
 | `agent.tools.jmeter.enabled` | Enable JMeter tools | `true` |
+| `jmeter.ai.tool.max.string.length` | Max characters of a single string property value before truncation when serializing JMeter elements | `2048` |
+| `jmeter.loggerpanel.maxlength` | Max lines of the JMeter LoggerPanel (used for get_log_panel_content capacity hint) | `1000` |
 
 #### Filesystem Tools
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.filesystem.enabled` | Enable filesystem tools | `true` (source-code built-in default: `false`) |
+| `agent.tools.filesystem.enabled` | Enable filesystem tools | `true` |
 | `agent.tools.filesystem.allowed.dirs` | Allowed directories (comma-separated) | Empty (falls back to user home and current working dir) |
 | `agent.tools.filesystem.denied.dirs` | Denied paths (comma-separated; supports dirs or specific files) | — |
 
@@ -342,7 +335,7 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.websearch.enabled` | Enable web tools | `true` (source-code built-in default: `false`) |
+| `agent.tools.websearch.enabled` | Enable web tools | `true` |
 | `agent.tools.websearch.provider` | Search engine (brave / tavily / jina) | `jina` |
 | `agent.tools.websearch.max.results` | Max search results | `10` |
 | `agent.tools.websearch.timeout` | Search timeout (seconds) | `30` |
@@ -356,7 +349,7 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `agent.tools.exec.enabled` | Enable exec tool | `true` (source-code built-in default: `false`) |
+| `agent.tools.exec.enabled` | Enable exec tool | `true` |
 | `agent.tools.exec.timeout` | Default timeout (seconds, max 600) | `60` |
 | `agent.tools.exec.working.dir` | Restrict working directory (only this dir and its subdirs allowed when set) | — |
 | `agent.tools.exec.deny.patterns` | Dangerous command patterns (regex, comma-separated) | Built-in defaults (rm -rf, del /f, format, mkfs, shutdown, etc.) |
@@ -372,8 +365,8 @@ The main agent can delegate a self-contained **read-only analysis task** to a ba
 | `agent.subagent.max.concurrent` | Max concurrent subagents per main session (at `1` they run serially) | `1` |
 | `agent.subagent.max.iterations` | Max tool iterations for a single subagent run | `50` |
 | `agent.subagent.drain.timeout.seconds` | Seconds the main turn parks waiting for a subagent result (hard cap 300); on timeout the subagent keeps running, its result stays queryable via `subagent_status` and may be delivered in a later turn | `120` |
-| `agent.subagent.status.retention.seconds` | How long (seconds) a finished subagent's status stays queryable | `60` |
-| `agent.subagent.status.max.completed` | Max finished statuses retained per session (oldest evicted beyond this) | `10` |
+| `agent.subagent.status.retention.seconds` | How long (seconds) a finished subagent's status stays queryable via `subagent_status`; a late/undeliverable result is kept this long then reclaimed; 0 = never reclaim by age | `60` |
+| `agent.subagent.status.max.completed` | Max finished statuses retained per session (oldest evicted beyond); 0 = never evict by count | `10` |
 
 ### Chat UI Configuration
 
@@ -382,6 +375,7 @@ The main agent can delegate a self-contained **read-only analysis task** to a ba
 | `ai.chat.show.tool.calls` | Show tool call info (tool name, status, execution time, result) | `true` |
 | `ai.chat.show.thinking` | Show model thinking/reasoning content (strips `<think>` blocks when off) | `true` (source-code built-in default: `false`) |
 | `ai.chat.tool.result.max.length` | Max tool result display length in chat panel and logs | `500` |
+| `ai.chat.font.size` | Chat input font size in points (0 = use system font) | `0` (auto) |
 
 ### Tracing Configuration
 
@@ -392,6 +386,16 @@ The main agent can delegate a self-contained **read-only analysis task** to a ba
 | `langsmith.project.name` | Project name (all traces grouped under this project) | `jmeter-ai` |
 | `langsmith.endpoint` | API endpoint | `https://api.smith.langchain.com` |
 | `langsmith.sample.rate` | Sampling rate (0.0-1.0; 1.0 = trace all requests) | `1.0` |
+
+### IPC / CLI Configuration
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `jmeter.ai.ipc.enabled` | Enable the embedded IPC HTTP server (loopback-only + token auth) for jmeter-cli to drive the running GUI and for cross-instance coordination | `true` |
+| `jmeter.ai.ipc.bind` | Bind address (loopback only; `0.0.0.0`/`::`/`*` are refused) | `127.0.0.1` |
+| `jmeter.ai.ipc.port` | Listen port (0 = auto-allocate, recommended) | `0` |
+| `jmeter.ai.ipc.token` | Auth token (empty = randomly generated at start and written to the port file) | Empty (random) |
+| `jmeter.ai.ipc.agent.timeout.ms` | Sync wait timeout (ms) for the `/agent` route | `120000` |
 
 ## API Setup Guide
 
