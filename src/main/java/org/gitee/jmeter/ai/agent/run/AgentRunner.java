@@ -159,7 +159,7 @@ public class AgentRunner {
                 // and always skip it for ephemeral subagent runs.
                 if (spec.isPersistSession() && !isAborted(spec)) {
                     int skipCount = Math.max(0, messages.size() - 1);
-                    saveMessagesToSession(session, result.getCurrentMessages(), skipCount);
+                    saveMessagesToSession(session, result.getCurrentMessages(), skipCount, abortSignal);
                     // 后置整合必须同步内联、跑在 run 任务线程上,不能丢到后台线程。前提:
                     // run future 一旦 complete,AgentLoop.whenComplete 会立即把本回合的 abort
                     // flag 从 map 移除,cancelActiveTask 靠查这个 map 才能取消一个回合。
@@ -681,7 +681,15 @@ public class AgentRunner {
      * Save new messages to session with optimization.
      * Based on Nanobot's session persistence optimizations.
      */
-    private void saveMessagesToSession(Session session, List<Message> allMessages, int skipCount) {
+    private void saveMessagesToSession(Session session, List<Message> allMessages, int skipCount,
+            BooleanSupplier abortSignal) {
+        // 二道复查（对抗审查 F1 残余窗口）：调用点守卫读到 false 之后、真正落盘之前，
+        // 会话可能已被 /new / "+" 重置——此时落盘会把旧会话内容写进刚清空的新会话
+        // 文件。重置经 signalCancel 必先置共享 abort flag，此处复查即收窄该窗口。
+        if (abortSignal.getAsBoolean()) {
+            log.info("Skipping session persistence: abort signalled during final persistence window");
+            return;
+        }
         for (int i = skipCount; i < allMessages.size(); i++) {
             Message msg = allMessages.get(i);
 
@@ -716,6 +724,13 @@ public class AgentRunner {
                 .metadata(msg.getMetadata())
                 .build();
             session.addMessage(optimizedMsg);
+        }
+        // 落盘前的最后一道复查（对抗审查 C2）：伤害发生在写文件——last-writer-wins
+        // 会覆盖重置线程刚写的空文件。入口复查后若重置恰好落地（载体被调度出去的
+        // 窗口），此处再拦一次，把窗口收窄到检查与写之间的指令级
+        if (abortSignal.getAsBoolean()) {
+            log.info("Skipping session file write: abort signalled during persistence");
+            return;
         }
         sessionManager.saveSession(session);
     }

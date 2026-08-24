@@ -9,6 +9,13 @@ import java.util.*;
 /**
  * Represents a conversation session with the Agent.
  * Contains message history and metadata.
+ *
+ * <p><b>线程模型（2026-08 对抗审查 F1 后加固）：</b>Session 会被两类线程并发触碰——
+ * 回合的载体线程（addMessage/saveSession 遍历）与 GUI EDT（/new、"+" 重置时的
+ * 快照/clear/saveSession）。全部结构化访问已 {@code synchronized}（monitor 即实例
+ * 本体，{@code SessionManager#saveSession} 的文件写持同一 monitor 串行化），
+ * {@link #getMessages()} 返回<b>快照拷贝</b>而非活视图——迭代期间的结构修改不再
+ * 抛 ConcurrentModificationException，也不再读到撕裂状态。
  */
 public class Session {
     private final String key;
@@ -29,38 +36,39 @@ public class Session {
         return key;
     }
 
-    public List<Message> getMessages() {
-        return Collections.unmodifiableList(messages);
+    /** 快照拷贝：迭代安全（见类注释线程模型）。 */
+    public synchronized List<Message> getMessages() {
+        return Collections.unmodifiableList(new ArrayList<>(messages));
     }
 
-    public LocalDateTime getCreatedAt() {
+    public synchronized LocalDateTime getCreatedAt() {
         return createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public synchronized LocalDateTime getUpdatedAt() {
         return updatedAt;
     }
 
-    public int getLastConsolidatedIndex() {
+    public synchronized int getLastConsolidatedIndex() {
         return lastConsolidatedIndex;
     }
 
-    public void setLastConsolidatedIndex(int index) {
+    public synchronized void setLastConsolidatedIndex(int index) {
         this.lastConsolidatedIndex = index;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public synchronized void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public synchronized void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
 
     /**
      * Add a message to the session
      */
-    public void addMessage(Message message) {
+    public synchronized void addMessage(Message message) {
         if (message != null) {
             messages.add(message);
             updatedAt = LocalDateTime.now();
@@ -70,7 +78,7 @@ public class Session {
     /**
      * Add multiple messages to the session
      */
-    public void addMessages(List<Message> newMessages) {
+    public synchronized void addMessages(List<Message> newMessages) {
         if (newMessages != null) {
             messages.addAll(newMessages);
             updatedAt = LocalDateTime.now();
@@ -84,7 +92,7 @@ public class Session {
      * 3. Drop leading non-user messages (user-turn alignment)
      * 4. Skip orphaned tool results (_find_legal_start)
      */
-    public List<Message> getHistory(int maxMessages) {
+    public synchronized List<Message> getHistory(int maxMessages) {
         // Step 1: unconsolidated = self.messages[self.last_consolidated:]
         List<Message> unconsolidated = (lastConsolidatedIndex >= messages.size())
                 ? Collections.emptyList()
@@ -129,7 +137,7 @@ public class Session {
     /**
      * Get messages after the last consolidation index.
      */
-    public List<Message> getUnconsolidatedMessages() {
+    public synchronized List<Message> getUnconsolidatedMessages() {
         if (lastConsolidatedIndex >= messages.size()) {
             return Collections.emptyList();
         }
@@ -139,7 +147,7 @@ public class Session {
     /**
      * Get messages in a specific index range [from, to).
      */
-    public List<Message> getMessagesInRange(int from, int to) {
+    public synchronized List<Message> getMessagesInRange(int from, int to) {
         if (from >= messages.size() || from >= to) {
             return Collections.emptyList();
         }
@@ -149,14 +157,14 @@ public class Session {
     /**
      * Get total message count
      */
-    public int getMessageCount() {
+    public synchronized int getMessageCount() {
         return messages.size();
     }
 
     /**
      * Clear all messages from the session
      */
-    public void clear() {
+    public synchronized void clear() {
         messages.clear();
         lastConsolidatedIndex = 0;
         updatedAt = LocalDateTime.now();
@@ -165,19 +173,19 @@ public class Session {
     /**
      * Check if session is empty
      */
-    public boolean isEmpty() {
+    public synchronized boolean isEmpty() {
         return messages.isEmpty();
     }
 
     /**
      * Get age of session in minutes
      */
-    public long getAgeMinutes() {
+    public synchronized long getAgeMinutes() {
         return java.time.Duration.between(createdAt, LocalDateTime.now()).toMinutes();
     }
 
     @Override
-    public String toString() {
+    public synchronized String toString() {
         return "Session{" +
                 "key='" + key + '\'' +
                 ", messageCount=" + messages.size() +

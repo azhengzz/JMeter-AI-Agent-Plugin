@@ -89,6 +89,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     // Separate Stop button (visible during agent processing)
     private JButton stopButton;
 
+    /**
+     * 会话渲染代数：/new、"+" 重置时 +1。订阅渲染回调（worker 回调、republishListener、
+     * 进度回调、注入回退 future）时捕获当前值，投递时比对——不符即旧会话的迟到渲染，
+     * 丢弃。关两类窗口（对抗审查 F2/F3）：重置恰逢回合完成（signalCancel 对已完成
+     * future no-op）时排在其后的结论投递；工具批在跑（join 不响应 interrupt）时
+     * 重置后落地的 TOOL_CALL 进度。都在 EDT 上读写，volatile 仅兜底。
+     */
+    private volatile int conversationGeneration;
+
     // Selection context bar (current JMeter element + focused control)
     private SelectionContextBar selectionContextBar;
     private JCheckBox injectContextCheckBox;
@@ -561,11 +570,62 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             if (agentLoop == null) {
                 log.warn("AgentLoop is disabled or failed to initialize. Some features may not work.");
             } else {
+                registerRepublishListener();
                 log.info("AgentLoop initialized successfully");
             }
         } catch (Exception e) {
             log.error("Failed to initialize AgentLoop", e);
         }
+    }
+
+    /**
+     * 注册 re-publish 孤儿回合监听器（见 {@link AgentLoop#setRepublishListener}）。
+     *
+     * <p>AgentLoop 在回合收尾时把注入队列残留用户消息重新发布成新回合（触发路径：
+     * Stop 后垂死回合残留注入消息、注入周期超限残留、pre-pickup 取消善后），
+     * 但该回合的 future 没有调用方持有——原 SwingWorker 早已终止。不在此接管，
+     * 最终回复将不被渲染（回合跑完面板却无输出）。接管动作对齐
+     * {@code startNormalSend} 的 UI 语义：切 Stop 模式 + loading 指示，
+     * future 完成后走 {@link #handleAgentResponse} 统一渲染与复位。
+     */
+    private void registerRepublishListener() {
+        if (agentLoop == null) {
+            return;
+        }
+        agentLoop.setRepublishListener(future -> {
+            // 捕获订阅时的会话代数：重置后到达的孤儿 UI 武装/渲染全部过期
+            final int generation = conversationGeneration;
+            SwingUtilities.invokeLater(() -> {
+                if (generation != conversationGeneration || future.isDone()) {
+                    // 会话已重置，或孤儿已终结（含被重置取消——取消路径无人复位 UI）：
+                    // 不再武装，否则新会话留下常驻 Stop 按钮与幽灵 loading
+                    return;
+                }
+                setButtonToStopMode();
+                try {
+                    messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(),
+                            getThemeColor("Label.disabledForeground", Color.GRAY));
+                } catch (BadLocationException e) {
+                    log.error("Error adding loading indicator for republished turn", e);
+                }
+            });
+            future.whenComplete((response, ex) -> SwingUtilities.invokeLater(() -> {
+                if (generation != conversationGeneration) {
+                    return; // 会话已重置：旧会话回合的结论不得渲染进新聊天区
+                }
+                if (ex != null) {
+                    // 孤儿回合被 Stop 取消属正常路径：UI 已由 stopActiveTask 复位，跳过
+                    if (ex instanceof java.util.concurrent.CancellationException
+                            || ex.getCause() instanceof java.util.concurrent.CancellationException) {
+                        return;
+                    }
+                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+                    handleAgentResponse(AgentResponse.error("Processing failed: " + cause.getMessage()), generation);
+                    return;
+                }
+                handleAgentResponse(response, generation);
+            }));
+        });
     }
 
     /**
@@ -640,6 +700,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 if (agentLoop == null) {
                     log.warn("AgentLoop failed to initialize after service switch");
                 } else {
+                    // 监听器注册在 AgentLoop 实例上而非工厂——实例重建后必须重注册，
+                    // 否则 re-publish 孤儿回合的最终回复静默丢失（GUI 无渲染）
+                    registerRepublishListener();
                     log.info("AI service switched successfully to {}", newService.getName());
                     // Update currentAiService after successful switch
                     currentAiService = newService;
@@ -678,20 +741,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private void startNewConversation() {
         log.info("Starting new conversation");
 
-        // Archive current session messages via AI consolidation (Nanobot alignment)
+        // 渲染代数 +1：旧会话的迟到渲染（回合结论、工具批进度、孤儿 UI 武装）从此
+        // 全部丢弃（对抗审查 F2/F3）
+        conversationGeneration++;
+
+        // 重置核心（与 cmdNew 共用）：中止在跑回合与子代理、代数 +1、归档/清空/落盘
         if (agentLoop != null) {
-            var session = agentLoop.getSessionManager().getOrCreate(InstanceContext.currentSessionKey());
-            var snapshot = session.getUnconsolidatedMessages();
-
-            session.clear();
-            agentLoop.getSessionManager().saveSession(session);
-            agentLoop.getSessionManager().invalidate(session.getKey());
-
-            if (!snapshot.isEmpty()) {
-                agentLoop.getMemoryConsolidator().archiveMessagesAsync(snapshot);
-            }
-
-            log.info("Session archived {} messages", snapshot.size());
+            agentLoop.resetConversation(InstanceContext.currentSessionKey());
         }
 
         // Clear the chat area
@@ -699,6 +755,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Display welcome message
         displayWelcomeMessage();
+
+        // 取消后无人回调 handleAgentResponse 复位 UI（被取消回合的 SwingWorker 静默
+        // 结束、republishListener 跳过 CancellationException），须自行复位，否则
+        // Stop 按钮常驻、Send 按钮停留在注入模式。
+        removeLoadingIndicator();
+        setButtonToSendMode();
 
         // A new chat is an explicit "back to the start" action: always re-pin to the bottom so
         // the welcome message is in view regardless of where the previous (now-cleared) log was
@@ -776,13 +838,16 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Switch button to Stop mode while processing
         setButtonToStopMode();
 
+        // 捕获订阅时的会话代数：本回合一切渲染（结论/进度）经其过滤，重置后到达即丢弃
+        final int generation = conversationGeneration;
+
         // Use AgentSwingWorker to process the message through AgentLoop
         activeWorker = new AgentSwingWorker(
                 agentLoop,
                 message,
                 InstanceContext.currentSessionKey(),
-                this::handleAgentResponse,
-                this::handleProgress
+                r -> handleAgentResponse(r, generation),
+                u -> handleProgress(u, generation)
         );
         activeWorker.execute();
     }
@@ -851,8 +916,26 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } else {
             // Extremely narrow race: run finished right after our hasActiveRun check.
             // The future is a full agent run — connect it to the normal UI handlers.
+            // handle（而非 thenAccept，对齐 republishListener/handleNewCommand）：真实
+            // 失败也要渲染并复位，否则 loading 与 Stop 模式悬挂；取消则静默（重置/Stop
+            // 路径自行复位）
             log.info("Race condition: future not done, connecting to handleAgentResponse");
-            future.thenAccept(response -> SwingUtilities.invokeLater(() -> handleAgentResponse(response)));
+            final int generation = conversationGeneration;
+            future.handle((response, ex) -> {
+                final AgentResponse r;
+                if (ex != null) {
+                    if (ex instanceof java.util.concurrent.CancellationException
+                            || ex.getCause() instanceof java.util.concurrent.CancellationException) {
+                        return null;
+                    }
+                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+                    r = AgentResponse.error("Processing failed: " + cause.getMessage());
+                } else {
+                    r = response;
+                }
+                SwingUtilities.invokeLater(() -> handleAgentResponse(r, generation));
+                return null;
+            });
         }
     }
 
@@ -868,6 +951,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * {@code AgentSwingWorker.done}, so the response shows exactly once.
      */
     private void handleNewCommand() {
+        // 渲染代数 +1：/new 即重置，旧会话的迟到渲染从此过期。必须在订阅本命令
+        // 自身的回执 future 之前完成——回执以新代数订阅，正常渲染。
+        conversationGeneration++;
+
         // Clear the chat area for a fresh session.
         chatArea.setText("");
 
@@ -899,6 +986,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // also resets the UI the prior run created (loading indicator, Stop button,
         // worker ref). handle (not thenAccept) so a cmdNew failure still surfaces.
         CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", InstanceContext.currentSessionKey());
+        final int generation = conversationGeneration;
         future.handle((response, ex) -> {
             final AgentResponse r;
             if (ex != null) {
@@ -908,7 +996,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             } else {
                 r = response;
             }
-            SwingUtilities.invokeLater(() -> handleAgentResponse(r));
+            SwingUtilities.invokeLater(() -> handleAgentResponse(r, generation));
             return null;
         });
     }
@@ -924,14 +1012,27 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (panel == null) {
             return;
         }
+        // 对齐 /new、"+"（对抗审查 C3）：渲染代数 +1 让旧会话迟到渲染过期；取消路径
+        // 无人回调复位，UI 须自行复位（退出取消后继续使用时不得留常驻 Stop 模式）
+        panel.conversationGeneration++;
         panel.chatArea.setText("");
         panel.displayWelcomeMessage();
+        panel.removeLoadingIndicator();
+        panel.setButtonToSendMode();
     }
 
     /**
      * Handle AgentLoop response callback.
+     *
+     * @param generation 订阅时捕获的会话渲染代数：与当前不符即旧会话的迟到投递，
+     *                   整体丢弃（不渲染、不复位）——防其污染重置后的新聊天区
      */
-    private void handleAgentResponse(AgentResponse response) {
+    private void handleAgentResponse(AgentResponse response, int generation) {
+        if (generation != conversationGeneration) {
+            log.debug("Dropping stale response render from a previous conversation");
+            return;
+        }
+
         // Clear active worker reference
         activeWorker = null;
 
@@ -962,16 +1063,27 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Re-enable input
         messageField.setEnabled(true);
-        setButtonToSendMode();
+        // 仍有回合在跑（如紧随其后的 re-publish 孤儿回合）时保持 Stop 模式，由该回合
+        // 完成时复位；否则本回合的复位会把孤儿接管设置的 Stop 模式错误翻回 Send 模式
+        if (agentLoop == null || !agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
+            setButtonToSendMode();
+        }
         messageField.requestFocusInWindow();
     }
 
     /**
      * Handle typed progress updates from the agent loop.
      * Renders different types (THINKING, TOOL_CALL, ERROR, PROGRESS) with appropriate styling.
+     *
+     * @param generation 订阅时捕获的会话渲染代数：与当前不符即旧会话的迟到进度
+     *                   （典型：重置时仍在跑的工具批完成后发布的 TOOL_CALL），丢弃
      */
-    private void handleProgress(ProgressUpdate update) {
+    private void handleProgress(ProgressUpdate update, int generation) {
         SwingUtilities.invokeLater(() -> {
+            if (generation != conversationGeneration) {
+                log.debug("Dropping stale progress render from a previous conversation");
+                return;
+            }
             try {
                 removeLoadingIndicator();
 

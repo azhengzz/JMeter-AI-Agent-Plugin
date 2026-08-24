@@ -293,6 +293,11 @@ public final class IpcServer {
             } catch (ExecutionException ee) {
                 sendError(ex, 500, "agent failed: " + rootMessage(ee));
                 return;
+            } catch (java.util.concurrent.CancellationException ce) {
+                // Stop 按钮/关闭对话框取消了该回合：409 让委派方可读地处理（重试/放弃），
+                // 而非落入外层 catch(Exception) 变成 500 "server error: null"
+                sendError(ex, 409, "turn cancelled before completion");
+                return;
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 sendError(ex, 500, "interrupted");

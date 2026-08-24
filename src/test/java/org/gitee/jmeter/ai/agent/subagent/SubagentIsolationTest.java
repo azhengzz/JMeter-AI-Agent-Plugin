@@ -168,11 +168,11 @@ class SubagentIsolationTest {
     @Test
     void drainBlockingReturnsReadyMessagesWithoutWaiting() {
         InjectionManager manager = new InjectionManager();
-        manager.register("s1");
+        var queue = manager.register("s1");
         manager.offer("s1", "ready");
 
         long start = System.currentTimeMillis();
-        List<String> items = manager.drainBlocking("s1", 3, 10_000);
+        List<String> items = texts(manager.drainBlocking(queue, 3, 10_000));
 
         assertEquals(List.of("ready"), items);
         assertTrue(System.currentTimeMillis() - start < 1_000, "must not block when a message is ready");
@@ -181,9 +181,9 @@ class SubagentIsolationTest {
     @Test
     void drainBlockingReturnsEmptyOnTimeout() {
         InjectionManager manager = new InjectionManager();
-        manager.register("s1");
+        var queue = manager.register("s1");
 
-        List<String> items = manager.drainBlocking("s1", 3, 150);
+        List<String> items = texts(manager.drainBlocking(queue, 3, 150));
 
         assertTrue(items.isEmpty());
     }
@@ -191,12 +191,12 @@ class SubagentIsolationTest {
     @Test
     void drainBlockingWakesWhenResultArrives() throws Exception {
         InjectionManager manager = new InjectionManager();
-        manager.register("s1");
+        var queue = manager.register("s1");
 
         AtomicReference<List<String>> result = new AtomicReference<>();
         CountDownLatch done = new CountDownLatch(1);
         Thread waiter = new Thread(() -> {
-            result.set(manager.drainBlocking("s1", 3, 10_000));
+            result.set(texts(manager.drainBlocking(queue, 3, 10_000)));
             done.countDown();
         });
         waiter.start();
@@ -211,14 +211,14 @@ class SubagentIsolationTest {
     @Test
     void drainBlockingRestoresInterruptFlagAndReturnsEmpty() throws Exception {
         InjectionManager manager = new InjectionManager();
-        manager.register("s1");
+        var queue = manager.register("s1");
 
         AtomicReference<List<String>> result = new AtomicReference<>();
         AtomicBoolean interruptFlagSet = new AtomicBoolean();
         CountDownLatch done = new CountDownLatch(1);
 
         Thread waiter = new Thread(() -> {
-            result.set(manager.drainBlocking("s1", 3, 30_000));
+            result.set(texts(manager.drainBlocking(queue, 3, 30_000)));
             interruptFlagSet.set(Thread.currentThread().isInterrupted());
             done.countDown();
         });
@@ -230,6 +230,11 @@ class SubagentIsolationTest {
         assertTrue(done.await(5, TimeUnit.SECONDS), "interrupt must not leave the thread parked");
         assertTrue(result.get().isEmpty(), "interrupted drain returns empty rather than throwing");
         assertTrue(interruptFlagSet.get(), "interrupt flag must be restored so the loop aborts");
+    }
+
+    /** 句柄 API 返回 InjectionItem；断言仍按纯文本比较。 */
+    private static List<String> texts(List<InjectionManager.InjectionItem> items) {
+        return items.stream().map(InjectionManager.InjectionItem::getText).toList();
     }
 
     // ---- run context ----

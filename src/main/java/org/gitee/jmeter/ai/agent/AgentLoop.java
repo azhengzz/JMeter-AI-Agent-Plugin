@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -29,6 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,6 +56,11 @@ public class AgentLoop {
     private final ConcurrentHashMap<String, CountDownLatch> completionLatches = new ConcurrentHashMap<>();
     private final InjectionManager injectionManager = new InjectionManager();
 
+    // 会话重置代数（/new、"+" 开新会话时递增）：垂死回合收尾 re-publish 残留前比对，
+    // 代数已变 = 残留属于被放弃的旧会话，丢弃。Stop 不递增——D2.2 的
+    // 「ack 过的消息不悬挂」恢复契约仅在会话未被重置时成立。
+    private final ConcurrentHashMap<String, Long> sessionEpochs = new ConcurrentHashMap<>();
+
     // Subagent support (null when agent.subagent.enabled=false)
     private volatile SubagentManager subagentManager;
     private final long subagentDrainTimeoutMs;
@@ -64,11 +72,49 @@ public class AgentLoop {
     // Session whose turn this thread is currently executing, so a command running
     // inside that turn (e.g. /new) does not cancel the turn it is running in.
     private final ThreadLocal<String> turnOwnedByThisThread = new ThreadLocal<>();
+    // 当前线程正在执行的回合自身的中止句柄与 future：回合内命令（/new、关闭整合清空）
+    // 触发 signalCancel 时按<b>身份</b>豁免调用者自身——取消自身会在命令返回前杀死
+    // 自己（用户看到 CancellationException 而非确认），但同会话的其他回合（Stop→/new
+    // 序列里垂死回合在 /new 排队期间 re-publish 的旧会话孤儿）仍必须随重置消亡。
+    private final ThreadLocal<TurnSelfRef> currentTurnSelf = new ThreadLocal<>();
+
+    /** 回合自身句柄对（见 {@link #currentTurnSelf}）。 */
+    private record TurnSelfRef(AtomicBoolean abortFlag, CompletableFuture<AgentResponse> future) {}
+
+    // 本线程刚执行的重置所翻转到的会话代数（resetConversation 在栅栏内写入；命令回合
+    // 的 lambda 在派发成功后读取并清除）。回合收尾对注入残留的分类只采纳「本回合
+    // 自身命令造成的翻转」，不重读 currentEpoch——并发的外来重置（"+" 点击、关闭整合
+    // 清空）落在派发窗口内时，重读会把被其放弃的旧会话残留洗白进最新会话（R4-B）。
+    // 仅 loop 线程读取；EDT 路径（Phase 2 内联 cmdNew）写入后无人读，残留无害。
+    private final ThreadLocal<Long> ownResetEpoch = new ThreadLocal<>();
+
+    /**
+     * 重置栅栏锁：{@link #resetConversation} 的「取消 + 代数翻转」与
+     * {@link #republishLeftovers} 的「代数检查 + 重发布」在此互斥——两者都是
+     * check-then-act，不加锁时重置与垂死回合收尾的重发布可互相穿插（对抗审查
+     * C4/C8：旧代数孤儿漏网重发布、或重发布恰好横跨代数翻转的缝隙）。
+     */
+    private final Object resetFenceLock = new Object();
 
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
     private volatile Map<String, Integer> lastUsage = Map.of();
     private volatile ProgressCallback progressCallback;
+
+    /**
+     * re-publish 回合监听器：回合收尾把队列残留重新发布成新回合时，该回合没有
+     * 调用方持有其 future（原 SwingWorker/IPC 调用方早已终止），最终 AgentResponse
+     * 若无消费者将被静默丢弃（GUI 不渲染）。注册方（AiChatPanel）通过本监听器接管
+     * 孤儿回合的 future，渲染最终回复并接管 UI 状态。
+     */
+    private volatile java.util.function.Consumer<CompletableFuture<AgentResponse>> republishListener;
+
+    /**
+     * 注册 re-publish 孤儿回合监听器。传 null 清除。
+     */
+    public void setRepublishListener(java.util.function.Consumer<CompletableFuture<AgentResponse>> listener) {
+        this.republishListener = listener;
+    }
 
     public AgentLoop(
             ToolRegistry toolRegistry,
@@ -176,10 +222,11 @@ public class AgentLoop {
         }
 
         // Phase 2: Mid-turn injection routing
-        // activeTasks 在方法结束前提交时,覆盖 [提交→完成] 全程;injectionQueues 仅在执行器
-        // pickup 后置位,留有 [提交→pickup] 窗口,突发并发请求会绕过注入短路各自进
-        // Phase 3 排队,挤满 ipc-worker 且队尾纯排队耗光 120s 超时。补 activeTasks 闭合该窗口。
-        if (activeTasks.containsKey(sessionKey) || injectionManager.hasActiveRun(sessionKey)) {
+        // 路由唯一依据：路由槽存在 = 最新回合可注入（单一事实来源）。signalCancel 摘槽后
+        // 垂死会话天然不可注入——新消息只能走 Phase 3 开新回合；槽在 startTurn 提交前
+        // 即注册，[提交→pickup] 窗口内的并发 offer 拿得到队列（DelegationGuardTest
+        // 确定性的前提：窗口消息不被拆成独立回合排到忙碌回合之后）。
+        if (injectionManager.hasActiveRun(sessionKey)) {
             // 委派回合绝不并入注入队列:委派方阻塞等待的是任务结果,不是"已注入"回执;
             // 且注入队列只存 String,并入会静默丢失 delegated 标记 → 深度守卫被绕过
             // (队列消息要么被并入正在跑的本地用户回合、要么以 delegated=false 重发布)。
@@ -208,102 +255,278 @@ public class AgentLoop {
         }
 
         // Phase 3: Normal processing (via executor)
+        return startTurn(raw, message, sessionKey, callback, delegated);
+    }
+
+    /**
+     * Phase 3：直接启动一个回合（经单线程 executor），不经 Phase 1 命令路由与
+     * Phase 2 注入短路。除 processMessage 路由完毕后调用外，回合收尾的 leftover
+     * re-publish 也走这里——re-publish 的语义是「起独立回合」，经 Phase 2 会被
+     * 先提交回合的注入队列吸收成多余 ack。注入队列里只可能是纯用户消息
+     * （priority/dispatchable 命令在 Phase 1/2 已拦截，公告在 re-publish 前已过滤），
+     * 跳过命令路由安全。
+     *
+     * <p>D2.2 结构（对齐 Nanobot loop.py 的 per-turn pending queue + 身份条件摘除）：
+     * <ul>
+     *   <li>队列归回合私有：提交前 register 占路由槽并拿句柄，lambda 按<b>句柄</b>
+     *       抽干/清理——垂死回合偷不到后继回合的消息，cleanup 条件摘槽不误摘后继；</li>
+     *   <li>手工 future + executor.execute（而非 supplyAsync）：supplyAsync 对已取消
+     *       （result 已置）的任务会整体跳过 lambda（AsyncSupply.run 判 d.result==null），
+     *       pre-pickup 被取消回合的队列将无人善后。手工提交使被取消的死任务被取出时
+     *       仍运行 guard 分支：按句柄抽干队列残留并作废（2026-08-23 契约修订：取消
+     *       语义不重发布），窗口内已 ack 的消息不悬挂。</li>
+     * </ul>
+     */
+    private CompletableFuture<AgentResponse> startTurn(
+            String raw,
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated) {
         final AtomicBoolean abortFlag = new AtomicBoolean(false);
         final CountDownLatch completionLatch = new CountDownLatch(1);
         abortFlags.put(sessionKey, abortFlag);
         completionLatches.put(sessionKey, completionLatch);
 
+        final LinkedBlockingQueue<InjectionManager.InjectionItem> queue = injectionManager.register(sessionKey);
+
         // Marks this turn as the active one; a subagent spawned here compares
         // against it before announcing so late results cannot derail a later turn.
         final Object turnToken = new Object();
 
-        CompletableFuture<AgentResponse> future = CompletableFuture.supplyAsync(() -> {
-            injectionManager.register(sessionKey);
-            activeTurnTokens.put(sessionKey, turnToken);
-            turnOwnedByThisThread.set(sessionKey);
-            try {
-                // Check regular commands first (inside executor)
-                Session session = sessionManager.getOrCreate(sessionKey);
-                CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
-                String cmdResult = commandRouter.dispatch(ctx);
-                if (cmdResult != null) {
-                    return AgentResponse.success(cmdResult);
+        final CompletableFuture<AgentResponse> future = new CompletableFuture<>();
+        try {
+            executorService.execute(() -> {
+                if (future.isCancelled()) {
+                    // pre-pickup 取消的善后：本回合从未运行（对齐 supplyAsync 的跳过
+                    // 语义），但 [提交→pickup] 窗口内已 ack 入队的消息不能悬挂——按句柄
+                    // 抽干并作废（2026-08-23 契约修订：取消语义一律作废，重置取消与
+                    // Stop 取消无需再按代数区分——队列消息必然 ack 于取消之前，
+                    // cancelRouting 与 offer 在 CHM bin 锁下互斥，摘槽后无新 offer）
+                    discardCancelledLeftovers(injectionManager.cleanup(sessionKey, queue), sessionKey);
+                    return;
                 }
-
-                // Build run spec with generation defaults
-                AgentRunSpec spec = AgentRunSpec.builder()
-                    .userMessage(message)
-                    .sessionKey(sessionKey)
-                    .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
-                    .maxIterations(defaultMaxIterations)
-                    .model(AiConfig.getDefaultModel())
-                    .temperature(generationSettings.getTemperature())
-                    .maxTokens(generationSettings.getMaxTokens())
-                    .reasoningEffort(generationSettings.getReasoningEffort())
-                    .abortFlag(abortFlag)
-                    .injectionCallback(limit -> drainInjected(sessionKey, limit))
-                    .delegated(delegated)
-                    .build();
-
-                // Run agent
-                AgentRunResult result = agentRunner.run(spec).join();
-
-                // Capture usage stats for /status command
+                activeTurnTokens.put(sessionKey, turnToken);
+                turnOwnedByThisThread.set(sessionKey);
+                currentTurnSelf.set(new TurnSelfRef(abortFlag, future));
+                ownResetEpoch.remove(); // 防本线程上一回合/上一命令的残留
+                // 本回合归属的会话代数：/new、"+" 重置会话时代数 +1，收尾 re-publish
+                // 残留前比对——代数已变则残留属于被放弃的旧会话，丢弃。在 pickup 时
+                // 读取；命令派发成功后若<b>本回合自身</b>执行了重置，改采其翻转到的
+                // 代数（见下方 ownResetEpoch 分支）：/new 回合自身队列里 ack 过的消息
+                // 在 /new 之后输入、属于新会话，必须 re-publish 而非被旧代数误杀
+                long turnEpoch = currentEpoch(sessionKey);
+                AgentResponse outcome = null;
+                Throwable failure = null;
                 try {
-                    Map<String, Object> meta = result.getMetadata();
-                    if (meta != null && meta.containsKey("usage")) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Integer> usage = (Map<String, Integer>) meta.get("usage");
-                        setLastUsage(usage);
-                    }
-                } catch (Exception e) {
-                    log.debug("Could not capture usage stats", e);
-                }
+                    // Check regular commands first (inside executor)
+                    Session session = sessionManager.getOrCreate(sessionKey);
+                    CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
+                    String cmdResult = commandRouter.dispatch(ctx);
+                    if (cmdResult != null) {
+                        outcome = AgentResponse.success(cmdResult);
+                        // 仅采纳本回合自身命令造成的代数翻转（R4-B）：不重读
+                        // currentEpoch——派发窗口内并发的外来重置（"+"、关闭整合清空）
+                        // 不会被采纳，其放弃的残留按 pickup 代数比对，正确丢弃
+                        Long own = ownResetEpoch.get();
+                        if (own != null) {
+                            turnEpoch = own;
+                            ownResetEpoch.remove();
+                        }
+                    } else {
+                        // Build run spec with generation defaults
+                        AgentRunSpec spec = AgentRunSpec.builder()
+                            .userMessage(message)
+                            .sessionKey(sessionKey)
+                            .hook(callback != null ? new ProgressCallbackHookAdapter(callback) : null)
+                            .maxIterations(defaultMaxIterations)
+                            .model(AiConfig.getDefaultModel())
+                            .temperature(generationSettings.getTemperature())
+                            .maxTokens(generationSettings.getMaxTokens())
+                            .reasoningEffort(generationSettings.getReasoningEffort())
+                            .abortFlag(abortFlag)
+                            .injectionCallback(limit -> drainInjected(queue, sessionKey, limit))
+                            .delegated(delegated)
+                            .build();
 
-                // Convert to legacy response format
-                return result.toAgentResponse();
-            } finally {
-                // This turn is over: stop accepting subagent announcements for it,
-                // and reset the timeout latch so the next turn may block again.
-                // Under the same lock as offerInjection, so a result being delivered
-                // right now either lands before the turn closes or is refused — never
-                // enqueued into a queue that is about to be drained and re-published.
-                synchronized (turnTeardownLock) {
-                    activeTurnTokens.remove(sessionKey, turnToken);
-                }
-                drainTimedOut.remove(sessionKey);
-                // The agent-loop thread is reused by the next turn.
-                turnOwnedByThisThread.remove();
+                        // Run agent
+                        AgentRunResult result = agentRunner.run(spec).join();
 
-                // Cleanup: re-publish remaining messages as new processMessage calls
-                // so they are fully processed by the agent (not just saved to history).
-                // Mirrors Nanobot's finally block at loop.py:817-835.
-                List<String> remaining = injectionManager.cleanup(sessionKey);
-                if (!remaining.isEmpty()) {
-                    log.info("Re-publishing {} leftover message(s) for session {}",
-                        remaining.size(), sessionKey);
-                    for (String msg : remaining) {
-                        // 注入队列里只可能是用户消息:委派请求在 Phase 2 的 delegated 分支即被
-                        // 拒绝返回(见上文"委派回合绝不并入注入队列"),从不 offer 入队。故此处
-                        // 写死 delegated=false 语义上必然正确、没有委派标记可丢;若委派消息被
-                        // 并入队列又以此 false 重发布,DelegationGuard(深度守卫)会被绕过,被
-                        // 委派回合可再委派出去(跨实例 ping-pong)。
-                        processMessage(msg, sessionKey, callback, false);
+                        // Capture usage stats for /status command
+                        try {
+                            Map<String, Object> meta = result.getMetadata();
+                            if (meta != null && meta.containsKey("usage")) {
+                                @SuppressWarnings("unchecked")
+                                Map<String, Integer> usage = (Map<String, Integer>) meta.get("usage");
+                                setLastUsage(usage);
+                            }
+                        } catch (Exception e) {
+                            log.debug("Could not capture usage stats", e);
+                        }
+
+                        // Convert to legacy response format
+                        outcome = result.toAgentResponse();
                     }
+                } catch (Throwable t) {
+                    failure = t;
+                } finally {
+                    // This turn is over: stop accepting subagent announcements for it,
+                    // and reset the timeout latch so the next turn may block again.
+                    // Under the same lock as offerInjection, so a result being delivered
+                    // right now either lands before the turn closes or is refused — never
+                    // enqueued into a queue that is about to be drained and re-published.
+                    synchronized (turnTeardownLock) {
+                        activeTurnTokens.remove(sessionKey, turnToken);
+                    }
+                    drainTimedOut.remove(sessionKey);
+                    // The agent-loop thread is reused by the next turn.
+                    turnOwnedByThisThread.remove();
+                    currentTurnSelf.remove();
+
+                    // Cleanup: drain this turn's own queue (by handle) and decide the
+                    // leftovers' fate — cancelled turns void them (contract 2026-08-23),
+                    // naturally-completed turns re-publish user messages as fresh turns.
+                    // Mirrors Nanobot loop.py's finally block (identity-checked pop).
+                    republishLeftovers(injectionManager.cleanup(sessionKey, queue), sessionKey,
+                            turnEpoch, callback, abortFlag.get());
+                }
+                if (failure != null) {
+                    future.completeExceptionally(failure);
+                } else {
+                    future.complete(outcome);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            // executor 已退役（模型切换 AgentLoopFactory.reset / shutdown）：回合从未
+            // 入队。回收路由槽；队列若已有 [提交→execute] 间隙并入的消息，已无处
+            // 投递——ERROR 可见化便于找回。
+            List<InjectionManager.InjectionItem> stranded = injectionManager.cleanup(sessionKey, queue);
+            for (InjectionManager.InjectionItem item : stranded) {
+                if (!item.isAnnouncement()) {
+                    log.error("Agent loop executor retired before turn started; message not processed: '{}'",
+                        item.getText());
                 }
             }
-        }, executorService);
+            future.complete(AgentResponse.error("Agent loop is shutting down; message not processed: " + raw));
+        }
 
         // Track active task for cancellation support
         activeTasks.put(sessionKey, future);
         future.whenComplete((r, e) -> {
-            activeTasks.remove(sessionKey);
-            abortFlags.remove(sessionKey);
-            completionLatches.remove(sessionKey);
+            // 按值条件删除：本回合 finally 的 re-publish 已把新回合的 future/flag/latch
+            // put 进同一 key，无条件 remove(key) 会当场摘掉新回合的表项——新回合将
+            // 变成 Stop 不可达且 latch 错乱
+            activeTasks.remove(sessionKey, future);
+            abortFlags.remove(sessionKey, abortFlag);
+            completionLatches.remove(sessionKey, completionLatch);
             completionLatch.countDown();
         });
 
         return future;
+    }
+
+    /**
+     * 回合收尾（自然完成 finally / pre-pickup guard）的统一出口：决定队列残留的去向。
+     * <ul>
+     *   <li>取消（cancelled=true）：残留一律作废（见 {@link #discardCancelledLeftovers}）；
+     *       Stop 与重置同语义——消费进上下文的消息本就随回合作废，队列残留保持同
+     *       命运，消除「点得快被复活、点得慢被作废」的时序差异；</li>
+     *   <li>自然完成：代数已翻（会话被 /new 或 "+" 重置）→ 残留属于被放弃的旧会话，
+     *       作废；代数一致 → 把用户消息重新发布成独立回合。re-publish 回合没有调用方
+     *       持有其 future，交 {@link #republishListener} 消费；监听器异常必须吞掉——
+     *       这里跑在收尾路径上，异常会炸掉循环使后续残留丢失（回合本身已提交，不受
+     *       影响）。subagent 公告丢弃（结果可经 subagent_status 查询，不得伪造用户回合）。</li>
+     * </ul>
+     *
+     * @param turnEpoch 本回合启动时捕获的会话代数：自然完成收尾时与当前代数不一致
+     *                  说明会话已被重置
+     * @param cancelled 本回合被取消（abort flag 已置，含 Stop 与重置）：残留一律作废
+     */
+    private void republishLeftovers(List<InjectionManager.InjectionItem> items, String sessionKey,
+            long turnEpoch, ProgressCallback callback, boolean cancelled) {
+        if (items.isEmpty()) {
+            return;
+        }
+        if (cancelled) {
+            discardCancelledLeftovers(items, sessionKey);
+            return;
+        }
+        // 代数检查与 startTurn 重发布整体在栅栏锁内（对抗审查 C4/C8）：与
+        // resetConversation 的「取消 + 代数翻转」互斥，杜绝检查后、重发布前
+        // 重置恰好落地的 TOCTOU 缝隙
+        synchronized (resetFenceLock) {
+            if (currentEpoch(sessionKey) != turnEpoch) {
+                // 会话重置是显式放弃：旧会话连同未消费的注入消息一起结束。重置后残留
+                // 若仍被 re-publish，其回复会写入新 session 文件并渲染进刚清空的聊天区
+                // （对抗性审查 F4）。与 Stop 的差异：Stop 后用户仍留在同一会话。
+                int userMessages = 0;
+                for (InjectionManager.InjectionItem item : items) {
+                    if (!item.isAnnouncement()) {
+                        userMessages++;
+                    }
+                }
+                log.info("Discarding leftover(s) after conversation reset for session {}: {} user message(s), "
+                        + "{} announcement(s) belong to the abandoned conversation", sessionKey, userMessages,
+                        items.size() - userMessages);
+                return;
+            }
+            int droppedAnnouncements = 0;
+        for (InjectionManager.InjectionItem item : items) {
+            if (item.isAnnouncement()) {
+                droppedAnnouncements++;
+                continue;
+            }
+            // 注入队列里只可能是用户消息:委派请求在 Phase 2 的 delegated 分支即被
+            // 拒绝返回,从不 offer 入队。故此处写死 delegated=false 语义上必然正确、
+            // 没有委派标记可丢;若委派消息被并入队列又以此 false 重发布,DelegationGuard
+            // (深度守卫)会被绕过,被委派回合可再委派出去(跨实例 ping-pong)。
+            log.info("Re-publishing leftover message for session {}", sessionKey);
+            try {
+                CompletableFuture<AgentResponse> republished =
+                    startTurn(item.getText(), item.getText(), sessionKey, callback, false);
+                java.util.function.Consumer<CompletableFuture<AgentResponse>> listener = republishListener;
+                if (listener != null) {
+                    try {
+                        listener.accept(republished);
+                    } catch (Exception e) {
+                        log.warn("Republish listener failed for session {}; the republished turn itself is unaffected",
+                            sessionKey, e);
+                    }
+                } else {
+                    log.warn("Re-published orphan turn for session {} has no republish listener; "
+                        + "its final response will not be consumed by anyone", sessionKey);
+                }
+            } catch (RejectedExecutionException ree) {
+                // executor 已退役（模型切换换血）：本回合自身的返回值不受影响，
+                // 但残留消息无处投递——ERROR 可见化（消息内容进日志便于找回）
+                log.error("Executor retired before leftover could be re-published for session {}; "
+                    + "message lost: '{}'", sessionKey, item.getText());
+            }
+        }
+        if (droppedAnnouncements > 0) {
+            log.info("Dropped {} subagent announcement leftover(s) for session {} "
+                + "(queryable via subagent_status)", droppedAnnouncements, sessionKey);
+        }
+        } // resetFenceLock
+    }
+
+    /**
+     * 契约修订（2026-08-23，Stop=硬边界）：取消（Stop/重置）语义下未消费的注入
+     * 残留一律作废，不再重发布——消费进上下文的消息本就随回合作废，队列残留保持
+     * 同命运，消除「点得快被复活、点得慢被作废」的时序差异。作废仅记日志，不经
+     * 回合回调渲染进聊天区（2026-08-23 拍板）；subagent 公告静默丢弃
+     * （结果可经 subagent_status 查询）。
+     */
+    private void discardCancelledLeftovers(List<InjectionManager.InjectionItem> items, String sessionKey) {
+        int userMessages = 0;
+        for (InjectionManager.InjectionItem item : items) {
+            if (!item.isAnnouncement()) {
+                userMessages++;
+            }
+        }
+        log.info("Discarding {} queued message(s) after cancellation for session {}: "
+                + "Stop/reset voids unconsumed injections ({} user message(s))",
+                items.size(), sessionKey, userMessages);
     }
 
     /**
@@ -356,7 +579,7 @@ public class AgentLoop {
     }
 
     /**
-     * Update last usage stats after an LLM call.
+     * Update last usage stats.
      */
     public void setLastUsage(Map<String, Integer> usage) {
         this.lastUsage = usage != null ? Map.copyOf(usage) : Map.of();
@@ -396,6 +619,13 @@ public class AgentLoop {
      * Stop button needs the completion wait, so only {@link #cancelActiveTask}
      * does it.
      *
+     * <p><b>自身豁免按身份（对抗审查 C6）：</b>当调用发生在本会话回合自身的执行线程上
+     * （/new 作为 Phase 3 回合运行、resetConversation 在其内部被调），只豁免调用者
+     * 自身的 abort flag 与 future（取消自身 = 命令确认永远无法返回）；同会话<b>其他</b>
+     * 回合照常取消——典型受害者：Stop/垂死窗口期间其他在跑或排队的旧会话回合
+     * （含自然完成重发布的孤儿），它们属于被放弃的旧会话，必须随重置消亡。路由槽始终摘
+     * 除：命令回合不消费注入，其后的消息走新回合排在命令之后，天然属于新会话。
+     *
      * @return true if there was something to cancel
      */
     public boolean signalCancel(String sessionKey) {
@@ -407,31 +637,38 @@ public class AgentLoop {
             manager.cancelBySession(sessionKey);
         }
 
-        // A command like /new runs inside a turn of its own when nothing else is
-        // active. Cancelling from there would kill the caller mid-command and the
-        // user would get a CancellationException instead of the confirmation.
-        // Subagents (step 0) are still cancelled — only the caller's turn is spared.
-        if (sessionKey.equals(turnOwnedByThisThread.get())) {
-            log.debug("signalCancel from within session {}'s own turn; not cancelling the caller", sessionKey);
-            return false;
-        }
+        boolean self = sessionKey.equals(turnOwnedByThisThread.get());
+        TurnSelfRef selfRef = self ? currentTurnSelf.get() : null;
 
-        // 1. Set abort flag first (signals agent loop to stop)
+        // 1. Set abort flag first (signals agent loop to stop) — 豁免调用者自身
         AtomicBoolean abort = abortFlags.get(sessionKey);
-        if (abort != null) {
+        if (abort != null && (selfRef == null || abort != selfRef.abortFlag())) {
             abort.set(true);
         }
 
         // 2. Interrupt the actual agent loop thread (stops in-progress LLM calls)
-        agentRunner.interrupt();
+        //    — 仅非自身：自身正执行命令，中断会打断命令本身
+        if (!self) {
+            agentRunner.interrupt();
+        }
 
-        // 3. Cancel the future
+        // 3. Cancel the future — 豁免调用者自身
         CompletableFuture<AgentResponse> future = activeTasks.remove(sessionKey);
         boolean cancelled = false;
-        if (future != null && !future.isDone()) {
+        if (future != null && !future.isDone()
+                && (selfRef == null || future != selfRef.future())) {
             cancelled = future.cancel(true);
             log.info("Cancelled active task for session {}: {}", sessionKey, cancelled);
         }
+
+        // 4. 摘路由槽：垂死会话立即不可注入——新消息只能走 Phase 3 开新回合
+        //    （用户原则：Stop 即会话硬边界，垂死窗口内不再产生 "[Injected]" 谎话 ack）。
+        //    已 pickup 的垂死回合仍持队列句柄，其 finally 按句柄抽干残留并作废
+        //    （2026-08-23 契约修订：取消语义不重发布）；pre-pickup 被取消的回合由其
+        //    死任务的 guard 分支（见 startTurn）作废。
+        //    顺序：先 cancel future 再摘槽——两步间隙内 offer 进垂死队列的消息同样
+        //    由 finally/guard 作废（仅记日志，不渲染进聊天区），不悬挂。
+        injectionManager.cancelRouting(sessionKey);
 
         return cancelled || (abort != null);
     }
@@ -471,7 +708,9 @@ public class AgentLoop {
             if (turnToken != null && turnToken != activeTurnTokens.get(sessionKey)) {
                 return false;
             }
-            return injectionManager.offer(sessionKey, message);
+            // 公告打标（对齐 Nanobot 的 injected_event 元数据）：垂死/收尾残留里的
+            // 公告在 re-publishLeftovers 中被丢弃而非伪造用户回合
+            return injectionManager.offer(sessionKey, message, true);
         }
     }
 
@@ -511,14 +750,16 @@ public class AgentLoop {
     }
 
     /**
-     * Drain injected messages, blocking for a subagent result when one is still
-     * running and nothing is ready yet — this is what folds a subagent's output
-     * back into the same turn instead of a competing new one.
+     * Drain this turn's injected messages (by queue handle), blocking for a
+     * subagent result when one is still running and nothing is ready yet — this
+     * is what folds a subagent's output back into the same turn instead of a
+     * competing new one.
      *
      * <p>Ready messages (e.g. the user typing) always win: the blocking wait only
      * happens when the queue is empty.
      */
-    private List<String> drainInjected(String sessionKey, int limit) {
+    private List<String> drainInjected(LinkedBlockingQueue<InjectionManager.InjectionItem> queue,
+            String sessionKey, int limit) {
         var manager = subagentManager;
         // Only wait on subagents spawned by the turn that is still running: a
         // leftover from an earlier turn has its result discarded on arrival, so
@@ -527,12 +768,10 @@ public class AgentLoop {
             && !drainTimedOut.containsKey(sessionKey)
             && manager.getWaitableCountBySession(sessionKey) > 0;
 
-        if (!mayBlock) {
-            return injectionManager.drain(sessionKey, limit);
-        }
-
-        List<String> items = injectionManager.drainBlocking(sessionKey, limit, subagentDrainTimeoutMs);
-        if (items.isEmpty()) {
+        List<InjectionManager.InjectionItem> items = mayBlock
+            ? injectionManager.drainBlocking(queue, limit, subagentDrainTimeoutMs)
+            : injectionManager.drain(queue, limit);
+        if (mayBlock && items.isEmpty()) {
             // Timed out (or interrupted): the subagent is presumed hung. Stop
             // blocking for the rest of this turn — the injection cycle counter only
             // advances when messages actually arrive, so without this latch every
@@ -541,14 +780,83 @@ public class AgentLoop {
             drainTimedOut.put(sessionKey, Boolean.TRUE);
             log.warn("Subagent drain timed out for session {}; not blocking again this turn", sessionKey);
         }
-        return items;
+        // 抽干后无需 abort 复查回队：signalCancel 已先摘路由槽（垂死窗口的新消息
+        // 进不了队列），而队列里既有的消息只在「上一次 abort 检查之后、本次抽干
+        // 之前」这段同线程无阻塞的指令间隙内可能被抽走——窗口为指令级而非秒级
+        // LLM 调用窗口，可忽略。
+        List<String> texts = new ArrayList<>(items.size());
+        for (InjectionManager.InjectionItem item : items) {
+            texts.add(item.getText());
+        }
+        return texts;
     }
 
     /**
      * Check if a session has an active agent run (for UI routing).
      */
     public boolean hasActiveRun(String sessionKey) {
+        // 路由槽存在 = 最新回合可注入（单一事实来源）。垂死会话的槽已被
+        // signalCancel 摘除，此处天然报 false——GUI 据此在垂死窗口把新消息走
+        // 正常发送而非注入，避免消息被垂死回合吞掉。
         return injectionManager.hasActiveRun(sessionKey);
+    }
+
+    /** 会话当前重置代数（从未重置为 0）。 */
+    private long currentEpoch(String sessionKey) {
+        return sessionEpochs.getOrDefault(sessionKey, 0L);
+    }
+
+    /**
+     * 标记会话已重置（/new、"+" 开新会话）：代数 +1。此后垂死回合按旧代数
+     * re-publish 的注入残留将被丢弃（见 {@link #republishLeftovers}）。Stop 不调用
+     * 本方法——「ack 过的消息不悬挂」的恢复契约仅在会话未重置时成立。
+     *
+     * @return 翻转到的代数值（供发起线程精准采纳，免重读竞态）
+     */
+    public long markConversationReset(String sessionKey) {
+        return sessionEpochs.compute(sessionKey, (k, v) -> (v == null ? 0L : v) + 1L);
+    }
+
+    /**
+     * 会话重置核心（/new 与 "+" 按钮共用，唯一实现）：快照未整合消息 → 中止在跑
+     * 回合（含子代理）→ 代数 +1 → 清空并落盘 → 失效缓存 → 异步归档快照。
+     *
+     * <p>中止必须先于清空（fire-and-forget，EDT 安全）：否则在跑回合会在会话清空后
+     * 继续跑完，其回复经渲染回调落进刚清空的新会话，且回合持续向已清空 session
+     * 回写。UI 外壳（清聊天区/欢迎语/按钮复位/渲染代数递增）留在调用方。
+     *
+     * @return 归档快照（空列表表示无可归档消息）
+     */
+    public List<Message> resetConversation(String sessionKey) {
+        return resetConversation(sessionKey, true);
+    }
+
+    /**
+     * @param archiveSnapshot false 供关闭期深度提炼成功后的清空复用（
+     *        {@code CloseConsolidationCoordinator.clearCurrentSession}）：消息刚被
+     *        提炼进 MEMORY.md，不再二次归档，但重置栅栏（取消+代数）语义完整保留
+     */
+    public List<Message> resetConversation(String sessionKey, boolean archiveSnapshot) {
+        Session session = sessionManager.getOrCreate(sessionKey);
+        List<Message> snapshot = session.getUnconsolidatedMessages();
+        // 「取消 + 代数翻转」与 republishLeftovers 的「检查 + 重发布」在栅栏锁下互斥
+        // （对抗审查 C4/C8）：要么重发布先入锁（旧代数放行 → 取消必然看得见它并
+        // 将其消亡），要么重置先入锁（代数已翻 → 重发布见新代数即丢弃）。
+        // ownResetEpoch 记录本线程翻转到的代数：若本次重置由命令回合自身发起（/new
+        // 在其派发内执行），该回合的收尾分类精准采纳此值（R4-B：不重读 currentEpoch，
+        // 免被派发窗口内并发的外来重置污染）
+        synchronized (resetFenceLock) {
+            signalCancel(sessionKey);
+            ownResetEpoch.set(markConversationReset(sessionKey));
+        }
+        session.clear();
+        sessionManager.saveSession(session);
+        sessionManager.invalidate(session.getKey());
+        if (archiveSnapshot && !snapshot.isEmpty()) {
+            memoryConsolidator.archiveMessagesAsync(snapshot);
+        }
+        log.info("Session reset: archived {} message(s)", snapshot.size());
+        return snapshot;
     }
 
     /**

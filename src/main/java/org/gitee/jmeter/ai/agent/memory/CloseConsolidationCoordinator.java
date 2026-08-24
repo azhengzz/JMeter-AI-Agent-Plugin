@@ -115,14 +115,17 @@ public final class CloseConsolidationCoordinator {
     }
 
     /**
-     * 深度提炼成功后清空当前实例会话(数据层):{@code clear} + {@code saveSession} + {@code invalidate}。
+     * 深度提炼成功后清空当前实例会话（数据层）。
      *
      * <p>目的:提炼结果已写入 {@code MEMORY.md}(经系统提示持续生效),原会话消息不再有价值;
      * 清空后 {@link #unconsolidatedSnapshot()} 返回空,<b>杜绝退出被取消后二次触发提炼同一批消息</b>。
-     * 行为对齐 {@code /new}(见 {@code BuiltinCommands.cmdNew}),但不再二次归档(刚提炼过)。
      *
-     * <p>须在 EDT 调用(与 GUI 清空同线程,避免与 {@code Session} 的非线程安全集合并发)。
-     * agent 未初始化/无会话时为 no-op。
+     * <p>走共享重置核心 {@link AgentLoop#resetConversation(String, boolean)}(archive=false,
+     * 刚提炼过不二次归档),与 {@code /new}、"+" 的栅栏语义对齐(对抗审查 C3):中止在跑回合
+     * ——含关闭对话框取消上个回合后、其垂死收尾 re-publish 的孤儿——并翻转会话代数,
+     * 使其后迟到的旧会话渲染/落盘被各层守卫丢弃。
+     *
+     * <p>须在 EDT 调用(与 GUI 清空同线程)。agent 未初始化/无会话时为 no-op。
      */
     public static void clearCurrentSession() {
         AgentLoop loop = agentLoop();
@@ -137,9 +140,7 @@ public final class CloseConsolidationCoordinator {
         if (session == null) {
             return;
         }
-        session.clear();
-        sessions.saveSession(session);
-        sessions.invalidate(session.getKey());
+        loop.resetConversation(session.getKey(), false);
     }
 
     private static AgentLoop agentLoop() {

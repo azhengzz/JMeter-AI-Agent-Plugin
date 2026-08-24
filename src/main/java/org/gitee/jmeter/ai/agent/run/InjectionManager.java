@@ -10,91 +10,141 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Manages per-session injection queues for mid-turn message injection.
+ * Manages per-session injection routing for mid-turn message injection.
  *
- * Allows the Swing UI thread to offer messages into a session's queue
- * while the agent executor thread drains them at injection checkpoints.
+ * <p><b>D2.2 model — the queue belongs to a TURN, the map entry is only a routing
+ * slot:</b> {@link #register} creates a fresh queue owned by the submitting turn and
+ * puts it into the routing map (newest turn wins). The turn task captures the queue
+ * handle and drains/cleans up <em>by handle</em>, never by session-key lookup — a
+ * dying turn therefore cannot steal a successor turn's messages, and
+ * {@link #cleanup} removes the routing slot only if it still points at the caller's
+ * own queue (a successor's slot survives). {@code signalCancel} calls
+ * {@link #cancelRouting} so a dying session immediately stops being injectable:
+ * new messages can only start new turns.
  *
- * Thread safety: LinkedBlockingQueue supports concurrent producers (Swing EDT)
- * and consumers (agent executor). ConcurrentHashMap provides safe queue lookup.
+ * <p>Thread safety: {@code computeIfPresent}-based offer and {@code remove}-based
+ * cancel execute atomically under the ConcurrentHashMap bin lock — an offer either
+ * lands in a live, routed queue or observes the slot gone; it can never write into
+ * a detached queue while reporting success. LinkedBlockingQueue supports concurrent
+ * producers (Swing EDT / ipc-worker) and consumers (turn task).
  */
 public class InjectionManager {
     private static final Logger log = LoggerFactory.getLogger(InjectionManager.class);
 
-    private final int maxQueueSize;
-    private final int maxInjectionsPerTurn;
+    /**
+     * One queue entry. Carries the entry's origin so cleanup can distinguish user
+     * messages (re-publishable as fresh turns) from subagent announcements (dropped on
+     * cancel/settle; their results remain queryable via {@code subagent_status}).
+     */
+    public static final class InjectionItem {
+        private final String text;
+        private final boolean announcement;
 
-    private final ConcurrentHashMap<String, LinkedBlockingQueue<String>> injectionQueues = new ConcurrentHashMap<>();
+        public InjectionItem(String text, boolean announcement) {
+            this.text = text;
+            this.announcement = announcement;
+        }
+
+        public String getText() {
+            return text;
+        }
+
+        public boolean isAnnouncement() {
+            return announcement;
+        }
+    }
+
+    private final int maxQueueSize;
+
+    private final ConcurrentHashMap<String, LinkedBlockingQueue<InjectionItem>> injectionQueues = new ConcurrentHashMap<>();
 
     public InjectionManager() {
         this.maxQueueSize = AiConfig.getInjectionQueueSize();
-        this.maxInjectionsPerTurn = AiConfig.getInjectionMaxPerTurn();
     }
 
     /**
-     * Register an injection queue for a session.
-     * Called at the start of an agent run.
+     * Create this turn's private queue and take over the session's routing slot.
+     * Called on the SUBMITTING thread before the turn task is handed to the
+     * executor — mid-turn offers during the [submit→pickup] window must find a
+     * routed queue (otherwise they fall through to Phase 3 as competing turns).
+     *
+     * <p>{@code put} (replace) semantics are intentional: routing must always point
+     * at the newest turn. The replaced queue stays alive in its owning turn's hands
+     * (captured handle) and is drained/cleaned by that turn itself.
+     *
+     * @return the queue handle the turn must use for drain and cleanup
      */
-    public void register(String sessionKey) {
-        LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<>(maxQueueSize);
+    public LinkedBlockingQueue<InjectionItem> register(String sessionKey) {
+        LinkedBlockingQueue<InjectionItem> queue = new LinkedBlockingQueue<>(maxQueueSize);
         injectionQueues.put(sessionKey, queue);
         log.debug("Registered injection queue for session {}", sessionKey);
+        return queue;
     }
 
     /**
-     * Offer a message to the session's injection queue.
-     * Called from the Swing EDT thread (non-blocking).
-     *
-     * @return true if the message was queued, false if the queue is full or no active run
+     * Offer a user message to the session's routed queue. Equivalent to
+     * {@code offer(sessionKey, message, false)}.
      */
     public boolean offer(String sessionKey, String message) {
-        LinkedBlockingQueue<String> queue = injectionQueues.get(sessionKey);
-        if (queue == null) {
-            return false;
-        }
-        boolean offered = queue.offer(message);
-        if (!offered) {
-            log.warn("Injection queue full for session {}, dropping message", sessionKey);
-        } else {
-            log.debug("Message offered to injection queue for session {} (size={})",
-                sessionKey, queue.size());
-        }
-        return offered;
+        return offer(sessionKey, message, false);
     }
 
     /**
-     * Drain up to maxInjectionsPerTurn messages from the session's queue.
-     * Called from the agent executor thread at injection checkpoints.
+     * Offer a message to the session's routed queue, tagging subagent announcements.
+     * Called from producer threads (Swing EDT, ipc-worker, subagent completion).
      *
-     * @param sessionKey the session key
-     * @param limit maximum number of messages to drain (typically MAX_INJECTIONS_PER_TURN)
-     * @return list of drained messages, possibly empty
+     * <p>Atomic with {@link #cancelRouting}: both run under the map's bin lock, so the
+     * offer either lands in a queue that is still routed, or the slot is already gone
+     * and this returns false. There is no window where a message is written into a
+     * detached queue while the caller is told it was queued.
+     *
+     * @return true if the message was queued, false if the slot is absent or the queue is full
      */
-    public List<String> drain(String sessionKey, int limit) {
-        LinkedBlockingQueue<String> queue = injectionQueues.get(sessionKey);
+    public boolean offer(String sessionKey, String message, boolean announcement) {
+        AtomicReference<Boolean> offered = new AtomicReference<>(Boolean.FALSE);
+        LinkedBlockingQueue<InjectionItem> routed = injectionQueues.computeIfPresent(sessionKey,
+                (key, queue) -> {
+                    offered.set(queue.offer(new InjectionItem(message, announcement)));
+                    return queue;
+                });
+        if (routed == null) {
+            return false;
+        }
+        if (!offered.get()) {
+            log.warn("Injection queue full for session {}, dropping message", sessionKey);
+            return false;
+        }
+        log.debug("Message offered to injection queue for session {}", sessionKey);
+        return true;
+    }
+
+    /**
+     * Drain up to {@code limit} entries from the given turn's queue.
+     * Called by the turn task at injection checkpoints — by handle, so a turn only
+     * ever consumes its own queue.
+     */
+    public List<InjectionItem> drain(LinkedBlockingQueue<InjectionItem> queue, int limit) {
         if (queue == null) {
             return Collections.emptyList();
         }
-
-        List<String> items = new ArrayList<>();
+        List<InjectionItem> items = new ArrayList<>();
         while (items.size() < limit) {
-            String msg = queue.poll();
-            if (msg == null) break;
-            items.add(msg);
+            InjectionItem item = queue.poll();
+            if (item == null) break;
+            items.add(item);
         }
-
         if (!items.isEmpty()) {
-            log.debug("Drained {} messages from injection queue for session {}",
-                items.size(), sessionKey);
+            log.debug("Drained {} messages from an injection queue", items.size());
         }
         return items;
     }
 
     /**
-     * Drain like {@link #drain(String, int)}, but if nothing is ready, block until
-     * one message arrives or the timeout elapses.
+     * Drain like {@link #drain(LinkedBlockingQueue, int)}, but if nothing is ready,
+     * block until one entry arrives or the timeout elapses.
      *
      * <p>Used for subagent turn-confluence: the main agent parks here while a
      * subagent is still running so its result is consumed in the same turn.
@@ -104,65 +154,69 @@ public class InjectionManager {
      * (Stop button) is caught here, the interrupt flag is restored, and an empty
      * list is returned. The agent loop then exits at its next abort check.
      * This method never throws.
-     *
-     * @param sessionKey the session key
-     * @param limit maximum number of messages to drain
-     * @param timeoutMs how long to wait when nothing is ready
-     * @return drained messages, possibly empty
      */
-    public List<String> drainBlocking(String sessionKey, int limit, long timeoutMs) {
-        List<String> items = drain(sessionKey, limit);
-        if (!items.isEmpty()) {
-            return items;
-        }
-
-        LinkedBlockingQueue<String> queue = injectionQueues.get(sessionKey);
-        if (queue == null) {
+    public List<InjectionItem> drainBlocking(LinkedBlockingQueue<InjectionItem> queue, int limit, long timeoutMs) {
+        List<InjectionItem> items = drain(queue, limit);
+        if (!items.isEmpty() || queue == null) {
             return items;
         }
 
         try {
-            String first = queue.poll(timeoutMs, TimeUnit.MILLISECONDS);
+            InjectionItem first = queue.poll(timeoutMs, TimeUnit.MILLISECONDS);
             if (first == null) {
-                log.warn("Timed out after {}ms waiting for a subagent result in session {}",
-                    timeoutMs, sessionKey);
+                log.warn("Timed out after {}ms waiting for a subagent result", timeoutMs);
                 return items;
             }
             items.add(first);
             // Take whatever else already arrived, without blocking again.
-            items.addAll(drain(sessionKey, limit - items.size()));
+            items.addAll(drain(queue, limit - items.size()));
             return items;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.info("Interrupted while waiting for a subagent result in session {}", sessionKey);
+            log.info("Interrupted while waiting for a subagent result");
             return items;
         }
     }
 
     /**
-     * Unregister and clean up the injection queue for a session.
-     * Called in the finally block after an agent run completes.
+     * Turn teardown: drain the turn's own queue and remove the routing slot
+     * <em>only if it still points at this queue</em> — a successor turn that already
+     * re-registered must keep its slot (identity-conditional remove, mirroring
+     * Nanobot loop.py's {@code pending_queues.get(key) is pending} check).
      *
-     * @return any remaining messages that were still in the queue
+     * @return leftover entries still in the turn's queue (caller filters/re-publishes)
      */
-    public List<String> cleanup(String sessionKey) {
-        LinkedBlockingQueue<String> queue = injectionQueues.remove(sessionKey);
+    public List<InjectionItem> cleanup(String sessionKey, LinkedBlockingQueue<InjectionItem> queue) {
         if (queue == null) {
             return Collections.emptyList();
         }
-
-        List<String> remaining = new ArrayList<>();
+        List<InjectionItem> remaining = new ArrayList<>();
         queue.drainTo(remaining);
+        injectionQueues.remove(sessionKey, queue);
 
         if (!remaining.isEmpty()) {
-            log.info("Cleanup: {} remaining messages for session {}",
-                remaining.size(), sessionKey);
+            log.info("Cleanup: {} remaining messages for session {}", remaining.size(), sessionKey);
         }
         return remaining;
     }
 
     /**
-     * Check if a session has an active injection queue (i.e., an agent run is in progress).
+     * Remove the session's routing slot, making the dying session immediately
+     * non-injectable (new messages must start new turns). Called by
+     * {@code AgentLoop.signalCancel}. The dying turn's queue object stays reachable
+     * through its captured handle: a picked-up turn drains it in its finally block;
+     * a cancelled-before-pickup turn's guard task (see {@code AgentLoop.startTurn})
+     * drains it when the executor dequeues it.
+     */
+    public void cancelRouting(String sessionKey) {
+        injectionQueues.remove(sessionKey);
+    }
+
+    /**
+     * Check if a session has a routed queue (i.e., the newest turn is injectable).
+     * This is the single source of truth for both Phase 2 routing and the public
+     * {@code hasActiveRun} — a cancelled (dying) session reads false because
+     * {@link #cancelRouting} already removed its slot.
      */
     public boolean hasActiveRun(String sessionKey) {
         return injectionQueues.containsKey(sessionKey);

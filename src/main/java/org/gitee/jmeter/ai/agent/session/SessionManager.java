@@ -122,30 +122,36 @@ public class SessionManager {
      * Save a session to disk in JSONL format (Nanobot compatible).
      * Line 1: metadata JSON
      * Lines 2+: one message JSON per line
+     *
+     * <p>文件写持 session 的 monitor（与 {@link Session} 各方法同一把锁）串行化：
+     * 会话重置线程（EDT 清空落盘）与回合载体线程（追加落盘）并发写同一 jsonl 时，
+     * 两个 {@code TRUNCATE_EXISTING} 写句柄按各自偏移交错会写出撕裂内容。
      */
     public void saveSession(Session session) {
         Path sessionFile = getSessionFile(session.getKey());
-        try (BufferedWriter writer = Files.newBufferedWriter(sessionFile)) {
-            // Line 1: metadata
-            ObjectNode metadata = mapper.createObjectNode();
-            metadata.put("_type", "metadata");
-            metadata.put("key", session.getKey());
-            metadata.put("created_at", session.getCreatedAt().toString());
-            metadata.put("updated_at", session.getUpdatedAt().toString());
-            metadata.putObject("metadata");
-            metadata.put("last_consolidated", session.getLastConsolidatedIndex());
-            writer.write(mapper.writeValueAsString(metadata));
-            writer.newLine();
-
-            // Lines 2+: messages
-            for (Message message : session.getMessages()) {
-                ObjectNode msgNode = messageToJson(message);
-                writer.write(mapper.writeValueAsString(msgNode));
+        synchronized (session) {
+            try (BufferedWriter writer = Files.newBufferedWriter(sessionFile)) {
+                // Line 1: metadata
+                ObjectNode metadata = mapper.createObjectNode();
+                metadata.put("_type", "metadata");
+                metadata.put("key", session.getKey());
+                metadata.put("created_at", session.getCreatedAt().toString());
+                metadata.put("updated_at", session.getUpdatedAt().toString());
+                metadata.putObject("metadata");
+                metadata.put("last_consolidated", session.getLastConsolidatedIndex());
+                writer.write(mapper.writeValueAsString(metadata));
                 writer.newLine();
-            }
 
-        } catch (IOException e) {
-            log.error("Failed to save session: {}", session.getKey(), e);
+                // Lines 2+: messages（getMessages 已是快照拷贝，迭代安全）
+                for (Message message : session.getMessages()) {
+                    ObjectNode msgNode = messageToJson(message);
+                    writer.write(mapper.writeValueAsString(msgNode));
+                    writer.newLine();
+                }
+
+            } catch (IOException e) {
+                log.error("Failed to save session: {}", session.getKey(), e);
+            }
         }
     }
 
