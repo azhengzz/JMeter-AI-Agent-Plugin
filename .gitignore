@@ -140,3 +140,4 @@ settings.local.json
 
 .claude/
 .vscode/
+bin/
