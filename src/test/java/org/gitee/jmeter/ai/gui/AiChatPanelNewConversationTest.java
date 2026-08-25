@@ -207,7 +207,7 @@ class AiChatPanelNewConversationTest {
 
     // ------------------------------------------------------------------
     // 会话重置代数：已 ack 未消费的注入残留不得 re-publish 进新会话
-    // （对抗性审查 F4：signalCancel 触发的 re-publish 会把旧会话残留变成
+    // （signalCancel 触发的 re-publish 会把旧会话残留变成
     //  新会话首个回合——写入新 session 文件并渲染进刚清空的聊天区）
     // ------------------------------------------------------------------
 
@@ -268,17 +268,17 @@ class AiChatPanelNewConversationTest {
     }
 
     // ------------------------------------------------------------------
-    // 渲染代数守卫（对抗审查 F2/F3）：重置后迟到的旧会话渲染不得污染新聊天区
+    // 渲染代数守卫：重置后迟到的旧会话渲染不得污染新聊天区
     // ------------------------------------------------------------------
 
     /**
-     * F2「点击影子」窗口：回合恰在点击前后完成（signalCancel 对已完成 future
+     * 「点击影子」窗口：回合恰在点击前后完成（signalCancel 对已完成 future
      * no-op），其投递任务排在重置之后——必须按代数丢弃，不得渲染进新会话。
      * 确定性构造：冻结 EDT → 入队 [blocker][click] → 放行回合 LLM → 回合完成后的
      * render 任务必然排在 click 之后（入队序）。走真实发送路径（sendMessage →
      * AgentSwingWorker → 完成回调链），订阅时的渲染代数即生产消费的那份。
      * （2026-08-23 契约修订前用 Stop→重发布孤儿作载体；Stop 已不产生孤儿，改用
-     * 完成回合本身——F2 属性不变。）
+     * 完成回合本身——要验证的属性不变。）
      */
     @Test
     void completedTurnDeliveryAfterReset_doesNotRenderIntoFreshChat() throws Exception {
@@ -317,7 +317,7 @@ class AiChatPanelNewConversationTest {
     }
 
     /**
-     * F3 工具批进度污染：重置时工具批在跑（join() 不响应 interrupt），工具执行完
+     * 工具批进度污染：重置时工具批在跑（join() 不响应 interrupt），工具执行完
      * 毕发布的 TOOL_CALL 进度在重置之后投递——必须按代数丢弃。
      * 走真实发送路径（sendMessage → AgentSwingWorker → progress 回调链）。
      */
@@ -366,11 +366,11 @@ class AiChatPanelNewConversationTest {
     }
 
     // ------------------------------------------------------------------
-    // 第 3 轮（对抗审查 C1/C6/C7）：/new 作为 Phase 3 回合排队时的两个洞
+    // 第 3 轮：/new 作为 Phase 3 回合排队时的两个洞
     // ------------------------------------------------------------------
 
     /**
-     * C1/C7：/new 回合自身排队期间（executor 被占用），用户输入的消息经 Phase 2
+     * /new 回合自身排队期间（executor 被占用），用户输入的消息经 Phase 2
      * ack 进它自己的队列——该消息在 /new 之后输入，属于新会话，/new 执行后必须
      * re-publish 成新会话回合被回答。缺陷：回合代数在提交时捕获、早于自身重置的
      * 代数翻转，finally 的代数检查把 ack 过的消息当旧会话残留静默丢弃。
@@ -410,7 +410,7 @@ class AiChatPanelNewConversationTest {
     }
 
     /**
-     * C6：Stop→/new 序列（契约修订 2026-08-23 后语义）——Stop 时未消费的注入 M2
+     * Stop→/new 序列（契约修订 2026-08-23 后语义）——Stop 时未消费的注入 M2
      * 由垂死回合 finally 作废（不再重发布成孤儿）；/new 重置后新会话保持干净。
      * 原缺陷（/new 自身豁免早退放走旧会话孤儿）随 Stop 不再产生孤儿而消失，
      * 本用例钉死新契约：作废的残留不得被重发布跑进任何回合。
@@ -439,7 +439,7 @@ class AiChatPanelNewConversationTest {
     }
 
     /**
-     * C3 契约面：{@code resetConversation(key, archive=false)}（关闭期深度提炼成功后
+     * 契约面：{@code resetConversation(key, archive=false)}（关闭期深度提炼成功后
      * 的清空路径）必须保留完整重置栅栏——取消在跑回合 + 丢弃注入残留——但不再
      * 二次归档（消息刚被提炼进 MEMORY.md）。
      */
@@ -460,14 +460,14 @@ class AiChatPanelNewConversationTest {
         // 栅栏完整：M2 残留被丢弃（不 re-publish——可通过脚本未消费验证）
         assertTrue(aiService.script.isEmpty(), "残留不得被 re-publish 成回合");
         // 不二次归档：consolidator 不被调用（快照本身为空——回合运行中消息尚未落
-        // session，持久化发生在回合结束时，被中止的回合不落盘，D2.2 abort 语义）
+        // session，持久化发生在回合结束时，被中止的回合不落盘——abort 不落盘语义）
         Mockito.verify(consolidator, Mockito.never())
                 .archiveMessagesAsync(Mockito.anyList());
         assertTrue(snapshot.isEmpty(), "回合运行中重置：消息尚未持久化进 session");
     }
 
     /**
-     * R4-A（高）：排队中的回合被重置取消（pre-pickup）时，其队列消息全部 ack 于
+     * 排队中的回合被重置取消（pre-pickup）时，其队列消息全部 ack 于
      * 重置之前（cancelRouting 与 offer 在 CHM bin 锁下互斥，翻转后无新 offer）——
      * 死任务的 guard 善后必须按<b>提交时</b>代数比对丢弃。缺陷：guard 在 pickup 时
      * 读 currentEpoch（已被重置翻转），自己跟自己比恒过，旧会话残留被 re-publish

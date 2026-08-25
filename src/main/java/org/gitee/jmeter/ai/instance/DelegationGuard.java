@@ -5,7 +5,7 @@ package org.gitee.jmeter.ai.instance;
  * 的请求时,{@code AgentRunner} 在该回合的 run 任务内(执行该任务的池化载体线程)置位,
  * 任务结束清除。{@code DelegateToInstanceTool} 执行前检查——被委派任务内禁止再次委派。
  *
- * <p><b>防护分层(D4 三次校正)</b>:委派链失控有两类形态,分别由两层独立防御拦住——
+ * <p><b>防护分层</b>:委派链失控有两类形态,分别由两层独立防御拦住——
  * 本守卫(深度 1 硬阻断)是主防线,封委派链经<b>空闲</b>实例不断延长的无界链
  * (A→B→C→D…每跳合法、每跳阻塞满 {@code jmeter.ai.ipc.agent.timeout.ms} 且深度无界);
  * 另由接收侧 delegated-busy 快速失败兜底——目标实例此刻已有未完成回合占用其单槽

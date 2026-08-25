@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Session 并发安全回归测试（对抗审查 F1/F6）：会话重置线程（EDT：快照/clear/
+ * Session 并发安全回归测试：会话重置线程（EDT：快照/clear/
  * saveSession）与垂死回合的载体线程（addMessage/saveSession）并发操作同一
  * Session——无同步的 ArrayList 上迭代+结构修改会抛 ConcurrentModificationException，
  * 两个 TRUNCATE_EXISTING 文件写句柄并发会写出撕裂内容。

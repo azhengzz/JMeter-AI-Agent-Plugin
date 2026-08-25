@@ -257,8 +257,8 @@ public class AgentResultCollector extends AbstractTestElement
             RunProvenance p = (e.getSource() instanceof RunTestTool)
                     ? RunProvenance.AGENT : RunProvenance.USER;
             if (p == RunProvenance.AGENT) {
-                // RunTestTool already injected + reset(AGENT) in its EDT block (E1), which
-                // completes before this pre-listener's EDT dispatch (E2) — FIFO EDT order.
+                // RunTestTool already injected + reset(AGENT) in its own EDT block, which
+                // completes before this pre-listener's EDT dispatch — FIFO EDT order.
                 return;
             }
             removeFromGuiTree();

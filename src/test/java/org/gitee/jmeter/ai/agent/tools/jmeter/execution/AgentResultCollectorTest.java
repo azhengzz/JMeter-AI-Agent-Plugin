@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the start-command whitelist, the pre-listener early-return paths (stop-filter, agent-skip),
  * and the save-before-run re-injection arming state machine. None of these require a live
  * JMeter GUI. Full injection / save-strip / end-to-end behaviour is covered by manual GUI
- * verification (tasks 7.x).
+ * verification.
  */
 class AgentResultCollectorTest {
 
@@ -47,7 +47,7 @@ class AgentResultCollectorTest {
         assertTrue(AgentResultCollector.isStartCommand(ActionNames.RUN_TG));
         assertTrue(AgentResultCollector.isStartCommand(ActionNames.RUN_TG_NO_TIMERS));
 
-        // STOP/SHUTDOWN must be excluded (R2: a stop must never reset captured results).
+        // STOP/SHUTDOWN must be excluded (a stop must never reset captured results).
         assertFalse(AgentResultCollector.isStartCommand(ActionNames.ACTION_STOP));
         assertFalse(AgentResultCollector.isStartCommand(ActionNames.ACTION_SHUTDOWN));
         // VALIDATE_TG excluded (validation runs would mislead get_test_status).
@@ -76,7 +76,7 @@ class AgentResultCollectorTest {
         AgentResultCollector.onTestStartAction(agentStart); // skips inject (RunTestTool did it) but arms
 
         assertEquals(AgentResultCollector.RunProvenance.AGENT, AgentResultCollector.getLastProvenance());
-        // R4 + save-before-run fix: an Agent start still arms so the Save POST-listener can
+        // save-before-run fix: an Agent start still arms so the Save POST-listener can
         // restore the collector that popupShouldSave's SAVE stripped.
         assertTrue(AgentResultCollector.isStartArmed());
     }
@@ -84,7 +84,7 @@ class AgentResultCollectorTest {
     @Test
     void onTestStartActionIsSafeWithoutGui() {
         // No GuiPackage in a unit test -> the USER path returns at the gui==null guard,
-        // and any internal failure is swallowed (R1: never throw out of a pre-listener).
+        // and any internal failure is swallowed (never throw out of a pre-listener).
         ActionEvent userStart = new ActionEvent(new Object(), ActionEvent.ACTION_PERFORMED, ActionNames.ACTION_START);
 
         AgentResultCollector.onTestStartAction(userStart); // must not throw

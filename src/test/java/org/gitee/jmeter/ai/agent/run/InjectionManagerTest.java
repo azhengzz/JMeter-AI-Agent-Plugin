@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * InjectionManager 句柄语义单元测试（D2.2：队列归回合所有，map 条目只作路由槽）。
+ * InjectionManager 句柄语义单元测试（队列归回合所有，map 条目只作路由槽）。
  *
  * <p>必须成立的不变量：
  * <ul>

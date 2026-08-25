@@ -10,7 +10,7 @@ import java.util.*;
  * Represents a conversation session with the Agent.
  * Contains message history and metadata.
  *
- * <p><b>线程模型（2026-08 对抗审查 F1 后加固）：</b>Session 会被两类线程并发触碰——
+ * <p><b>线程模型（2026-08 加固后）：</b>Session 会被两类线程并发触碰——
  * 回合的载体线程（addMessage/saveSession 遍历）与 GUI EDT（/new、"+" 重置时的
  * 快照/clear/saveSession）。全部结构化访问已 {@code synchronized}（monitor 即实例
  * 本体，{@code SessionManager#saveSession} 的文件写持同一 monitor 串行化），

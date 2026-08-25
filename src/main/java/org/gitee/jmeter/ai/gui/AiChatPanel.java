@@ -92,7 +92,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     /**
      * 会话渲染代数：/new、"+" 重置时 +1。订阅渲染回调（worker 回调、republishListener、
      * 进度回调、注入回退 future）时捕获当前值，投递时比对——不符即旧会话的迟到渲染，
-     * 丢弃。关两类窗口（对抗审查 F2/F3）：重置恰逢回合完成（signalCancel 对已完成
+     * 丢弃。关两类窗口：重置恰逢回合完成（signalCancel 对已完成
      * future no-op）时排在其后的结论投递；工具批在跑（join 不响应 interrupt）时
      * 重置后落地的 TOOL_CALL 进度。都在 EDT 上读写，volatile 仅兜底。
      */
@@ -742,7 +742,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         log.info("Starting new conversation");
 
         // 渲染代数 +1：旧会话的迟到渲染（回合结论、工具批进度、孤儿 UI 武装）从此
-        // 全部丢弃（对抗审查 F2/F3）
+        // 全部丢弃
         conversationGeneration++;
 
         // 重置核心（与 cmdNew 共用）：中止在跑回合与子代理、代数 +1、归档/清空/落盘
@@ -1012,7 +1012,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (panel == null) {
             return;
         }
-        // 对齐 /new、"+"（对抗审查 C3）：渲染代数 +1 让旧会话迟到渲染过期；取消路径
+        // 对齐 /new、"+"：渲染代数 +1 让旧会话迟到渲染过期；取消路径
         // 无人回调复位，UI 须自行复位（退出取消后继续使用时不得留常驻 Stop 模式）
         panel.conversationGeneration++;
         panel.chatArea.setText("");

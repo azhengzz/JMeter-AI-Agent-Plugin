@@ -33,8 +33,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Drives a real {@link AgentLoop} end to end to cover the two behaviours that
- * cannot be seen from {@code SubagentManager} alone: turn-confluence (task 7.2)
- * and graceful degradation when the drain times out (task 7.6).
+ * cannot be seen from {@code SubagentManager} alone: turn-confluence and
+ * graceful degradation when the drain times out.
  */
 class SubagentTurnConfluenceIT {
 
@@ -154,7 +154,7 @@ class SubagentTurnConfluenceIT {
     }
 
     /**
-     * Task 7.2 — turn confluence: the main agent spawns, blocks at an injection
+     * Turn confluence: the main agent spawns, blocks at an injection
      * checkpoint, absorbs the subagent's result, and relays it in the SAME turn.
      */
     @Test
@@ -183,7 +183,7 @@ class SubagentTurnConfluenceIT {
     }
 
     /**
-     * Task 7.6 — degradation: when the subagent outlives the drain timeout, the
+     * Degradation: when the subagent outlives the drain timeout, the
      * turn must finish anyway rather than hanging, and the late result must stay
      * retrievable instead of being dropped.
      */

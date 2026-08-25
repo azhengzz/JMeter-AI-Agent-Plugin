@@ -16,6 +16,7 @@ import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.subagent.SubagentManager;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -57,20 +58,20 @@ public class AgentLoop {
     private final InjectionManager injectionManager = new InjectionManager();
 
     // 会话重置代数（/new、"+" 开新会话时递增）：垂死回合收尾 re-publish 残留前比对，
-    // 代数已变 = 残留属于被放弃的旧会话，丢弃。Stop 不递增——D2.2 的
-    // 「ack 过的消息不悬挂」恢复契约仅在会话未被重置时成立。
+    // 代数已变 = 残留属于被放弃的旧会话，丢弃。Stop 不递增——「ack 过的
+    // 消息不悬挂」恢复契约（注入队列归回合私有）仅在会话未被重置时成立。
     private final ConcurrentHashMap<String, Long> sessionEpochs = new ConcurrentHashMap<>();
 
     // Subagent support (null when agent.subagent.enabled=false)
     private volatile SubagentManager subagentManager;
     private final long subagentDrainTimeoutMs;
-    // Identifies the currently active turn per session, so a subagent result that
-    // arrives after its turn ended is not injected into an unrelated later turn.
+    // 标识每个会话当前「活跃回合」的令牌：用于比对，避免回合已结束才迟迟返回的子代理
+    // 结果被注入到不相干的后续回合。
     private final ConcurrentHashMap<String, Object> activeTurnTokens = new ConcurrentHashMap<>();
-    // Sessions whose subagent wait already timed out this turn — do not block again.
+    // 本回合子代理等待已超时的会话——之后不再阻塞等待。
     private final ConcurrentHashMap<String, Boolean> drainTimedOut = new ConcurrentHashMap<>();
-    // Session whose turn this thread is currently executing, so a command running
-    // inside that turn (e.g. /new) does not cancel the turn it is running in.
+    // 本线程当前正在执行的回合所属会话：使回合内运行的命令（如 /new）不会取消自己
+    // 正身处其中的那个回合。
     private final ThreadLocal<String> turnOwnedByThisThread = new ThreadLocal<>();
     // 当前线程正在执行的回合自身的中止句柄与 future：回合内命令（/new、关闭整合清空）
     // 触发 signalCancel 时按<b>身份</b>豁免调用者自身——取消自身会在命令返回前杀死
@@ -84,15 +85,15 @@ public class AgentLoop {
     // 本线程刚执行的重置所翻转到的会话代数（resetConversation 在栅栏内写入；命令回合
     // 的 lambda 在派发成功后读取并清除）。回合收尾对注入残留的分类只采纳「本回合
     // 自身命令造成的翻转」，不重读 currentEpoch——并发的外来重置（"+" 点击、关闭整合
-    // 清空）落在派发窗口内时，重读会把被其放弃的旧会话残留洗白进最新会话（R4-B）。
+    // 清空）落在派发窗口内时，重读会把被其放弃的旧会话残留洗白进最新会话。
     // 仅 loop 线程读取；EDT 路径（Phase 2 内联 cmdNew）写入后无人读，残留无害。
     private final ThreadLocal<Long> ownResetEpoch = new ThreadLocal<>();
 
     /**
      * 重置栅栏锁：{@link #resetConversation} 的「取消 + 代数翻转」与
      * {@link #republishLeftovers} 的「代数检查 + 重发布」在此互斥——两者都是
-     * check-then-act，不加锁时重置与垂死回合收尾的重发布可互相穿插（对抗审查
-     * C4/C8：旧代数孤儿漏网重发布、或重发布恰好横跨代数翻转的缝隙）。
+     * check-then-act，不加锁时重置与垂死回合收尾的重发布可互相穿插：旧代数
+     * 孤儿漏网重发布、或重发布恰好横跨代数翻转的缝隙。
      */
     private final Object resetFenceLock = new Object();
 
@@ -222,10 +223,15 @@ public class AgentLoop {
         }
 
         // Phase 2: Mid-turn injection routing
-        // 路由唯一依据：路由槽存在 = 最新回合可注入（单一事实来源）。signalCancel 摘槽后
-        // 垂死会话天然不可注入——新消息只能走 Phase 3 开新回合；槽在 startTurn 提交前
-        // 即注册，[提交→pickup] 窗口内的并发 offer 拿得到队列（DelegationGuardTest
-        // 确定性的前提：窗口消息不被拆成独立回合排到忙碌回合之后）。
+        // 会话正有回合在跑（路由槽存在，即 hasActiveRun = containsKey）时，把消息塞进该
+        // 回合的注入队列，由回合内检查点中途注入；否则落到 Phase 3 开新回合。
+        // 槽是注入路由的唯一事实来源。术语：提交=execute 把回合任务交给线程池；pickup=
+        // 工作线程取出任务真正开跑；ack=offer 入队成功、调用方收到"已注入"回执。
+        // startTurn 在提交之前就注册槽，故 [提交→pickup] 窗口内的并发 offer 仍能命中队列
+        // 并拿到 ack（DelegationGuardTest 确定性的前提——窗口消息不会被拆成独立回合排到
+        // 忙碌回合之后）；signalCancel 摘槽后，垂死会话读 hasActiveRun 为 false，新消息
+        // 自然只能走 Phase 3 开新回合。窗口内已 ack 的消息由其载体回合在 pickup 时守护
+        // 作废，保证 ack 过即必有交代、不悬挂。
         if (injectionManager.hasActiveRun(sessionKey)) {
             // 委派回合绝不并入注入队列:委派方阻塞等待的是任务结果,不是"已注入"回执;
             // 且注入队列只存 String,并入会静默丢失 delegated 标记 → 深度守卫被绕过
@@ -266,7 +272,7 @@ public class AgentLoop {
      * （priority/dispatchable 命令在 Phase 1/2 已拦截，公告在 re-publish 前已过滤），
      * 跳过命令路由安全。
      *
-     * <p>D2.2 结构（对齐 Nanobot loop.py 的 per-turn pending queue + 身份条件摘除）：
+     * <p>注入队列归回合私有（对齐 Nanobot loop.py 的 per-turn pending queue + 身份条件摘除）：
      * <ul>
      *   <li>队列归回合私有：提交前 register 占路由槽并拿句柄，lambda 按<b>句柄</b>
      *       抽干/清理——垂死回合偷不到后继回合的消息，cleanup 条件摘槽不误摘后继；</li>
@@ -325,7 +331,7 @@ public class AgentLoop {
                     String cmdResult = commandRouter.dispatch(ctx);
                     if (cmdResult != null) {
                         outcome = AgentResponse.success(cmdResult);
-                        // 仅采纳本回合自身命令造成的代数翻转（R4-B）：不重读
+                        // 仅采纳本回合自身命令造成的代数翻转：不重读
                         // currentEpoch——派发窗口内并发的外来重置（"+"、关闭整合清空）
                         // 不会被采纳，其放弃的残留按 pickup 代数比对，正确丢弃
                         Long own = ownResetEpoch.get();
@@ -451,14 +457,14 @@ public class AgentLoop {
             discardCancelledLeftovers(items, sessionKey);
             return;
         }
-        // 代数检查与 startTurn 重发布整体在栅栏锁内（对抗审查 C4/C8）：与
+        // 代数检查与 startTurn 重发布整体在栅栏锁内：与
         // resetConversation 的「取消 + 代数翻转」互斥，杜绝检查后、重发布前
         // 重置恰好落地的 TOCTOU 缝隙
         synchronized (resetFenceLock) {
             if (currentEpoch(sessionKey) != turnEpoch) {
                 // 会话重置是显式放弃：旧会话连同未消费的注入消息一起结束。重置后残留
                 // 若仍被 re-publish，其回复会写入新 session 文件并渲染进刚清空的聊天区
-                // （对抗性审查 F4）。与 Stop 的差异：Stop 后用户仍留在同一会话。
+                // 与 Stop 的差异：Stop 后用户仍留在同一会话。
                 int userMessages = 0;
                 for (InjectionManager.InjectionItem item : items) {
                     if (!item.isAnnouncement()) {
@@ -619,7 +625,7 @@ public class AgentLoop {
      * Stop button needs the completion wait, so only {@link #cancelActiveTask}
      * does it.
      *
-     * <p><b>自身豁免按身份（对抗审查 C6）：</b>当调用发生在本会话回合自身的执行线程上
+     * <p><b>自身豁免按身份：</b>当调用发生在本会话回合自身的执行线程上
      * （/new 作为 Phase 3 回合运行、resetConversation 在其内部被调），只豁免调用者
      * 自身的 abort flag 与 future（取消自身 = 命令确认永远无法返回）；同会话<b>其他</b>
      * 回合照常取消——典型受害者：Stop/垂死窗口期间其他在跑或排队的旧会话回合
@@ -839,11 +845,11 @@ public class AgentLoop {
     public List<Message> resetConversation(String sessionKey, boolean archiveSnapshot) {
         Session session = sessionManager.getOrCreate(sessionKey);
         List<Message> snapshot = session.getUnconsolidatedMessages();
-        // 「取消 + 代数翻转」与 republishLeftovers 的「检查 + 重发布」在栅栏锁下互斥
-        // （对抗审查 C4/C8）：要么重发布先入锁（旧代数放行 → 取消必然看得见它并
+        // 「取消 + 代数翻转」与 republishLeftovers 的「检查 + 重发布」在栅栏锁下互斥：
+        // 要么重发布先入锁（旧代数放行 → 取消必然看得见它并
         // 将其消亡），要么重置先入锁（代数已翻 → 重发布见新代数即丢弃）。
         // ownResetEpoch 记录本线程翻转到的代数：若本次重置由命令回合自身发起（/new
-        // 在其派发内执行），该回合的收尾分类精准采纳此值（R4-B：不重读 currentEpoch，
+        // 在其派发内执行），该回合的收尾分类精准采纳此值（不重读 currentEpoch，
         // 免被派发窗口内并发的外来重置污染）
         synchronized (resetFenceLock) {
             signalCancel(sessionKey);

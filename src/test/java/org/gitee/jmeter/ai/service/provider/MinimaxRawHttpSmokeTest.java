@@ -57,7 +57,7 @@ class MinimaxRawHttpSmokeTest {
     }
 
     /**
-     * Task 3.1: same client construction the tool path uses; plain (no-tools) completion.
+     * Same client construction the tool path uses; plain (no-tools) completion.
      * If create() + choices() succeed, the SDK tolerates MiniMax's plain response → conclusion A.
      */
     @Test
@@ -89,7 +89,7 @@ class MinimaxRawHttpSmokeTest {
     }
 
     /**
-     * Task 6.2 (partial): confirms the new minimax_thinking control live on M3 —
+     * Confirms the new minimax_thinking control live on M3 —
      * thinking.type=adaptive turns thinking on, reasoning_split:true routes it to reasoning_content.
      * Run with an M3 model (e.g. -Dminimax.smoke.model=MiniMax-M3).
      */

@@ -15,8 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Manages per-session injection routing for mid-turn message injection.
  *
- * <p><b>D2.2 model — the queue belongs to a TURN, the map entry is only a routing
- * slot:</b> {@link #register} creates a fresh queue owned by the submitting turn and
+ * <p><b>队列归回合所有，map 条目只作路由槽：</b> {@link #register} creates a fresh queue owned by the submitting turn and
  * puts it into the routing map (newest turn wins). The turn task captures the queue
  * handle and drains/cleans up <em>by handle</em>, never by session-key lookup — a
  * dying turn therefore cannot steal a successor turn's messages, and

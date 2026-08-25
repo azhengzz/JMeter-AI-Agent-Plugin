@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 「Stop 取消收尾窗口」缺陷族的回归测试（D2.2：队列归回合所有 + 路由槽）。
+ * 「Stop 取消收尾窗口」缺陷族的回归测试（队列归回合所有 + 路由槽）。
  *
  * <p>核心机制：注入队列是回合私有的（句柄穿进回合任务），map 条目只作路由槽
  * （队列存在 = 可注入）。signalCancel 摘路由槽——垂死会话立即不可注入，新消息

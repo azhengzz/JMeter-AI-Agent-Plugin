@@ -121,7 +121,7 @@ public final class CloseConsolidationCoordinator {
      * 清空后 {@link #unconsolidatedSnapshot()} 返回空,<b>杜绝退出被取消后二次触发提炼同一批消息</b>。
      *
      * <p>走共享重置核心 {@link AgentLoop#resetConversation(String, boolean)}(archive=false,
-     * 刚提炼过不二次归档),与 {@code /new}、"+" 的栅栏语义对齐(对抗审查 C3):中止在跑回合
+     * 刚提炼过不二次归档),与 {@code /new}、"+" 的栅栏语义对齐:中止在跑回合
      * ——含关闭对话框取消上个回合后、其垂死收尾 re-publish 的孤儿——并翻转会话代数,
      * 使其后迟到的旧会话渲染/落盘被各层守卫丢弃。
      *

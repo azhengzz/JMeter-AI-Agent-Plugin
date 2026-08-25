@@ -45,7 +45,7 @@ class ClaudeServiceToolCallingTest {
         service = new ClaudeService();
     }
 
-    // --- Task 2.1: buildInputSchema ---
+    // --- buildInputSchema ---
 
     @Test
     void buildInputSchemaMapsTypePropertiesRequiredAndEnum() {
@@ -83,7 +83,7 @@ class ClaudeServiceToolCallingTest {
         assertEquals("object", nullParams._type().convert(String.class));
     }
 
-    // --- Task 2.2: message mapping ---
+    // --- message mapping ---
 
     @Test
     void addMessagesSkipsSystemAndExtractSystemCapturesItTopLevel() {
@@ -166,7 +166,7 @@ class ClaudeServiceToolCallingTest {
         assertEquals(MessageParam.Role.USER, params.get(1).role());
     }
 
-    // --- Task 2.3: toLLMResponse ---
+    // --- toLLMResponse ---
 
     @Test
     void toLLMResponseMapsToolUseBlocksToToolCalls() {
@@ -244,7 +244,7 @@ class ClaudeServiceToolCallingTest {
         assertTrue(response.getReasoningContent().contains("let me think"));
     }
 
-    // --- Task 2.4: mapStopReason ---
+    // --- mapStopReason ---
 
     @Test
     void mapStopReasonMapsKnownValues() {
@@ -256,7 +256,7 @@ class ClaudeServiceToolCallingTest {
         assertEquals("stop", service.mapStopReason(Optional.empty()));
     }
 
-    // --- Task 2.5 fix: forced tool_choice ---
+    // --- forced tool_choice fix ---
 
     @Test
     void buildToolCallParamsForcesSpecificToolOnlyWhenRequested() {

@@ -45,16 +45,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * D2.2 实现的对抗性测试：攻击首轮 20 个测试未覆盖的机制面。
+ * 队列归回合所有 + 路由槽模型的对抗性测试：攻击首轮 20 个测试未覆盖的机制面。
  *
  * <p>攻击面清单：
  * <ul>
  *   <li>双击 Stop / 外来会话取消 / 连续两轮取消后新回合（取消路径的幂等与隔离）；</li>
  *   <li>队列满穿透 Phase 3（put 替换槽发生在原回合存活时——per-turn 所有权的关键路径）；</li>
- *   <li>委派消息：健康回合 busy 拒绝（G6）vs 垂死窗口放行成独立委派回合；</li>
+ *   <li>委派消息：健康回合 busy 拒绝 vs 垂死窗口放行成独立委派回合；</li>
  *   <li>re-publish 级联（孤儿回合自身被注入再被 Stop，二级孤儿）；</li>
  *   <li>/new 命令落在垂死窗口；无监听器时的 re-publish；双会话交错；</li>
- *   <li>offer 与 cancelRouting 的原子性压力（F1 竞态的穷举攻击：每一条返回 true 的
+ *   <li>offer 与 cancelRouting 的原子性压力（竞态的穷举攻击：每一条返回 true 的
  *       offer 必须能在队列里找到，无一丢失、无一幻影）；</li>
  *   <li>三会话混合操作 soak（无 ExecutionException、全部收敛）。</li>
  * </ul>
@@ -165,7 +165,7 @@ class AgentLoopAdversarialTest {
     }
 
     // ------------------------------------------------------------------
-    // 委派语义（G6）：健康 busy 拒绝 vs 垂死放行
+    // 委派语义：健康 busy 拒绝 vs 垂死放行
     // ------------------------------------------------------------------
 
     /** 健康回合在跑：delegated 请求必须立即 busy 拒绝，不得入队、不得穿透。 */
@@ -386,7 +386,7 @@ class AgentLoopAdversarialTest {
     }
 
     // ------------------------------------------------------------------
-    // offer 与 cancelRouting 的原子性压力（F1 竞态穷举攻击）
+    // offer 与 cancelRouting 的原子性压力（竞态穷举攻击）
     // ------------------------------------------------------------------
 
     /**

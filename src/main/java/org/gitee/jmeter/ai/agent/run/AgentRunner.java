@@ -13,8 +13,6 @@ import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
-import org.gitee.jmeter.ai.utils.AiConfig;
-import org.gitee.jmeter.ai.utils.TextUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -683,7 +681,7 @@ public class AgentRunner {
      */
     private void saveMessagesToSession(Session session, List<Message> allMessages, int skipCount,
             BooleanSupplier abortSignal) {
-        // 二道复查（对抗审查 F1 残余窗口）：调用点守卫读到 false 之后、真正落盘之前，
+        // 二道复查：调用点守卫读到 false 之后、真正落盘之前，
         // 会话可能已被 /new / "+" 重置——此时落盘会把旧会话内容写进刚清空的新会话
         // 文件。重置经 signalCancel 必先置共享 abort flag，此处复查即收窄该窗口。
         if (abortSignal.getAsBoolean()) {
@@ -725,7 +723,7 @@ public class AgentRunner {
                 .build();
             session.addMessage(optimizedMsg);
         }
-        // 落盘前的最后一道复查（对抗审查 C2）：伤害发生在写文件——last-writer-wins
+        // 落盘前的最后一道复查：伤害发生在写文件——last-writer-wins
         // 会覆盖重置线程刚写的空文件。入口复查后若重置恰好落地（载体被调度出去的
         // 窗口），此处再拦一次，把窗口收窄到检查与写之间的指令级
         if (abortSignal.getAsBoolean()) {
