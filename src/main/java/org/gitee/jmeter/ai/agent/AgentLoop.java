@@ -52,6 +52,9 @@ public class AgentLoop {
     private final int defaultMaxIterations;
     private final GenerationSettings generationSettings;
     private final CommandRouter commandRouter;
+    // 以下会话级状态以 sessionId 为键，被 loop 线程 / commonPool 工具线程 / SwingWorker / 子代理线程
+    // 并发读写，故用 ConcurrentHashMap（读无锁，适合高频读、低频写、单条原子操作）；
+    // 跨条目的复合原子操作（check-then-act）不靠它保证，另行用显式锁（如 resetFenceLock）。
     private final ConcurrentHashMap<String, CompletableFuture<AgentResponse>> activeTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicBoolean> abortFlags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CountDownLatch> completionLatches = new ConcurrentHashMap<>();
@@ -711,11 +714,20 @@ public class AgentLoop {
         // If these were separate steps the turn could end in between, and the queued
         // announcement would be re-published as a bogus new user turn.
         synchronized (turnTeardownLock) {
+            // 回合令牌比对：turnToken 是子代理 spawn 时捕获的当时回合令牌，
+            // activeTurnTokens.get(sessionKey) 是此刻该会话真正活跃的回合令牌。
+            // 二者不等 = 原回合已结束（被取消或自然收尾、map 已被移除/替换），
+            // 这条结果属于迟到的「过期公告」，直接丢弃——绝不能投递给后续回合，
+            // 否则会把 A 回合的子代理结论错误地喂给 B 回合的上下文。
             if (turnToken != null && turnToken != activeTurnTokens.get(sessionKey)) {
                 return false;
             }
-            // 公告打标（对齐 Nanobot 的 injected_event 元数据）：垂死/收尾残留里的
-            // 公告在 re-publishLeftovers 中被丢弃而非伪造用户回合
+            // 第三个参数 true = 把本条消息打标为「子代理公告」（对齐 Nanobot 的
+            // injected_event 元数据），与用户消息区分开：回合自然结束或取消后，
+            // re-publishLeftovers 清理队列残留时会先检查 InjectionItem.isAnnouncement()——
+            // 公告直接丢弃（其结论仍可经 subagent_status 查询），只有用户消息才会被
+            // re-publish 成一个新的用户回合。不区分的话，这条子代理结果公告会被误当
+            // 成用户输入伪造出本不存在的回合。
             return injectionManager.offer(sessionKey, message, true);
         }
     }
