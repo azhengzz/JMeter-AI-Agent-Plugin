@@ -720,6 +720,7 @@ public class AgentRunner {
                 .toolCallId(msg.getToolCallId())
                 .reasoningContent(msg.getReasoningContent())
                 .metadata(msg.getMetadata())
+                .timestamp(msg.getTimestamp())
                 .build();
             session.addMessage(optimizedMsg);
         }

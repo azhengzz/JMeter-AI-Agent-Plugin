@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -327,6 +328,17 @@ public class SessionManager {
             // Parse reasoning content
             if (node.has("reasoning_content") && !node.get("reasoning_content").isNull()) {
                 builder.reasoningContent(node.get("reasoning_content").asText());
+            }
+
+            // Preserve the message's original timestamp (round-trip fidelity) instead of
+            // resetting it to load time. Legacy lines without a parseable timestamp fall
+            // back to load-time now(), matching the historical behavior.
+            if (node.has("timestamp") && !node.get("timestamp").isNull()) {
+                try {
+                    builder.timestamp(LocalDateTime.parse(node.get("timestamp").asText()));
+                } catch (DateTimeParseException ignore) {
+                    // keep load-time default
+                }
             }
 
             // Parse tool result fields
