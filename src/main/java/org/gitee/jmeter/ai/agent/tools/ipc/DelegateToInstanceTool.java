@@ -162,6 +162,19 @@ public class DelegateToInstanceTool extends AbstractTool {
                         + (content == null || content.isEmpty() ? "(no content)" : content));
             }
             String err = resp.getError() != null ? resp.getError() : resp.getErrorMessage();
+            if (resp.isCancelled()) {
+                if (IpcResponse.CANCEL_REASON_USER_STOP.equals(resp.getCancelReason())) {
+                    String partial = resp.getPartialContent();
+                    return ToolResult.error("Peer " + target.getInstanceId()
+                            + " cancelled the task: the target instance's user clicked STOP before completion."
+                            + (partial == null || partial.isEmpty() ? ""
+                                    : "\n\nPartial reply produced before cancellation:\n\n" + partial));
+                }
+                if (IpcResponse.CANCEL_REASON_TIMEOUT.equals(resp.getCancelReason())) {
+                    return ToolResult.error("Peer " + target.getInstanceId()
+                            + " timed out and its turn was cancelled there (" + err + ")");
+                }
+            }
             return ToolResult.error("Peer " + target.getInstanceId() + " failed the task: " + err);
         } catch (Exception e) {
             return ToolResult.error("Failed to delegate to peer " + target.getInstanceId()

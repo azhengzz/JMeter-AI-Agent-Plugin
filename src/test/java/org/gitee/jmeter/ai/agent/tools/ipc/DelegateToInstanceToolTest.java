@@ -144,7 +144,83 @@ class DelegateToInstanceToolTest {
         assertEquals(0, peer.hits, "guard must fire before any request leaves this process");
     }
 
+    @Test
+    void userStopCancellationSurfacesReasonAndPartialContent() throws Exception {
+        org.gitee.jmeter.ai.ipc.protocol.IpcResponse canned =
+                new org.gitee.jmeter.ai.ipc.protocol.IpcResponse();
+        canned.setSuccess(false);
+        canned.setError("turn cancelled before completion");
+        canned.setCancelled(true);
+        canned.setCancelReason(org.gitee.jmeter.ai.ipc.protocol.IpcResponse.CANCEL_REASON_USER_STOP);
+        canned.setPartialContent("已生成的部分分析");
+        createPeerWithResponse("200003", "peer-C", canned);
+
+        ToolResult r = new DelegateToInstanceTool().execute(Map.of(
+                "task", "analyze", "instanceId", "peer-C"));
+
+        assertFalse(r.isSuccess());
+        assertTrue(r.getError().contains("STOP"), "must name the user-stop cause: " + r.getError());
+        assertTrue(r.getError().contains("peer-C"), r.getError());
+        assertTrue(r.getError().contains("已生成的部分分析"), "must surface the partial reply: " + r.getError());
+    }
+
+    @Test
+    void timeoutCancellationDistinguishedFromUserStop() throws Exception {
+        org.gitee.jmeter.ai.ipc.protocol.IpcResponse canned =
+                new org.gitee.jmeter.ai.ipc.protocol.IpcResponse();
+        canned.setSuccess(false);
+        canned.setError("agent timeout after 120000ms (turn cancelled)");
+        canned.setCancelled(true);
+        canned.setCancelReason(org.gitee.jmeter.ai.ipc.protocol.IpcResponse.CANCEL_REASON_TIMEOUT);
+        createPeerWithResponse("200004", "peer-D", canned);
+
+        ToolResult r = new DelegateToInstanceTool().execute(Map.of(
+                "task", "analyze", "instanceId", "peer-D"));
+
+        assertFalse(r.isSuccess());
+        assertTrue(r.getError().contains("timed out"), "must name the timeout cause: " + r.getError());
+        assertFalse(r.getError().contains("STOP"), "timeout must not be reported as user stop: " + r.getError());
+    }
+
+    @Test
+    void genericFailureKeepsExistingMessage() throws Exception {
+        org.gitee.jmeter.ai.ipc.protocol.IpcResponse canned =
+                new org.gitee.jmeter.ai.ipc.protocol.IpcResponse();
+        canned.setSuccess(false);
+        canned.setError("boom");
+        createPeerWithResponse("200005", "peer-E", canned);
+
+        ToolResult r = new DelegateToInstanceTool().execute(Map.of(
+                "task", "analyze", "instanceId", "peer-E"));
+
+        assertFalse(r.isSuccess());
+        assertTrue(r.getError().contains("failed the task"), r.getError());
+        assertTrue(r.getError().contains("boom"), r.getError());
+    }
+
     // ---- helpers ----
+
+    /** 建一个存活对端并原样回放指定的 {@link org.gitee.jmeter.ai.ipc.protocol.IpcResponse}(失败/取消分支)。 */
+    private LivePeer createPeerWithResponse(String pid, String instanceId,
+            org.gitee.jmeter.ai.ipc.protocol.IpcResponse canned) throws IOException {
+        HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        LivePeer peer = new LivePeer(s);
+        s.createContext("/agent", ex -> {
+            peer.hits++;
+            peer.lastBody = new String(ex.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            byte[] out = MAPPER.writeValueAsBytes(canned);
+            ex.getResponseHeaders().set("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, out.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(out);
+            }
+        });
+        s.start();
+        InstanceRegistry.writeInstance(ipcDir, pid, s.getAddress().getPort(), "peer-tok",
+                "127.0.0.1", instanceId, "");
+        servers.add(s);
+        return peer;
+    }
 
     /** 建一个存活对端:绑定 loopback 端口、写端口文件、(按需)覆盖 startedAt 以确定多择排序。 */
     private LivePeer createPeer(String pid, String instanceId, String jmxPath, long startedAt, String replyContent)

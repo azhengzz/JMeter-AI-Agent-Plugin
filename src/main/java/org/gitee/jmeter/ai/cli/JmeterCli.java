@@ -52,6 +52,12 @@ public final class JmeterCli {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
+    /** 客户端整请求 HTTP 超时的缺省值(--timeout 未传时)。须<b>长于</b>服务器侧 /agent
+     * 等待超时 jmeter.ai.ipc.agent.timeout.ms(默认 120s):服务器先到点自取消,才能把
+     * 504+cancelled 结构化回执送达仍在等待的客户端。帮助文案与超时报错文案均引用本
+     * 常量,改值只动这里。 */
+    static final long DEFAULT_REQUEST_TIMEOUT_MS = 130_000L;
+
     private JmeterCli() {
     }
 
@@ -69,6 +75,7 @@ public final class JmeterCli {
         }
         // 同时抑制 log4j2 StatusLogger 告警(若有)
         System.setProperty("log4j2.StatusLogger.level", "OFF");
+        Parsed p = null; // 提升到 try 外:异常兜底文案需回显实际生效的 --timeout
         try {
             if (args.length == 0) {
                 printGlobalHelp(System.out);
@@ -87,7 +94,7 @@ public final class JmeterCli {
                 printGlobalHelp(System.out);
                 System.exit(0);
             }
-            Parsed p = parse(args);
+            p = parse(args);
             if (p.help) {
                 // `jmeter-cli <command> -h | --help`
                 if (printCommandHelp(System.out, p.command)) {
@@ -101,23 +108,37 @@ public final class JmeterCli {
             System.err.println("Error: " + e.getMessage());
             System.exit(2);
         } catch (Exception e) {
-            System.err.println("Error: " + friendly(e));
+            System.err.println("Error: " + friendly(e, p == null ? null : timeoutOf(p.opts)));
             System.exit(1);
         }
     }
 
     /**
      * 把传输层异常(连接拒绝/超时,getMessage() 常为 null→"Error: null")转成可读提示。
+     *
+     * @param effectiveTimeoutMs 实际生效的请求超时(--timeout 传值或缺省常量);parse 阶段
+     *                           即抛、无从解析时传 null(超时分支此时不可达,仅兜底)
      */
-    private static String friendly(Throwable e) {
+    static String friendly(Throwable e, Long effectiveTimeoutMs) {
         Throwable root = e;
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();
         }
-        if (root instanceof ConnectException || root instanceof HttpTimeoutException) {
-            // ConnectException: 端口无监听(进程死/残留文件);HttpTimeoutException: 连接或读取超时
-            return "cannot reach JMeter IPC server in time (stale port file? process killed? "
-                    + "agent still running? verify with 'jmeter-cli list').";
+        if (root instanceof HttpTimeoutException) {
+            // HttpTimeoutException: 请求超时(--timeout 或其缺省)到点未收到响应。loopback
+            // 连接恒即时,实际几乎总是 agent 回合耗时超过客户端等待——不得报 "cannot reach"
+            // (服务器可达)。断开不会中止服务器上的回合(其在 jmeter.ai.ipc.agent.timeout.ms
+            // 到点自取消)。回显实际生效值而非写死缺省:显式传过 --timeout 的用户看到的
+            // 必须是自己传的数
+            long timeout = effectiveTimeoutMs != null ? effectiveTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
+            return "timed out waiting for the JMeter IPC response after " + timeout + "ms (--timeout); "
+                    + "the request may still be running server-side (disconnecting does not cancel it). "
+                    + "Retry with a larger --timeout, or lower jmeter.ai.ipc.agent.timeout.ms.";
+        }
+        if (root instanceof ConnectException) {
+            // ConnectException: 端口无监听(进程死/残留文件)
+            return "cannot reach JMeter IPC server (stale port file? process killed?). "
+                    + "Verify with 'jmeter-cli list'.";
         }
         String m = root.getMessage();
         return (m != null && !m.isEmpty()) ? m : root.getClass().getSimpleName();
@@ -499,10 +520,10 @@ public final class JmeterCli {
 
     private static long timeoutOf(Map<String, String> opts) {
         return opts.get("timeout") != null
-                ? Long.parseLong(opts.get("timeout")) : 130_000L;
+                ? Long.parseLong(opts.get("timeout")) : DEFAULT_REQUEST_TIMEOUT_MS;
     }
 
-    private static int printResp(HttpResponse<String> resp, boolean json) throws Exception {
+    static int printResp(HttpResponse<String> resp, boolean json) throws Exception {
         int status = resp.statusCode();
         IpcResponse ipc;
         try {
@@ -522,8 +543,34 @@ public final class JmeterCli {
             }
             return 0;
         }
+        if (ipc.isCancelled()) {
+            return printCancelled(ipc, status);
+        }
         String err = ipc.getError() != null ? ipc.getError() : ipc.getErrorMessage();
         System.err.println("Error" + (status >= 400 ? " (HTTP " + status + ")" : "") + ": " + err);
+        return 1;
+    }
+
+    /**
+     * 打印结构化取消反馈:终止原因(用户 STOP vs 超时自取消)+ 截至终止已产生的部分内容。
+     * 包内可见以便单测。
+     */
+    static int printCancelled(IpcResponse ipc, int status) {
+        String reason = ipc.getCancelReason();
+        String label;
+        if (IpcResponse.CANCEL_REASON_TIMEOUT.equals(reason)) {
+            label = "turn timed out and was cancelled by the target instance";
+        } else if (IpcResponse.CANCEL_REASON_USER_STOP.equals(reason)) {
+            label = "turn cancelled by the target instance user";
+        } else {
+            label = "turn cancelled" + (reason != null ? " (" + reason + ")" : "");
+        }
+        System.err.println("Error" + (status >= 400 ? " (HTTP " + status + ")" : "") + ": " + label);
+        String partial = ipc.getPartialContent();
+        if (partial != null && !partial.isEmpty()) {
+            System.out.println("--- partial reply (may be truncated) ---");
+            System.out.println(partial);
+        }
         return 1;
     }
 
@@ -849,8 +896,9 @@ public final class JmeterCli {
             --properties injects global JMeter properties before the test starts; values must be strings, numbers,
             or booleans and can be read with __P(name) or props.get("name") in the test plan.
             --ignoreTimers true skips timer delays (quick functional validation). --wait polls get_test_status
-            every 1s until the test completes; the total wait is bounded by --timeout (default 130s, raise it for
-            long runs). Progress dots go to stderr; the final status goes to stdout.""",
+            every 1s until the test completes; the total wait is bounded by --timeout (default %dms, raise it
+            for long runs). Progress dots go to stderr; the final status goes to stdout."""
+                    .formatted(DEFAULT_REQUEST_TIMEOUT_MS),
             new String[][]{
                 {"--properties \"<json>\"", "JSON object of JMeter properties to inject before starting"},
                 {"--ignoreTimers <bool>", "skip timer delays during the run (default: false)"},
@@ -942,7 +990,7 @@ public final class JmeterCli {
             new String[][]{
                 {"\"<message>\"", "message text (positional); --message <text> is an alias"},
                 {"--session <key>", "session key (default: target instance's instanceId)"},
-                {"--timeout <ms>", "wait timeout, in ms (default: 130000)"},
+                {"--timeout <ms>", "wait timeout, in ms (default: " + DEFAULT_REQUEST_TIMEOUT_MS + ")"},
                 {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
             },
             new String[]{
@@ -1008,7 +1056,7 @@ public final class JmeterCli {
         out.println("  --token <t>        auth token override (default: read from port file)");
         out.println("  --json             print raw IpcResponse JSON instead of plain text");
         out.println("  --jmeter-home <d>  JMETER_HOME override (default: $JMETER_HOME env)");
-        out.println("  --timeout <ms>     HTTP timeout, in ms (default: 130000)");
+        out.println("  --timeout <ms>     HTTP timeout, in ms (default: " + DEFAULT_REQUEST_TIMEOUT_MS + ")");
         out.println("  -h, --help         show this help, or a command's help");
         out.println();
         out.println("Quick start:");

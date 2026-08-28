@@ -8,6 +8,7 @@ import org.gitee.jmeter.ai.agent.hooks.ProgressCallbackHookAdapter;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.gitee.jmeter.ai.agent.memory.MemoryStore;
 import org.gitee.jmeter.ai.agent.model.*;
+import org.gitee.jmeter.ai.agent.presenter.TurnPresenter;
 import org.gitee.jmeter.ai.agent.run.AgentRunResult;
 import org.gitee.jmeter.ai.agent.run.AgentRunSpec;
 import org.gitee.jmeter.ai.agent.run.AgentRunner;
@@ -17,6 +18,7 @@ import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.subagent.SubagentManager;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -76,6 +78,12 @@ public class AgentLoop {
     // 本线程当前正在执行的回合所属会话：使回合内运行的命令（如 /new）不会取消自己
     // 正身处其中的那个回合。
     private final ThreadLocal<String> turnOwnedByThisThread = new ThreadLocal<>();
+    // executor 正在执行的回合所属会话（volatile：signalCancel 在 ipc-worker/EDT 上读）。
+    // agentRunner.interrupt() 只应命中目标会话自己的运行回合——单线程 executor 上排队的
+    // 回合其 runningThread 属于别的会话，无差别 interrupt 会连坐杀死无辜在跑回合（如
+    // 外部 --session 键超时自取消打断本地默认会话回合）。排队未 pickup 的回合由
+    // future.cancel(true) + executor 任务头的取消预检作废，无需 interrupt。
+    private volatile String runningTurnSession;
     // 当前线程正在执行的回合自身的中止句柄与 future：回合内命令（/new、关闭整合清空）
     // 触发 signalCancel 时按<b>身份</b>豁免调用者自身——取消自身会在命令返回前杀死
     // 自己（用户看到 CancellationException 而非确认），但同会话的其他回合（Stop→/new
@@ -103,7 +111,6 @@ public class AgentLoop {
     // Runtime state for /status command (matching Nanobot's loop._last_usage / _start_time)
     private final Instant startTime = Instant.now();
     private volatile Map<String, Integer> lastUsage = Map.of();
-    private volatile ProgressCallback progressCallback;
 
     /**
      * re-publish 回合监听器：回合收尾把队列残留重新发布成新回合时，该回合没有
@@ -118,6 +125,70 @@ public class AgentLoop {
      */
     public void setRepublishListener(java.util.function.Consumer<CompletableFuture<AgentResponse>> listener) {
         this.republishListener = listener;
+    }
+
+    /**
+     * 回合呈现者：GUI 面板领养 IPC 发起回合（委派/CLI 直连）的显示与控制入口。
+     * 未注册（面板未创建）= headless。传 null 清除。见 {@link TurnPresenter} 契约。
+     */
+    private volatile TurnPresenter turnPresenter;
+
+    public void setTurnPresenter(TurnPresenter presenter) {
+        this.turnPresenter = presenter;
+    }
+
+    public TurnPresenter getTurnPresenter() {
+        return turnPresenter;
+    }
+
+    /** 回合开始通知（IpcServer 提交回合后调用）：仅当前实例会话派发给呈现者。 */
+    public void notifyTurnStarted(String sessionKey, String message) {
+        dispatchToPresenter(sessionKey, p -> p.onTurnStarted(sessionKey, message));
+    }
+
+    /** 回合终结通知（正常完成/失败）：仅当前实例会话派发给呈现者。 */
+    public void notifyTurnCompleted(String sessionKey, AgentResponse response) {
+        dispatchToPresenter(sessionKey, p -> p.onTurnCompleted(sessionKey, response));
+    }
+
+    /** 回合终结通知（超时自取消/用户 STOP）：reason 见 {@link TurnPresenter#onTurnCancelled}。 */
+    public void notifyTurnCancelled(String sessionKey, String reason) {
+        dispatchToPresenter(sessionKey, p -> p.onTurnCancelled(sessionKey, reason));
+    }
+
+    /** 回合内进度事件转发（IpcServer 把 presenter 转发编进回合回调时使用）。 */
+    public void notifyProgress(String sessionKey, ProgressUpdate update) {
+        dispatchToPresenter(sessionKey, p -> p.onProgress(sessionKey, update));
+    }
+
+    /** 委派回合撞上会话忙被快拒时通知面板（Phase 2 delegated 分支）。 */
+    private void notifyRejectedBusy(String sessionKey) {
+        dispatchToPresenter(sessionKey, p -> p.onTurnRejectedBusy(sessionKey));
+    }
+
+    /** IPC 来源消息在会话忙时成功入队注入后通知面板（Phase 2 注入 ack 分支）。 */
+    private void notifyInjected(String sessionKey, String message) {
+        dispatchToPresenter(sessionKey, p -> p.onInjected(sessionKey, message));
+    }
+
+    /**
+     * presenter 派发守卫：无注册者 no-op；sessionKey 非当前实例会话不派发
+     * （{@code --session foo} 等 headless 边界）；回调异常吞掉——呈现失败
+     * 不得反噬回合执行/IPC 响应路径（回调线程是 ipc-worker / agent-loop）。
+     */
+    private void dispatchToPresenter(String sessionKey, java.util.function.Consumer<TurnPresenter> action) {
+        TurnPresenter presenter = turnPresenter;
+        if (presenter == null || sessionKey == null) {
+            return;
+        }
+        try {
+            if (!sessionKey.equals(InstanceContext.currentSessionKey())) {
+                return;
+            }
+            action.accept(presenter);
+        } catch (Exception e) {
+            log.warn("TurnPresenter callback failed for session {}", sessionKey, e);
+        }
     }
 
     public AgentLoop(
@@ -166,20 +237,13 @@ public class AgentLoop {
     }
 
     /**
-     * Set progress callback for this processing run (legacy API).
-     * Note: This is now handled per-request via hooks.
-     */
-    public void setProgressCallback(ProgressCallback callback) {
-        this.progressCallback = callback;
-    }
-
-    /**
-     * Process a message through the agent loop (legacy API).
+     * Process a message through the agent loop (legacy API, no progress callback —
+     * IPC/CLI 入口；进度呈现经 {@link #setTurnPresenter} 的 presenter 路径)。
      */
     public CompletableFuture<AgentResponse> processMessage(
             String message,
             String sessionKey) {
-        return processMessage(message, sessionKey, progressCallback, false);
+        return processMessage(message, sessionKey, null, false);
     }
 
     /**
@@ -191,7 +255,7 @@ public class AgentLoop {
             String message,
             String sessionKey,
             boolean delegated) {
-        return processMessage(message, sessionKey, progressCallback, delegated);
+        return processMessage(message, sessionKey, null, delegated);
     }
 
     /**
@@ -213,6 +277,28 @@ public class AgentLoop {
             String sessionKey,
             ProgressCallback callback,
             boolean delegated) {
+        return doProcessMessage(message, sessionKey, callback, delegated, false);
+    }
+
+    /**
+     * IPC 入口（IpcServer {@code /agent}）：与 4 参重载同路由，额外标记来源为 IPC——
+     * Phase 2 的注入 ack/busy 快拒据此经 {@link TurnPresenter} 通知面板（本地路径的
+     * 注入反馈由面板自发渲染，双重通知会重复显示）。
+     */
+    public CompletableFuture<AgentResponse> processMessageFromIpc(
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated) {
+        return doProcessMessage(message, sessionKey, callback, delegated, true);
+    }
+
+    private CompletableFuture<AgentResponse> doProcessMessage(
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated,
+            boolean fromIpc) {
 
         String raw = message.trim();
 
@@ -240,6 +326,8 @@ public class AgentLoop {
             // 且注入队列只存 String,并入会静默丢失 delegated 标记 → 深度守卫被绕过
             // (队列消息要么被并入正在跑的本地用户回合、要么以 delegated=false 重发布)。
             if (delegated) {
+                // 面板一行系统提示（委派方收到既有 busy 错误,见返回值）
+                notifyRejectedBusy(sessionKey);
                 return CompletableFuture.completedFuture(AgentResponse.error(
                     "session busy: this instance has a turn in flight for session " + sessionKey
                         + "; retry the delegation later"));
@@ -258,6 +346,11 @@ public class AgentLoop {
             // Route to pending queue for mid-turn injection
             if (injectionManager.offer(sessionKey, message)) {
                 log.info("Message enqueued for mid-turn injection in session {}", sessionKey);
+                if (fromIpc) {
+                    // CLI/委派在会话忙时注入的消息经 presenter 显示;本地路径的面板注入
+                    // 反馈由面板自己渲染,通知会重复
+                    notifyInjected(sessionKey, message);
+                }
                 return CompletableFuture.completedFuture(
                     AgentResponse.success("Message injected into current conversation."));
             }
@@ -317,6 +410,7 @@ public class AgentLoop {
                 }
                 activeTurnTokens.put(sessionKey, turnToken);
                 turnOwnedByThisThread.set(sessionKey);
+                runningTurnSession = sessionKey;
                 currentTurnSelf.set(new TurnSelfRef(abortFlag, future));
                 ownResetEpoch.remove(); // 防本线程上一回合/上一命令的残留
                 // 本回合归属的会话代数：/new、"+" 重置会话时代数 +1，收尾 re-publish
@@ -390,6 +484,7 @@ public class AgentLoop {
                     drainTimedOut.remove(sessionKey);
                     // The agent-loop thread is reused by the next turn.
                     turnOwnedByThisThread.remove();
+                    runningTurnSession = null;
                     currentTurnSelf.remove();
 
                     // Cleanup: drain this turn's own queue (by handle) and decide the
@@ -595,28 +690,41 @@ public class AgentLoop {
     }
 
     /**
-     * Cancel the active task for a session.
+     * Cancel the active task for a session and wait (bounded) for its teardown.
+     * 供后台线程调用方（IpcServer 超时分支、关闭整合对话框）；GUI Stop 按钮在 EDT 上
+     * 改走 {@code signalCancel}（同步）+ {@link #waitForCancellation}（后台线程）。
      * @return true if a task was cancelled
      */
     public boolean cancelActiveTask(String sessionKey) {
         boolean cancelled = signalCancel(sessionKey);
-
-        // 4. Wait for actual completion
-        // TODO 优化点: 此处 latch.await(5s) 在 EDT 上同步阻塞(Stop 按钮经此路径,见 AiChatPanel.stopActiveTask)。
-        //  最坏占用 EDT 5 秒(GUI 短暂无响应);后续可改为后台线程 await + SwingUtilities.invokeLater 回 EDT 做 UI 收尾。
-        CountDownLatch latch = completionLatches.get(sessionKey);
-        if (latch != null) {
-            try {
-                boolean completed = latch.await(5, TimeUnit.SECONDS);
-                if (!completed) {
-                    log.warn("Timed out waiting for task cleanup in session {}", sessionKey);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
+        waitForCancellation(sessionKey, 5, TimeUnit.SECONDS);
         return cancelled;
+    }
+
+    /**
+     * 有界等待某会话被 {@link #signalCancel} 的垂死回合完成收尾（finally 抽干注入
+     * 队列、清理 map）。无在跑回合（无 latch）立即返回 true。
+     *
+     * <p>EDT 调用方须知：本方法会阻塞（Stop 按钮最坏 5 秒）——EDT 上只应调
+     * {@code signalCancel}，把本等待挪到后台线程（见 {@code AiChatPanel.stopActiveTask}）。
+     *
+     * @return true 若回合已收尾（或本就无在跑回合）；false 表示超时/中断
+     */
+    public boolean waitForCancellation(String sessionKey, long timeout, TimeUnit unit) {
+        CountDownLatch latch = completionLatches.get(sessionKey);
+        if (latch == null) {
+            return true;
+        }
+        try {
+            boolean completed = latch.await(timeout, unit);
+            if (!completed) {
+                log.warn("Timed out waiting for task cleanup in session {}", sessionKey);
+            }
+            return completed;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /**
@@ -624,9 +732,10 @@ public class AgentLoop {
      *
      * <p>Callers that must not block use this: {@code /new} is dispatched on the
      * caller's thread — the Swing EDT when typed during an active run, or the
-     * agent-loop thread inside the very future it would otherwise await. Only the
-     * Stop button needs the completion wait, so only {@link #cancelActiveTask}
-     * does it.
+     * agent-loop thread inside the very future it would otherwise await. The
+     * Stop button also uses this on the EDT (its completion wait runs on a
+     * background thread via {@link #waitForCancellation}); blocking callers
+     * on background threads use {@link #cancelActiveTask}.
      *
      * <p><b>自身豁免按身份：</b>当调用发生在本会话回合自身的执行线程上
      * （/new 作为 Phase 3 回合运行、resetConversation 在其内部被调），只豁免调用者
@@ -656,8 +765,11 @@ public class AgentLoop {
         }
 
         // 2. Interrupt the actual agent loop thread (stops in-progress LLM calls)
-        //    — 仅非自身：自身正执行命令，中断会打断命令本身
-        if (!self) {
+        //    — 仅非自身（自身正执行命令，中断会打断命令本身），且仅当目标会话恰是
+        //    当前运行回合（见 runningTurnSession 字段注释）：executor 是单线程串行的，
+        //    无差别 interrupt 会连坐别的会话的在跑回合；目标回合若还在排队，由第 3 步
+        //    future.cancel(true) + 任务头取消预检作废，同样无需 interrupt。
+        if (!self && sessionKey.equals(runningTurnSession)) {
             agentRunner.interrupt();
         }
 

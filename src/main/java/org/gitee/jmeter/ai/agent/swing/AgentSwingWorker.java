@@ -52,20 +52,45 @@ public class AgentSwingWorker extends SwingWorker<AgentResponse, ProgressUpdate>
         this.progressCallback = progressCallback;
     }
 
+    /**
+     * SwingWorker 框架回调，无业务代码直接调用。
+     * 完整调用链：
+     * <pre>
+     * AiChatPanel.startNormalSend()                // EDT
+     *   └─ new AgentSwingWorker(...)
+     *   └─ activeWorker.execute()                  // 立即返回，不阻塞 EDT
+     *       └─ SwingWorker 内部线程池
+     *           └─ doInBackground()                // 本方法，后台线程
+     *               └─ agentLoop.processMessage(...)
+     * 执行中 publish(update) → EDT 上回调 process()；结束 → EDT 上回调 done()。
+     * </pre>
+     */
     @Override
     protected AgentResponse doInBackground() throws Exception {
         log.info("Starting AgentSwingWorker for session: {}", sessionKey);
 
-        // Set progress callback - pass ProgressUpdate directly through SwingWorker's publish
-        agentLoop.setProgressCallback(update -> publish(update));
-
-        // Execute the agent loop
-        AgentResponse response = agentLoop.processMessage(message, sessionKey).get();
+        // Per-turn callback binding: ProgressUpdate flows through SwingWorker's publish
+        // 只绑定本回合（3 参 processMessage），不再写 loop 级残留字段——否则 GUI 发过
+        // 消息后，经 IPC 到达的回合会把工具事件漏进旧 worker（半状态缺陷）。
+        AgentResponse response = agentLoop
+                .processMessage(message, sessionKey, update -> publish(update)).get();
 
         log.info("AgentSwingWorker completed for session: {}", sessionKey);
         return response;
     }
 
+    /**
+     * SwingWorker 框架回调，无业务代码直接调用。
+     * 完整调用链：
+     * <pre>
+     * AgentLoop 工具事件/进度（后台线程）
+     *   └─ update -> publish(update)               // doInBackground 传入 processMessage 的 lambda
+     *       └─ SwingWorker 内部聚合队列（多次 publish 合并为一批 chunks）
+     *           └─ EDT 上回调 process(chunks)      // 本方法
+     *               └─ progressCallback.accept(update)
+     *                   └─ AiChatPanel.handleProgress(u, generation)  // 渲染进度 + 代数过滤
+     * </pre>
+     */
     @Override
     protected void process(List<ProgressUpdate> chunks) {
         for (ProgressUpdate update : chunks) {
@@ -79,6 +104,20 @@ public class AgentSwingWorker extends SwingWorker<AgentResponse, ProgressUpdate>
         }
     }
 
+    /**
+     * SwingWorker 框架回调，无业务代码直接调用。
+     * 完整调用链（doInBackground 到达终态后，框架在 EDT 上回调）：
+     * <pre>
+     * doInBackground() 结束（正常返回 / 抛异常 / Stop 按钮 stopActiveTask()
+     * 调 activeWorker.cancel(true)）
+     *   └─ EDT 上回调 done()                       // 本方法
+     *       ├─ isCancelled()：Stop 快路径已处理显示，直接返回
+     *       ├─ get() 取结果 → callback.accept(response)
+     *       │     └─ AiChatPanel.handleAgentResponse(r, generation)
+     *       │           // 渲染最终回复、复位按钮、activeWorker 置 null
+     *       └─ 异常 → callback.accept(AgentResponse.error(...))  // 同走 handleAgentResponse
+     * </pre>
+     */
     @Override
     protected void done() {
         // If cancelled, the UI fast-path already handled display — skip callback

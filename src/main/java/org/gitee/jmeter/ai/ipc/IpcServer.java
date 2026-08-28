@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.AgentLoopFactory;
+import org.gitee.jmeter.ai.agent.command.CommandRouter;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.JMeterToolRegistry;
@@ -279,8 +280,26 @@ public final class IpcServer {
                     ? InstanceContext.currentSessionKey() : req.getSession();
             long timeout = AiConfig.getIpcAgentTimeoutMs();
             long t0 = System.currentTimeMillis();
+            // CLI 直连(delegated=false)的非命令消息加 [from cli] 前缀(随消息文本进回合上下文与
+            // jsonl,单一事实源);斜杠命令豁免;委派载荷保持 [delegated-from …] 原样
+            boolean isCommand = isCommandMessage(loop.getCommandRouter(), req.getMessage());
+            String message = applyCliProvenance(loop.getCommandRouter(), req.getMessage(), req.isDelegated());
+            // 每回合挂文本累积器:取消/超时响应的 partialContent 来源(GUI 无关);
+            // 同一回调把进度事件经 presenter 转发给面板(委派/CLI 回合的全流显示)
+            TurnContentAccumulator accumulator = new TurnContentAccumulator();
+            AgentLoop.ProgressCallback turnCallback = update -> {
+                accumulator.onProgress(update);
+                loop.notifyProgress(session, update);
+            };
             // delegated=true → 该回合内置 DelegationGuard,回合内 delegate_to_instance 直接报错(防 ping-pong)
-            CompletableFuture<AgentResponse> future = loop.processMessage(req.getMessage(), session, req.isDelegated());
+            CompletableFuture<AgentResponse> future =
+                    loop.processMessageFromIpc(message, session, turnCallback, req.isDelegated());
+            // 非命令回合才向面板呈现(命令回合无显示契约,与前缀豁免同判据);future 立即完成
+            // = Phase 1/2 同步路径(命令分发/busy 快拒/注入 ack),各自的通知已在 AgentLoop 内发出
+            boolean turnPresented = !isCommand && !future.isDone();
+            if (turnPresented) {
+                loop.notifyTurnStarted(session, message);
+            }
             AgentResponse ar;
             try {
                 ar = future.get(timeout, TimeUnit.MILLISECONDS);
@@ -288,26 +307,97 @@ public final class IpcServer {
                 // 超时即取消 in-flight turn:否则 agent 会继续在后台跑完并改测试计划树,
                 // 而 CLI 已向操作者报了失败,产生"报错却已生效"的状态错位。
                 loop.cancelActiveTask(session);
-                sendError(ex, 504, "agent timeout after " + timeout + "ms (turn cancelled)");
+                if (turnPresented) {
+                    loop.notifyTurnCancelled(session, IpcResponse.CANCEL_REASON_TIMEOUT);
+                }
+                send(ex, 504, cancelledResponse(
+                        IpcResponse.CANCEL_REASON_TIMEOUT, accumulator,
+                        "agent timeout after " + timeout + "ms (turn cancelled)"));
                 return;
             } catch (ExecutionException ee) {
+                // 回合任务自身抛异常(future.completeExceptionally):onTurnCompleted 契约
+                // 含失败语义,通知面板按错误样式收尾,否则 loading 指示器悬挂
+                if (turnPresented) {
+                    loop.notifyTurnCompleted(session, AgentResponse.error("agent failed: " + rootMessage(ee)));
+                }
                 sendError(ex, 500, "agent failed: " + rootMessage(ee));
                 return;
             } catch (java.util.concurrent.CancellationException ce) {
-                // Stop 按钮/关闭对话框取消了该回合：409 让委派方可读地处理（重试/放弃），
-                // 而非落入外层 catch(Exception) 变成 500 "server error: null"
-                sendError(ex, 409, "turn cancelled before completion");
+                // Stop 按钮/关闭对话框取消了该回合：409 + 结构化载荷让委派方/CLI 可读地处理
+                // （重试/放弃、展示部分内容），而非落入外层 catch(Exception) 变成 500 "server error: null"
+                if (turnPresented) {
+                    loop.notifyTurnCancelled(session, IpcResponse.CANCEL_REASON_USER_STOP);
+                }
+                send(ex, 409, cancelledResponse(
+                        IpcResponse.CANCEL_REASON_USER_STOP, accumulator,
+                        "turn cancelled before completion"));
                 return;
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
+                if (turnPresented) {
+                    loop.notifyTurnCompleted(session, AgentResponse.error("interrupted"));
+                }
                 sendError(ex, 500, "interrupted");
                 return;
+            }
+            if (turnPresented) {
+                loop.notifyTurnCompleted(session, ar);
             }
             send(ex, 200, fromAgentResponse(ar, System.currentTimeMillis() - t0));
         } catch (Exception e) {
             log.error("IPC /agent error", e);
             sendError(ex, 500, "server error: " + rootMessage(e));
         }
+    }
+
+    /** CLI 直连消息的来源前缀(与委派的 {@code [delegated-from …]} 同为消息文本一部分)。 */
+    static final String CLI_PREFIX = "[from cli] ";
+
+    /**
+     * CLI 直连(delegated=false)的非命令消息加 {@code [from cli] } 来源前缀——随消息文本进
+     * 会话存储与面板渲染(单一事实源)。斜杠命令豁免:命中
+     * {@link CommandRouter#isPriority}/{@link CommandRouter#isDispatchable} 则原样投递,
+     * 前缀会把 {@code jmeter-cli agent "/status"} 这类命令挡成普通消息发给 LLM(命令分发是
+     * trim 后的精确匹配)。委派消息的 {@code [delegated-from …]} 前缀由发起侧添加,维持不动。
+     * 包内可见以便单测。
+     */
+    static String applyCliProvenance(CommandRouter router, String message, boolean delegated) {
+        if (delegated) {
+            return message;
+        }
+        if (isCommandMessage(router, message)) {
+            return message;
+        }
+        return CLI_PREFIX + message;
+    }
+
+    /**
+     * 消息是否命中已知斜杠命令（trim 后 {@link CommandRouter#isPriority} 或
+     * {@link CommandRouter#isDispatchable}）。前缀豁免与回合呈现豁免共用此判据——
+     * 命令回合无面板显示契约，本地面板从不渲染命令的 "You:" 行。
+     */
+    static boolean isCommandMessage(CommandRouter router, String message) {
+        String trimmed = message.trim();
+        return router.isPriority(trimmed) || router.isDispatchable(trimmed);
+    }
+
+    /**
+     * 构造 409/504 的结构化取消响应体：{@code cancelled=true} + {@code cancelReason}
+     * （区分目标用户 STOP 与超时自取消）+ {@code partialContent}（累积器截断快照，
+     * 无累积则省略字段）。提取为静态便于单测直接验证响应体形状。
+     */
+    static IpcResponse cancelledResponse(String cancelReason, TurnContentAccumulator accumulator,
+            String error) {
+        IpcResponse resp = new IpcResponse();
+        resp.setSuccess(false);
+        resp.setError(error);
+        resp.setCancelled(true);
+        resp.setCancelReason(cancelReason);
+        String partial = accumulator == null ? "" : accumulator.snapshotTruncated();
+        if (!partial.isEmpty()) {
+            resp.setPartialContent(partial);
+        }
+        return resp;
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
