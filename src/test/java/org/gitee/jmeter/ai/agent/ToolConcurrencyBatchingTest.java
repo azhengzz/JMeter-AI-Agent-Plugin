@@ -15,6 +15,7 @@ import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.gitee.jmeter.ai.service.AiService;
 import org.junit.jupiter.api.Test;
 
@@ -203,7 +204,7 @@ class ToolConcurrencyBatchingTest {
         AgentLoop loop = newLoop(ai, registry);
         try {
             AgentResponse response = loop
-                .processMessage("run both", "chat:batch-par", null, false)
+                .processMessage("run both", "chat:batch-par", null, TurnOrigin.LOCAL_PANEL)
                 .get(30, TimeUnit.SECONDS);
             assertTrue(response.isSuccess(), response.getErrorMessage());
             assertTrue(state.barrierPassed,
@@ -231,7 +232,7 @@ class ToolConcurrencyBatchingTest {
         AgentLoop loop = newLoop(ai, registry);
         try {
             AgentResponse response = loop
-                .processMessage("mixed batch", "chat:batch-mixed", null, false)
+                .processMessage("mixed batch", "chat:batch-mixed", null, TurnOrigin.LOCAL_PANEL)
                 .get(30, TimeUnit.SECONDS);
             assertTrue(response.isSuccess(), response.getErrorMessage());
 
@@ -303,7 +304,7 @@ class ToolConcurrencyBatchingTest {
         AgentLoop loop = newLoop(ai, registry);
         try {
             AgentResponse response = loop
-                .processMessage("[delegated-from instanceId=peer-1] analyze both", "chat:batch-guard", null, true)
+                .processMessage("[delegated-from instanceId=peer-1] analyze both", "chat:batch-guard", null, TurnOrigin.IPC_DELEGATED)
                 .get(30, TimeUnit.SECONDS);
             assertTrue(response.isSuccess(), response.getErrorMessage());
             assertTrue(state.barrierPassed, "safe pair must still run in parallel inside a delegated turn");

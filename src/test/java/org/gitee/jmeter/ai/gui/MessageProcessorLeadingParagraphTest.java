@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.gui;
 
 import org.junit.jupiter.api.Test;
 
+import javax.swing.SwingUtilities;
 import javax.swing.text.StyledDocument;
 import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.HTMLEditorKit;
@@ -41,7 +42,7 @@ class MessageProcessorLeadingParagraphTest {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = newHtmlDoc();
 
-        mp.appendHtml(doc, "<div><h1>Welcome</h1><p>body</p></div>");
+        onEdt(() -> mp.appendHtml(doc, "<div><h1>Welcome</h1><p>body</p></div>"));
 
         String text = doc.getText(0, doc.getLength());
         assertFalse(text.startsWith("\n"), "first message must not start with a blank line: " + escape(text));
@@ -56,7 +57,7 @@ class MessageProcessorLeadingParagraphTest {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = clearedAfterPopulation();
 
-        mp.appendHtml(doc, "<div><h1>Welcome</h1><p>body</p></div>");
+        onEdt(() -> mp.appendHtml(doc, "<div><h1>Welcome</h1><p>body</p></div>"));
 
         String text = doc.getText(0, doc.getLength());
         assertFalse(text.startsWith("\n"), "welcome after clear must not start with a blank line: " + escape(text));
@@ -68,12 +69,28 @@ class MessageProcessorLeadingParagraphTest {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = newHtmlDoc();
 
-        mp.appendHtml(doc, "<div><p>first</p></div>");
-        mp.appendHtml(doc, "<div><p>second</p></div>");
+        onEdt(() -> mp.appendHtml(doc, "<div><p>first</p></div>"));
+        onEdt(() -> mp.appendHtml(doc, "<div><p>second</p></div>"));
 
         String text = doc.getText(0, doc.getLength());
         assertTrue(text.contains("first") && text.contains("second"), "both messages kept: " + escape(text));
         assertFalse(text.startsWith("\n"), "still no leading blank line: " + escape(text));
+    }
+
+    /** EDT 护栏对等：MessageProcessor 文档变更入口已加 isDispatchThread 断言，测试调用须上 EDT。 */
+    private static void onEdt(ThrowingRunnable body) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                body.run();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static String escape(String s) {

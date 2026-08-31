@@ -2,10 +2,8 @@ package org.gitee.jmeter.ai.gui;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.util.JMeterUtils;
-import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.memory.CloseConsolidationCoordinator;
 import org.gitee.jmeter.ai.agent.model.Message;
-import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,16 +103,17 @@ public final class CloseConsolidationDialog {
             protected Boolean doInBackground() {
                 // 先取消本会话尚在跑的 Agent 回合(取自方案3;关闭只挡测试运行,不挡 agent 回合):
                 // 否则提炼/清空与并发回合写会话相互竞态,快照之后新增的消息也不会进本次提炼。
-                // cancelActiveTask 最多等 5s 收尾——在后台线程,不占 EDT。
-                try {
-                    AgentLoopFactory.getAgentLoop().cancelActiveTask(InstanceContext.currentSessionKey());
-                } catch (IllegalStateException ignore) {
-                    // agent 未初始化则必无活动回合,无需取消
-                }
+                // 走协调器入口 = 工厂跨实例路由 cancelActiveTaskAny:取消触达当前+退役
+                // loop 上该会话的在跑回合(换血后旧 loop 的 IPC/委派回合不再漏取消,
+                // 重建窗口 instance==null 也不再有 IllegalStateException 被吞的路径)。
+                // 最多合计等 5s 收尾——在后台线程,不占 EDT。
+                // SILENT(design D5):面板对 LOCAL 源回合不渲染取消噪音行;IPC 源回合照旧
+                // 渲染终止回执行,wire 信封仍由 IpcServer 收口为 cancelled_by_target_user。
+                CloseConsolidationCoordinator.cancelActiveTurnsSilently();
                 // EDT 快照先于 cancel 取得,模态等待期间
                 // run 的后置整合(AgentRunner 回合后 maybeConsolidate)可能已完成——写完
                 // HISTORY/MEMORY、推进 lastConsolidatedIndex、run future 完成后 abort flag 被
-                // 移除,cancelActiveTask 空转。此处 cancel 后重读当前未整合集:已空则后置整合
+                // 移除,cancelActiveTaskAny 空转。此处 cancel 后重读当前未整合集:已空则后置整合
                 // 已覆盖,视为完成(不二次提炼);否则只提炼仍未整合的部分,杜绝重复 HISTORY 条目。
                 List<Message> fresh = CloseConsolidationCoordinator.unconsolidatedSnapshot();
                 if (fresh.isEmpty()) {

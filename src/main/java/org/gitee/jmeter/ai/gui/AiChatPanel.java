@@ -11,10 +11,11 @@ import java.beans.PropertyChangeEvent;
 import java.net.URI;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 
 import org.gitee.jmeter.ai.intellisense.InputBoxIntellisense;
@@ -23,9 +24,11 @@ import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
 import org.gitee.jmeter.ai.agent.model.ProgressUpdate;
 import org.gitee.jmeter.ai.agent.model.ToolEvent;
-import org.gitee.jmeter.ai.agent.presenter.TurnPresenter;
-import org.gitee.jmeter.ai.agent.swing.AgentSwingWorker;
-import org.gitee.jmeter.ai.ipc.protocol.IpcResponse;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
+import org.gitee.jmeter.ai.agent.presenter.TurnEvent;
+import org.gitee.jmeter.ai.agent.presenter.TurnHandle;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
+import org.gitee.jmeter.ai.agent.presenter.TurnSubscriber;
 import org.gitee.jmeter.ai.gui.render.MarkdownParserHolder;
 import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
 import org.gitee.jmeter.ai.instance.InstanceContext;
@@ -51,7 +54,8 @@ import org.slf4j.LoggerFactory;
  * Panel for interacting with AI to generate and modify JMeter test plans.
  * Now uses AgentLoop for full agent capabilities (tools, memory, skills).
  */
-public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnPresenter {
+public class AiChatPanel extends JPanel
+        implements PropertyChangeListener, TurnSubscriber {
     private static final Logger log = LoggerFactory.getLogger(AiChatPanel.class);
     private static final String REPO_URL = "https://github.com/azhengzz/JMeter-AI-Agent-Plugin";
 
@@ -85,30 +89,37 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     // Vertical split pane for drag-to-resize between chat area and input area
     private JSplitPane verticalSplitPane;
 
-    // Track active worker for Stop button support
-    private AgentSwingWorker activeWorker;
-    // Track whether tool calls were displayed progressively during the loop
-    private boolean toolCallsDisplayedProgressively;
+    // 渐进展示过工具调用的回合 id 集合（per-turn）：并行活回合交叠（换血后退役 loop
+    // 的回合与当前 loop 的回合）时按回合身份归属「是否已渐进显示」，兄弟回合的进度
+    // 不得吞掉本回合的工具摘要、也不得使已渐进显示过的回合重复补显
+    private final Set<Long> progressiveToolCallTurnIds = new HashSet<>();
     // Separate Stop button (visible during agent processing)
     private JButton stopButton;
 
     /**
-     * 会话渲染代数：/new、"+" 重置时 +1。订阅渲染回调（worker 回调、republishListener、
-     * 进度回调、注入回退 future）时捕获当前值，投递时比对——不符即旧会话的迟到渲染，
-     * 丢弃。关两类窗口：重置恰逢回合完成（signalCancel 对已完成
+     * 会话渲染代数：/new、"+"、关闭整合清空时 +1（统一经 {@link #advanceRenderEpoch}）。
+     * {@link #onTurnEvent} 通知时捕获当前值，EDT 上经 {@link #dispatch} 比对——不符即
+     * 旧会话的迟到渲染，丢弃。关两类窗口：重置恰逢回合完成（signalCancel 对已完成
      * future no-op）时排在其后的结论投递；工具批在跑（join 不响应 interrupt）时
      * 重置后落地的 TOOL_CALL 进度。都在 EDT 上读写，volatile 仅兜底。
      */
     private volatile int conversationGeneration;
 
     /**
-     * IPC 回合（委派/CLI 直连）呈现窗口代数：{@link #onTurnStarted} 的 EDT 运行时
-     * 捕获当前 {@link #conversationGeneration} 武装，回合内的进度/终结投递
-     * （{@link #onProgress}/{@link #onTurnCompleted}/{@link #onTurnCancelled}）经
-     * {@link #runInIpcTurn} 比对放行——武装前到达（IpcServer 的回合提交与首事件间
-     * 毫秒级窗口）或 {@code /new} 后迟到的投递一律丢弃。只在 EDT 读写。
+     * 活回合 id 集合（{@link TurnHandle#id()}，进程级单调）：{@code dispatch} 的
+     * PROGRESS/终态过滤依据——id 不在集合内的投递即武装前早到或 {@code /new} 后迟到，
+     * 丢弃。TURN_STARTED 分支与 {@link #adoptRunningIpcTurnIfNeeded} 领养写入，任一
+     * 终态（TURN_COMPLETED/TURN_CANCELLED）移除。只在 EDT 读写。
      */
-    private int ipcTurnGeneration = -1;
+    private final Set<Long> liveTurnIds = new HashSet<>();
+
+    /**
+     * loading 指示武装位：{@link #armActiveTurn} 置位，{@link #removeLoadingIndicator}
+     * 确认移除（或确认不在文档）后清零——未武装时直接跳过，免去每条 PROGRESS/终态
+     * 都做一遍全文档 O(N) 文本扫描。BadLocationException 路径保持武装以便下次重试。
+     * 与 liveTurnIds 同一批 EDT 读写（arm/remove 调用点全在事件派发路径上）。
+     */
+    private boolean loadingIndicatorArmed;
 
     // Selection context bar (current JMeter element + focused control)
     private SelectionContextBar selectionContextBar;
@@ -123,6 +134,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
         // Initialize services (keep for model loading)
         claudeService = new ClaudeService();
         openAiService = new OpenAiService();
+
+        // 回合事件订阅挂工厂级表（早于首个 getAgentLoop——见 AgentLoopFactory 注释）：
+        // 模型切换换血 loop 后订阅不丢，懒创建面板对在跑回合的后续事件照常可达
+        AgentLoopFactory.addTurnSubscriber(this);
 
         // Initialize AgentLoop with ClaudeService as the default AI service
         initializeAgentLoop();
@@ -603,10 +618,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
             if (agentLoop == null) {
                 log.warn("AgentLoop is disabled or failed to initialize. Some features may not work.");
             } else {
-                registerRepublishListener();
-                // IPC 回合（委派/CLI）呈现：与 republishListener 同点位绑定本 loop 实例。
-                // 构造期（UI 字段未就绪）即可注册——回调一律 invokeLater，排队到构造完成后
-                agentLoop.setTurnPresenter(this);
+                // IPC 回合（委派/CLI）与 re-publish 孤儿回合的呈现均走工厂级回合事件
+                // 订阅（构造器 addTurnSubscriber，见 dispatch）。此处不再注册任何
+                // loop 级监听器。
                 log.info("AgentLoop initialized successfully");
             }
         } catch (Exception e) {
@@ -614,202 +628,214 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
         }
     }
 
+    // ==== TurnSubscriber：回合事件流呈现（唯一显示通道） ====
+    // 订阅挂工厂级表（构造器 AgentLoopFactory.addTurnSubscriber），模型切换换血 loop
+    // 后仍存活。会话键过滤（非当前实例会话不派发）已由 AgentLoop.dispatchTurnEvent 完成。
+
     /**
-     * 注册 re-publish 孤儿回合监听器（见 {@link AgentLoop#setRepublishListener}）。
-     *
-     * <p>AgentLoop 在回合收尾时把注入队列残留用户消息重新发布成新回合（触发路径：
-     * Stop 后垂死回合残留注入消息、注入周期超限残留、pre-pickup 取消善后），
-     * 但该回合的 future 没有调用方持有——原 SwingWorker 早已终止。不在此接管，
-     * 最终回复将不被渲染（回合跑完面板却无输出）。接管动作对齐
-     * {@code startNormalSend} 的 UI 语义：切 Stop 模式 + loading 指示，
-     * future 完成后走 {@link #handleAgentResponse} 统一渲染与复位。
+     * 事件入口：通知线程不保证（ipc-worker / commonPool / EDT / 本地提交线程）。
+     * 通知时快照会话代数（/new 翻转后到达的旧会话事件整段丢弃）；EDT 上零跳直派
+     * （G1），否则 invokeLater。
      */
-    private void registerRepublishListener() {
-        if (agentLoop == null) {
+    @Override
+    public void onTurnEvent(TurnEvent event) {
+        final int generation = conversationGeneration;
+        if (SwingUtilities.isEventDispatchThread()) {       // 当前已在EDT线程
+            dispatch(event, generation);
+        } else {
+            SwingUtilities.invokeLater(() -> dispatch(event, generation));      // 投递到 EDT 队列排队
+        }
+    }
+
+    /**
+     * EDT 上的单入口分发：活回合集合（liveTurnIds）过滤全面接管——本地/IPC/孤儿
+     * 回合同一渲染路径；INJECTED 无条件渲染。COMMAND_RESULT 仅
+     * LOCAL_PANEL 源渲染（CLI/委派命令结果走其对端界面——HTTP 信封）。
+     */
+    private void dispatch(TurnEvent event, int generation) {
+        if (generation != conversationGeneration) {
+            return; // /new 后迟到：旧会话事件不得渲染进新聊天区
+        }
+        TurnHandle turn = event.turn();
+        switch (event.kind()) {
+            case TURN_STARTED -> {
+                liveTurnIds.add(turn.id());
+                // REPUBLISH 无 You 回显（原 INJECTED 事件已给过注入回显；echoText 为 null）
+                if (turn.origin() != TurnOrigin.REPUBLISH) {
+                    appendYouLine(turn.echoText());
+                }
+                armActiveTurn();
+            }
+            case PROGRESS -> {
+                if (liveTurnIds.contains(turn.id())) {
+                    handleProgressNow(event.progress(), turn.id());
+                }
+            }
+            case TURN_COMPLETED -> {
+                // 远程 /new 清屏（空闲路径）：不可见 IPC 命令回合无 STARTED（不在活回合
+                // 集合），但其 cmdNew 已把会话数据清空——面板转录须随之清空翻代数，
+                // 否则显示态与 session jsonl 永久分叉（spec R2「面板即将清理」前提对
+                // 远程重置同样成立）。本地 /new 不经此（handleNewCommand 先清屏再提交）。
+                if (!turn.origin().isLocalPanel() && "/new".equals(turn.echoText())) {
+                    clearTranscriptForRemoteReset();
+                    return;
+                }
+                if (!liveTurnIds.remove(turn.id())) {
+                    return; // 未领养的早到/迟到终态：无对应武装，不渲染不复位
+                }
+                handleAgentResponse(event.response(), turn.id());
+            }
+            case TURN_CANCELLED -> {
+                if (!liveTurnIds.remove(turn.id())) {
+                    return;
+                }
+                // 指示删除与按钮复位同判据（面板视角无活回合）：交叠活回合下被取消回合
+                // 的终态不得清掉兄弟回合仍在用的 loading 指示。不再查
+                // agentLoop.hasActiveRun——终态已派发而注入槽未摘的窗口内会误判
+                // 「仍在跑」，且漏退役 loop 上的在跑回合
+                if (liveTurnIds.isEmpty()) {
+                    removeLoadingIndicator();
+                    setButtonToSendMode();
+                }
+                appendCancelLine(event.cause(), turn.origin());
+            }
+            case INJECTED -> {
+                // 本地注入回显统一走事件（面板自渲染/嗅探已随 injectMessage 退役）；
+                // IPC 前缀（[from cli] 等）天然区分来源
+                try {
+                    messageProcessor.appendStyled(chatArea.getStyledDocument(),
+                            "[Injected] You: " + event.message(), new Color(0x00, 0x80, 0x00), Font.ITALIC);
+                } catch (BadLocationException e) {
+                    log.error("Error appending injected message", e);
+                }
+            }
+            case REJECTED_BUSY -> {
+                try {
+                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            "Delegation rejected: a turn is already running; the caller was told to retry later.",
+                            getThemeColor("Label.disabledForeground", Color.GRAY), false);
+                } catch (BadLocationException e) {
+                    log.error("Error appending busy-reject notice", e);
+                }
+            }
+            case COMMAND_RESULT -> {
+                if (!event.origin().isLocalPanel()) {
+                    // 远程 /new 清屏（忙期路径）：Phase 2 同步命令在调用方线程执行
+                    // cmdNew，会话数据已清空——面板转录须随之清空翻代数（同
+                    // TURN_COMPLETED 分支的空闲路径口径）
+                    if ("/new".equals(event.message())) {
+                        clearTranscriptForRemoteReset();
+                    }
+                    return; // CLI/委派命令结果留在发起方对端界面（HTTP 信封）
+                }
+                appendYouLine(event.message());
+                handleAgentResponse(event.response(), null);
+            }
+        }
+    }
+
+    /**
+     * You 回显行（TURN_STARTED 的 echoText / 本地命令的 raw）。文档为空（刚清屏的
+     * /new）时不带前导换行——首块前多一个 {@code \n} 会渲染成顶部空白行。
+     */
+    private void appendYouLine(String text) {
+        try {
+            boolean emptyDoc = chatArea.getStyledDocument().getLength() == 0;
+            messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                    (emptyDoc ? "" : "\n") + "You: " + text, null, false);
+        } catch (BadLocationException e) {
+            log.error("Error appending turn user message", e);
+        }
+    }
+
+    /**
+     * 回合开始前把界面置为「进行中」：按钮切到 Stop，聊天区末尾加一个加载提示。
+     * 加载提示只需出现一次（loadingIndicatorArmed 拦截重复追加）。
+     */
+    private void armActiveTurn() {
+        setButtonToStopMode();
+        if (loadingIndicatorArmed) {
             return;
         }
-        agentLoop.setRepublishListener(future -> {
-            // 捕获订阅时的会话代数：重置后到达的孤儿 UI 武装/渲染全部过期
-            final int generation = conversationGeneration;
-            SwingUtilities.invokeLater(() -> {
-                if (generation != conversationGeneration || future.isDone()) {
-                    // 会话已重置，或孤儿已终结（含被重置取消——取消路径无人复位 UI）：
-                    // 不再武装，否则新会话留下常驻 Stop 按钮与幽灵 loading
-                    return;
-                }
-                setButtonToStopMode();
-                try {
-                    messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(),
-                            getThemeColor("Label.disabledForeground", Color.GRAY));
-                } catch (BadLocationException e) {
-                    log.error("Error adding loading indicator for republished turn", e);
-                }
-            });
-            future.whenComplete((response, ex) -> SwingUtilities.invokeLater(() -> {
-                if (generation != conversationGeneration) {
-                    return; // 会话已重置：旧会话回合的结论不得渲染进新聊天区
-                }
-                if (ex != null) {
-                    // 孤儿回合被 Stop 取消属正常路径：UI 已由 stopActiveTask 复位，跳过
-                    if (ex instanceof java.util.concurrent.CancellationException
-                            || ex.getCause() instanceof java.util.concurrent.CancellationException) {
-                        return;
-                    }
-                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
-                    handleAgentResponse(AgentResponse.error("Processing failed: " + cause.getMessage()), generation);
-                    return;
-                }
-                handleAgentResponse(response, generation);
-            }));
-        });
+        loadingIndicatorArmed = true;
+        try {
+            messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(),
+                    getThemeColor("Label.disabledForeground", Color.GRAY));
+        } catch (BadLocationException e) {
+            log.error("Error adding loading indicator for turn", e);
+        }
     }
 
-    // ==== TurnPresenter：IPC 回合（委派 / CLI 直连）的领养呈现 ====
-    // 契约见 TurnPresenter：回调已在非 EDT 线程（ipc-worker / agent-loop / commonPool），
-    // 一律 invokeLater；会话键过滤（非当前实例会话不派发）已由 AgentLoop 完成。
-
-    /** IPC 回合内投递的公共 EDT 入口：仅在回合窗口（已武装且未过 /new）内放行。 */
-    private void runInIpcTurn(Runnable action) {
-        SwingUtilities.invokeLater(() -> {
-            if (conversationGeneration != ipcTurnGeneration) {
-                log.debug("Dropping IPC turn delivery outside its turn window");
-                return;
-            }
-            action.run();
-        });
-    }
-
-    /** IPC 来源消息开跑：与本地回合对等的 "You:" 行 + loading + Stop 模式（消息文本已带来源前缀）。 */
-    @Override
-    public void onTurnStarted(String sessionKey, String message) {
-        // 通知时快照代数（对齐 onTurnRejectedBusy/onInjected 的既有模式）：若 /new 已先
-        // 落地（EDT 队列里排在本 runnable 之前），本回合属于被放弃的旧会话——不得在
-        // EDT 执行时按新代数武装，否则幽灵 "You:" 行与取消回执会渗入刚清空的新会话
-        final int generation = conversationGeneration;
-        SwingUtilities.invokeLater(() -> {
-            if (generation != conversationGeneration) {
-                return; // /new 先落地：本回合属于旧会话，整段放弃
-            }
-            // 武装本回合呈现代数：早于本 runnable 入队的进度/终结投递按旧代数被丢弃
-            ipcTurnGeneration = generation;
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "\nYou: " + message, null, false);
-            } catch (BadLocationException e) {
-                log.error("Error appending IPC turn user message", e);
-            }
-            try {
-                messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(),
-                        getThemeColor("Label.disabledForeground", Color.GRAY));
-            } catch (BadLocationException e) {
-                log.error("Error adding loading indicator for IPC turn", e);
-            }
-            setButtonToStopMode();
-        });
-    }
-
-    /** IPC 回合进度（思考/工具事件/中间回复）：接入与本地回合相同的渲染链。 */
-    @Override
-    public void onProgress(String sessionKey, ProgressUpdate update) {
-        // handleProgress 自带 invokeLater + 代数过滤，此处外层窗口过滤保持 EDT 顺序
-        runInIpcTurn(() -> handleProgress(update, conversationGeneration));
-    }
-
-    /** IPC 回合终结（完成/失败）：走本地回合的统一收尾（渲染 + 按 hasActiveRun 复位按钮）。 */
-    @Override
-    public void onTurnCompleted(String sessionKey, AgentResponse response) {
-        runInIpcTurn(() -> handleAgentResponse(response, conversationGeneration));
-    }
-
-    /** IPC 回合终结（取消）：一行系统提示 + 复位。取消路径无人回调 handleAgentResponse。 */
-    @Override
-    public void onTurnCancelled(String sessionKey, String reason) {
-        runInIpcTurn(() -> {
-            removeLoadingIndicator();
-            String text;
-            if (IpcResponse.CANCEL_REASON_USER_STOP.equals(reason)) {
-                text = "Task cancelled: stopped from this instance. "
-                        + "Partial results (if any) have been returned to the caller.";
-            } else if (IpcResponse.CANCEL_REASON_TIMEOUT.equals(reason)) {
-                text = "Task cancelled: the caller's wait timed out and the turn was cancelled here.";
-            } else {
-                text = "Task cancelled" + (reason != null ? ": " + reason : ".");
-            }
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(), text,
-                        getThemeColor("Label.disabledForeground", Color.GRAY), false);
-            } catch (BadLocationException e) {
-                log.error("Error appending cancellation notice", e);
-            }
-            // 与 handleAgentResponse 同判据：仍有后续回合（如 re-publish）在跑则保持 Stop 模式
-            if (agentLoop == null || !agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
-                setButtonToSendMode();
-            }
-        });
-    }
-
-    /** 委派撞上会话忙被快拒：一行系统提示（委派方收到既有 busy 错误）。 */
-    @Override
-    public void onTurnRejectedBusy(String sessionKey) {
-        final int generation = conversationGeneration;
-        SwingUtilities.invokeLater(() -> {
-            if (generation != conversationGeneration) {
-                return; // /new 后迟到：不得渲染进新聊天区
-            }
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "Delegation rejected: a turn is already running; the caller was told to retry later.",
-                        getThemeColor("Label.disabledForeground", Color.GRAY), false);
-            } catch (BadLocationException e) {
-                log.error("Error appending busy-reject notice", e);
-            }
-        });
-    }
-
-    /** IPC 消息在会话忙时注入正在跑的回合：与本地注入一致的绿色斜体回显（消息已带来源前缀）。 */
-    @Override
-    public void onInjected(String sessionKey, String message) {
-        final int generation = conversationGeneration;
-        SwingUtilities.invokeLater(() -> {
-            if (generation != conversationGeneration) {
-                return;
-            }
-            try {
-                messageProcessor.appendStyled(chatArea.getStyledDocument(),
-                        "[Injected] You: " + message, new Color(0x00, 0x80, 0x00), Font.ITALIC);
-            } catch (BadLocationException e) {
-                log.error("Error appending injected IPC message", e);
-            }
-        });
+    /**
+     * 取消终止提示行（显示域对齐今日基线）：仅 IPC 源（CLI/委派，{@link
+     * TurnOrigin#isIpcPeer()}）渲染结构化回执——本地回合的取消由 {@code stopActiveTask}
+     * 的 "Stopped." 行交代，REPUBLISH 孤儿无对端调用方、回执文案无的放矢，同不渲染
+     * （SILENT 亦然：其"抑制本地侧源"语义不因 cause 而放宽 IPC 判据）。RESET 一律
+     * 不渲染（/new 清屏后回执属旧会话噪音）。
+     */
+    private void appendCancelLine(CancelCause cause, TurnOrigin origin) {
+        if (cause == CancelCause.RESET || !origin.isIpcPeer()) {
+            return;
+        }
+        String text;
+        if (cause == CancelCause.TIMEOUT) {
+            text = "Task cancelled: the caller's wait timed out and the turn was cancelled here.";
+        } else {
+            // USER_STOP 与 SILENT（对 IPC 源）共用人工终止回执文案
+            text = "Task cancelled: stopped from this instance. "
+                    + "Partial results (if any) have been returned to the caller.";
+        }
+        try {
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), text,
+                    getThemeColor("Label.disabledForeground", Color.GRAY), false);
+        } catch (BadLocationException e) {
+            log.error("Error appending cancellation notice", e);
+        }
     }
 
     /**
      * 面板懒创建场景领养在跑的 IPC 回合（design.md「面板创建时机」边界）。
      *
-     * <p>面板是懒构造的：委派/CLI 回合可能在面板存在之前就已开跑，其 onTurnStarted
-     * 回调发在旧 presenter（null）上而丢失——本实例会话上仍有活跃回合时，构造完成即
-     * 领养之：武装呈现窗口（后续 onProgress/onTurnCompleted/onTurnCancelled 照常渲染）、
-     * 追加提示行 + loading + 切 Stop 模式。已错过的中途进度不补放（Q12 决策：无事件
-     * 缓冲）。仅构造路径调用；invokeLater 保证等 UI 字段就绪后才执行。
+     * <p>面板是懒构造的：委派/CLI 回合可能在面板存在之前就已开跑，其回合事件无人
+     * 接收——本实例会话上仍有活跃回合时，构造完成即领养之：写入活回合集合（后续
+     * PROGRESS/终态照常渲染）、追加提示行 + loading + 切 Stop 模式。已错过的中途
+     * 进度不补放（Q12 决策：无事件缓冲）。仅构造路径调用；invokeLater 保证等 UI
+     * 字段就绪后才执行。本地回合不领养（本地回合必经本面板提交，面板先于回合存在）。
      */
     private void adoptRunningIpcTurnIfNeeded() {
         SwingUtilities.invokeLater(() -> {
             AgentLoop loop = agentLoop;
-            if (loop == null || !loop.hasActiveRun(InstanceContext.currentSessionKey())) {
+            if (loop == null) {
                 return;
             }
-            ipcTurnGeneration = conversationGeneration;
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "An IPC turn (delegation or CLI) is already running - it started "
-                                + "before this panel was opened; live activity follows.",
-                        getThemeColor("Label.disabledForeground", Color.GRAY), false);
-                messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(),
-                        getThemeColor("Label.disabledForeground", Color.GRAY));
-            } catch (BadLocationException e) {
-                log.error("Error adopting running IPC turn", e);
-            }
-            setButtonToStopMode();
+            loop.activeTurn(InstanceContext.currentSessionKey()).ifPresent(handle -> {
+                if (handle.origin().isLocalPanel()) {
+                    return; // 本地回合由本面板提交（面板先于回合存在），无需领养
+                }
+                if (!handle.visibleToPanel()) {
+                    // 不可见 IPC 命令回合：发射端不发 STARTED/PROGRESS（无显示契约），
+                    // 其命令回执属对端 HTTP 信封显示域——领养写入集合会让该终态经
+                    // TURN_COMPLETED 渲染进本地面板（命令回执双渲染泄漏）
+                    return;
+                }
+                if (handle.terminalEmitted()) {
+                    // 「终态已发射、句柄未摘」的死回合（emitTerminal 与 whenComplete
+                    // 摘柄之间的窗口）：终态已发给当时的订阅表（事件流无缓冲），此后
+                    // 再无第二个终态（tryClaimTerminal 恰好一次）来解除武装——领养即
+                    // 永久 loading+Stop，必须跳过
+                    return;
+                }
+                liveTurnIds.add(handle.id());
+                try {
+                    messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                            "An IPC turn (delegation or CLI) is already running - it started "
+                                    + "before this panel was opened; live activity follows.",
+                            getThemeColor("Label.disabledForeground", Color.GRAY), false);
+                } catch (BadLocationException e) {
+                    log.error("Error adopting running IPC turn", e);
+                }
+                armActiveTurn();
+            });
         });
     }
 
@@ -897,10 +923,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
                 if (agentLoop == null) {
                     log.warn("AgentLoop failed to initialize after service switch");
                 } else {
-                    // 监听器注册在 AgentLoop 实例上而非工厂——实例重建后必须重注册，
-                    // 否则 re-publish 孤儿回合的最终回复静默丢失（GUI 无渲染）
-                    registerRepublishListener();
-                    agentLoop.setTurnPresenter(this);
+                    // 回合事件订阅挂工厂级表（构造器 addTurnSubscriber），loop 重建后
+                    // 由工厂自动重挂，此处无需再注册
                     log.info("AI service switched successfully to {}", newService.getName());
                     // Update currentAiService after successful switch
                     currentAiService = newService;
@@ -926,11 +950,29 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
                 "- `/help` — Show available commands\n\n" +
                 "How can I assist you today?";
 
-        try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, null, true);
-        } catch (BadLocationException e) {
-            log.error("Error displaying welcome message", e);
+        // 构造线程不保证 EDT（面板懒创建路径）；文档变更入口已加 EDT 断言（迁移期
+        // 护栏），EDT 上保持同步渲染，非 EDT 自投 EDT
+        Runnable append = () -> {
+            try {
+                messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, null, true);
+            } catch (BadLocationException e) {
+                log.error("Error displaying welcome message", e);
+            }
+        };
+        if (EventQueue.isDispatchThread()) {
+            append.run();
+        } else {
+            SwingUtilities.invokeLater(append);
         }
+    }
+
+    /**
+     * 渲染代数 +1 并清空活回合集合：/new、"+"、关闭整合清空三处重置共用。旧会话的
+     * 迟到渲染（代数快照不符）与旧回合的迟到终态（集合外）从此全部丢弃。只在 EDT 调用。
+     */
+    private void advanceRenderEpoch() {
+        conversationGeneration++;
+        liveTurnIds.clear();
     }
 
     /**
@@ -939,13 +981,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     private void startNewConversation() {
         log.info("Starting new conversation");
 
-        // 渲染代数 +1：旧会话的迟到渲染（回合结论、工具批进度、孤儿 UI 武装）从此
-        // 全部丢弃
-        conversationGeneration++;
+        advanceRenderEpoch();
 
-        // 重置核心（与 cmdNew 共用）：中止在跑回合与子代理、代数 +1、归档/清空/落盘
+        // 重置核心（与 cmdNew 共用）：中止在跑回合与子代理、代数 +1、归档/清空/落盘。
+        // 走工厂跨实例路由（对齐 Stop 的 signalCancelAny 先例）：RESET 先触达当前+
+        // 退役 loop 上该会话的在跑回合，重置核心在 self（面板持有的 loop，直构亦可）
+        // 上执行
         if (agentLoop != null) {
-            agentLoop.resetConversation(InstanceContext.currentSessionKey());
+            AgentLoopFactory.resetConversationAny(agentLoop, InstanceContext.currentSessionKey());
         }
 
         // Clear the chat area
@@ -954,9 +997,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
         // Display welcome message
         displayWelcomeMessage();
 
-        // 取消后无人回调 handleAgentResponse 复位 UI（被取消回合的 SwingWorker 静默
-        // 结束、republishListener 跳过 CancellationException），须自行复位，否则
-        // Stop 按钮常驻、Send 按钮停留在注入模式。
+        // 重置翻换代数后，垂死回合的取消终态渲染被代数过滤丢弃——无人回调复位 UI，
+        // 须自行复位，否则 Stop 按钮常驻、Send 按钮停留在注入模式。
         removeLoadingIndicator();
         setButtonToSendMode();
 
@@ -968,6 +1010,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
 
     /**
      * Sends the message from the input field to the chat using AgentLoop.
+     * 唯一入口（Enter 键 / Send 按钮 / Stop 模式下的注入 Send 都路由到此）：
+     * 空串守卫 → /new 拦截 → {@link #submitToLoop}。busy 与否由 loop 的槽路由仲裁
+     * （优先命令/忙期注入/开新回合三段路由），面板不再做 hasActiveRun 预路由。
      */
     private void sendMessage() {
         String message = messageField.getText().trim();
@@ -982,43 +1027,19 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
             return;
         }
 
-        // If there's an active agent run, inject the message instead
-        if (agentLoop != null && agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
-            injectMessage();
-            return;
-        }
-
-        startNormalSend(message);
+        submitToLoop(message);
     }
 
     /**
-     * Start a normal (non-injection) agent run via AgentSwingWorker.
-     * Extracted from sendMessage() so injectMessage() can fall back here on race conditions.
+     * 本地路径唯一提交点：把消息交给 AgentLoop，一切呈现复用回合事件流——You 行/
+     * loading/Stop 武装来自 TURN_STARTED（EDT 上零跳同步武装），busy 期命令走
+     * COMMAND_RESULT，进度/终态走 PROGRESS/TURN_COMPLETED。future 通道留给发起方
+     * （CLI/委派）消费，面板不持有。
      */
-    private void startNormalSend(String message) {
-        log.info("Sending user message: {}", message);
+    private void submitToLoop(String message) {
+        log.info("Submitting user message: {}", message);
 
-        // 关闭 IPC 回合呈现窗口：本地新回合一开即为硬边界（对齐 /new 的代数翻转）。
-        // 垂死 IPC 回合迟到的终结通知（如超时分支 cancelActiveTask 阻塞至多 5s 后才发）
-        // 不得渗进新回合流——否则会误删其 loading 指示、插入过期的 "Task cancelled" 行
-        ipcTurnGeneration = -1;
-
-        // Add the user message to the chat
-        try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "\nYou: " + message, null, false);
-        } catch (BadLocationException e) {
-            log.error("Error appending user message to chat", e);
-        }
-
-        // Clear the message field
         messageField.setText("");
-
-        // Add "AI is thinking..." indicator
-        try {
-            messageProcessor.appendLoadingIndicator(chatArea.getStyledDocument(), getThemeColor("Label.disabledForeground", Color.GRAY));
-        } catch (BadLocationException e) {
-            log.error("Error adding loading indicator", e);
-        }
 
         // Ensure AgentLoop is initialized
         if (agentLoop == null) {
@@ -1029,179 +1050,32 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
                     messageProcessor.appendMessage(chatArea.getStyledDocument(),
                             "Agent Loop is not available. Please check your configuration.",
                             Color.RED, false);
-                    removeLoadingIndicator();
-                    setButtonToSendMode();
-                    return;
                 } catch (BadLocationException e) {
                     log.error("Error displaying error message", e);
                 }
+                setButtonToSendMode();
+                return;
             }
         }
 
-        // Switch button to Stop mode while processing
-        setButtonToStopMode();
-
-        // 捕获订阅时的会话代数：本回合一切渲染（结论/进度）经其过滤，重置后到达即丢弃
-        final int generation = conversationGeneration;
-
-        // Use AgentSwingWorker to process the message through AgentLoop
-        activeWorker = new AgentSwingWorker(
-                agentLoop,
-                message,
-                InstanceContext.currentSessionKey(),
-                r -> handleAgentResponse(r, generation),
-                u -> handleProgress(u, generation)
-        );
-        activeWorker.execute();
+        agentLoop.processMessage(message, InstanceContext.currentSessionKey());
     }
 
     /**
-     * Inject a follow-up message into the active agent run.
-     * Routes through processMessage so dispatchable commands (e.g. /new, /help)
-     * are handled immediately rather than queued as user text.
-     *
-     * Re-checks hasActiveRun() to narrow the race window. If the active run
-     * just finished, falls back to the normal send path (AgentSwingWorker).
-     */
-    private void injectMessage() {
-        String message = messageField.getText().trim();
-        if (message.isEmpty()) {
-            return;
-        }
-
-        // /new starts a fresh conversation with a clean chat area. The Stop-mode Send
-        // button is rewired to call injectMessage() directly (bypassing sendMessage),
-        // so /new must be intercepted here too, not only in sendMessage.
-        if ("/new".equals(message)) {
-            handleNewCommand();
-            return;
-        }
-
-        log.info("Injecting follow-up message during active run: {}", message);
-
-        // Clear the message field
-        messageField.setText("");
-
-        if (agentLoop == null) {
-            return;
-        }
-
-        // Re-check: if the active run finished between sendMessage() and here,
-        // fall back to normal send path (AgentSwingWorker) for proper UI handling.
-        if (!agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
-            log.info("Active run finished during injection, falling back to normal send");
-            startNormalSend(message);
-            return;
-        }
-
-        // Active run confirmed — processMessage will hit Phase 2 (non-blocking)
-        CompletableFuture<AgentResponse> future = agentLoop.processMessage(message, InstanceContext.currentSessionKey());
-
-        // future should always be done here (Phase 2 returns completedFuture),
-        // but guard against an extremely narrow race condition.
-        if (future.isDone()) {
-            try {
-                AgentResponse response = future.get();
-                if (response.isSuccess() && response.getContent() != null) {
-                    if (response.getContent().startsWith("Message injected")) {
-                        // Injection queued — show in green italic
-                        messageProcessor.appendStyled(chatArea.getStyledDocument(),
-                            "[Injected] You: " + message, new Color(0x00, 0x80, 0x00), Font.ITALIC);
-                    } else {
-                        // Command dispatch result (e.g. /help, /status) — show normally
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                            response.getContent(), null, false);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error handling injection response", e);
-            }
-        } else {
-            // Extremely narrow race: run finished right after our hasActiveRun check.
-            // The future is a full agent run — connect it to the normal UI handlers.
-            // handle（而非 thenAccept，对齐 republishListener/handleNewCommand）：真实
-            // 失败也要渲染并复位，否则 loading 与 Stop 模式悬挂；取消则静默（重置/Stop
-            // 路径自行复位）
-            log.info("Race condition: future not done, connecting to handleAgentResponse");
-            final int generation = conversationGeneration;
-            future.handle((response, ex) -> {
-                final AgentResponse r;
-                if (ex != null) {
-                    if (ex instanceof java.util.concurrent.CancellationException
-                            || ex.getCause() instanceof java.util.concurrent.CancellationException) {
-                        return null;
-                    }
-                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
-                    r = AgentResponse.error("Processing failed: " + cause.getMessage());
-                } else {
-                    r = response;
-                }
-                SwingUtilities.invokeLater(() -> handleAgentResponse(r, generation));
-                return null;
-            });
-        }
-    }
-
-    /**
-     * Handle the {@code /new} command: clear the chat area, then show the
-     * "You: /new" / bot response exchange. This is the single owner of the /new UI
-     * behavior — both the idle path (sendMessage) and the mid-run path
-     * (injectMessage, including the Stop-mode Send button that bypasses sendMessage)
-     * route here, so /new always clears the chat consistently.
-     *
-     * <p>cmdNew clears the session (and signals the active run to stop if one is
-     * running); the cancelled run's SwingWorker ends silently via
-     * {@code AgentSwingWorker.done}, so the response shows exactly once.
+     * Handle the {@code /new} command: flip the render generation, clear the chat,
+     * then dispatch {@code /new} through the normal submit path. The "You: /new"
+     * echo and the receipt are event-rendered: busy 期 cmdNew 同步执行（忙期注入路由 →
+     * COMMAND_RESULT），空闲期经完整回合（TURN_STARTED 武装 + 终态自复位——刻意的
+     * UX 差异③，见 design D3）。
      */
     private void handleNewCommand() {
-        // 渲染代数 +1：/new 即重置，旧会话的迟到渲染从此过期。必须在订阅本命令
-        // 自身的回执 future 之前完成——回执以新代数订阅，正常渲染。
-        conversationGeneration++;
+        // /new 即重置：代数与活回合集合一并翻转（语义见 advanceRenderEpoch）。
+        advanceRenderEpoch();
 
         // Clear the chat area for a fresh session.
         chatArea.setText("");
 
-        // Echo the user's command. No leading "\n": the document was just cleared,
-        // so there is no prior block to separate from (a leading \n would render as
-        // a stray blank line above "You:").
-        try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "You: /new", null, false);
-        } catch (BadLocationException e) {
-            log.error("Error appending /new user message", e);
-        }
-
-        messageField.setText("");
-
-        if (agentLoop == null) {
-            try {
-                messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                        "Agent Loop is not available. Please check your configuration.",
-                        Color.RED, false);
-            } catch (BadLocationException e) {
-                log.error("Error displaying error message", e);
-            }
-            return;
-        }
-
-        // Dispatch /new: clears the session; mid-run, cmdNew signals the active run
-        // to stop. Mid-run returns a completedFuture (Phase 2); idle completes on the
-        // agent-loop thread (Phase 3). Show the response via the normal handler, which
-        // also resets the UI the prior run created (loading indicator, Stop button,
-        // worker ref). handle (not thenAccept) so a cmdNew failure still surfaces.
-        CompletableFuture<AgentResponse> future = agentLoop.processMessage("/new", InstanceContext.currentSessionKey());
-        final int generation = conversationGeneration;
-        future.handle((response, ex) -> {
-            final AgentResponse r;
-            if (ex != null) {
-                Throwable cause = (ex instanceof CompletionException && ex.getCause() != null)
-                        ? ex.getCause() : ex;
-                r = AgentResponse.error("Processing failed: " + cause.getMessage());
-            } else {
-                r = response;
-            }
-            SwingUtilities.invokeLater(() -> handleAgentResponse(r, generation));
-            return null;
-        });
+        submitToLoop("/new");
     }
 
     /**
@@ -1215,9 +1089,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
         if (panel == null) {
             return;
         }
-        // 对齐 /new、"+"：渲染代数 +1 让旧会话迟到渲染过期；取消路径
-        // 无人回调复位，UI 须自行复位（退出取消后继续使用时不得留常驻 Stop 模式）
-        panel.conversationGeneration++;
+        // 对齐 /new、"+"：代数与活回合集合一并翻转（语义见 advanceRenderEpoch）；
+        // 取消路径无人回调复位，UI 须自行复位（退出取消后继续使用时不得留常驻 Stop 模式）
+        panel.advanceRenderEpoch();
         panel.chatArea.setText("");
         panel.displayWelcomeMessage();
         panel.removeLoadingIndicator();
@@ -1225,22 +1099,36 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     }
 
     /**
-     * Handle AgentLoop response callback.
-     *
-     * @param generation 订阅时捕获的会话渲染代数：与当前不符即旧会话的迟到投递，
-     *                   整体丢弃（不渲染、不复位）——防其污染重置后的新聊天区
+     * 远程 /new（CLI 直连/委派）的会话重置清屏：cmdNew 已在 loop 侧归档/清空/落盘，
+     * 面板转录须随之清空并翻渲染代数（否则显示态与 session jsonl 永久分叉、旧会话
+     * 迟到事件仍按旧代数放行渗入新会话）。触发点在 {@link #dispatch} 的
+     * TURN_COMPLETED（空闲 Phase 3 命令回合终态）/ COMMAND_RESULT（忙期 Phase 2
+     * 同步命令结果）两分支；本地 /new 不经此（handleNewCommand 先清屏再提交）。
+     * 视觉口径对齐 {@link #resetAfterConsolidation}。只在 EDT（dispatch 内）调用。
      */
-    private void handleAgentResponse(AgentResponse response, int generation) {
-        if (generation != conversationGeneration) {
-            log.debug("Dropping stale response render from a previous conversation");
-            return;
-        }
-
-        // Clear active worker reference
-        activeWorker = null;
-
-        // Remove the loading indicator
+    private void clearTranscriptForRemoteReset() {
+        advanceRenderEpoch();
+        chatArea.setText("");
+        displayWelcomeMessage();
         removeLoadingIndicator();
+        setButtonToSendMode();
+    }
+
+    /**
+     * Handle AgentLoop response callback（TURN_COMPLETED / 本地 COMMAND_RESULT 的
+     * 共用收尾渲染）。只经 {@link #dispatch} 到达——入口处已做代数比对（EDT 上
+     * 读写、同步路径无并发窗口），此处无需复查。
+     *
+     * @param turnId 回合 id（TURN_COMPLETED 路径）；COMMAND_RESULT 无句柄传 null——
+     *               命令回合无 PROGRESS，永不命中渐进展示集合
+     */
+    private void handleAgentResponse(AgentResponse response, Long turnId) {
+        // Remove the loading indicator——判据为面板视角无活回合（交叠活回合下兄弟
+        // 终态不得清掉在跑回合仍在用的指示）；单指示不变式（armActiveTurn 幂等）
+        // 保证 armed 位与文档指示一一对应
+        if (liveTurnIds.isEmpty()) {
+            removeLoadingIndicator();
+        }
 
         if (!response.isSuccess()) {
             try {
@@ -1252,63 +1140,59 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
             }
         } else {
             // Display tool call information only if not already shown progressively
-            if (!toolCallsDisplayedProgressively) {
+            // （per-turn 判定：按本回合 id 查删渐进展示集合，兄弟回合的进度不得
+            // 吞掉本回合的摘要、也不得使已渐进展示过的回合重复补显）
+            if (turnId == null || !progressiveToolCallTurnIds.remove(turnId)) {
                 boolean showToolCalls = org.gitee.jmeter.ai.utils.AiConfig.isChatShowToolCalls();
 
                 if (showToolCalls && response.getToolEvents() != null && !response.getToolEvents().isEmpty()) {
                     displayToolCallInfo(response.getToolEvents());
                 }
             }
-            toolCallsDisplayedProgressively = false;
 
             processAiResponse(response.getContent());
         }
 
         // Re-enable input
         messageField.setEnabled(true);
-        // 仍有回合在跑（如紧随其后的 re-publish 孤儿回合）时保持 Stop 模式，由该回合
-        // 完成时复位；否则本回合的复位会把孤儿接管设置的 Stop 模式错误翻回 Send 模式
-        if (agentLoop == null || !agentLoop.hasActiveRun(InstanceContext.currentSessionKey())) {
+        // 仍有回合在跑（如紧随其后的 re-publish 孤儿回合、交叠的兄弟回合）时保持
+        // Stop 模式，由最后一个终态复位。判据用面板视角的活回合集合：终态已到 EDT
+        // 即视为本回合收尾——agentLoop.hasActiveRun 在「终态已派发、注入槽未摘」的
+        // 收尾窗口内误判「仍在跑」，且漏退役 loop 上的在跑回合（换血后 Stop 仍须可见）
+        if (liveTurnIds.isEmpty()) {
             setButtonToSendMode();
         }
         messageField.requestFocusInWindow();
     }
 
     /**
-     * Handle typed progress updates from the agent loop.
-     * Renders different types (THINKING, TOOL_CALL, ERROR, PROGRESS) with appropriate styling.
-     *
-     * @param generation 订阅时捕获的会话渲染代数：与当前不符即旧会话的迟到进度
-     *                   （典型：重置时仍在跑的工具批完成后发布的 TOOL_CALL），丢弃
+     * EDT 直渲染一条进度（无内层 invokeLater）：dispatch 已在 EDT 完成代数/活回合
+     * 过滤，此处再跳一拍会让末条进度排到终态渲染之后（dispatch FIFO 先入队、内层
+     * invokeLater 后入队）。事件流是唯一渲染权威（P2 4.1 已删旧 presenter 腿的
+     * {@code handleProgress} 包装）。
      */
-    private void handleProgress(ProgressUpdate update, int generation) {
-        SwingUtilities.invokeLater(() -> {
-            if (generation != conversationGeneration) {
-                log.debug("Dropping stale progress render from a previous conversation");
-                return;
-            }
-            try {
-                removeLoadingIndicator();
+    private void handleProgressNow(ProgressUpdate update, long turnId) {
+        try {
+            removeLoadingIndicator();
 
-                switch (update.getType()) {
-                    case THINKING -> renderThinking(update.getMessage());
-                    case TOOL_CALL -> {
-                        toolCallsDisplayedProgressively = true;
-                        Object payload = update.getPayload();
-                        if (payload instanceof ToolEvent event) {
-                            displaySingleToolEvent(event);
-                        } else {
-                            renderToolHint(update.getMessage());
-                        }
+            switch (update.getType()) {
+                case THINKING -> renderThinking(update.getMessage());
+                case TOOL_CALL -> {
+                    progressiveToolCallTurnIds.add(turnId);
+                    Object payload = update.getPayload();
+                    if (payload instanceof ToolEvent event) {
+                        displaySingleToolEvent(event);
+                    } else {
+                        renderToolHint(update.getMessage());
                     }
-                    case ERROR -> renderError(update.getMessage());
-                    case INTERMEDIATE_RESPONSE -> renderIntermediateResponse(update.getMessage());
-                    default -> renderProgress(update.getMessage());
                 }
-            } catch (BadLocationException e) {
-                log.error("Error displaying progress", e);
+                case ERROR -> renderError(update.getMessage());
+                case INTERMEDIATE_RESPONSE -> renderIntermediateResponse(update.getMessage());
+                default -> renderProgress(update.getMessage());
             }
-        });
+        } catch (BadLocationException e) {
+            log.error("Error displaying progress", e);
+        }
     }
 
     private void renderThinking(String text) throws BadLocationException {
@@ -1450,19 +1334,18 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     /**
      * Stop the active AI task, triggered by the Stop button.
      *
-     * <p>signalCancel（非阻塞：置 abort / interrupt / cancel future / 摘注入路由槽）
-     * 保留在 EDT 同步执行——维持「UI 复位 ⇒ 路由槽必已摘除」不变式：STOP 后立即
-     * 输入走正常发送，而非被注入垂死回合遭静默作废。垂死回合的收尾等待（≤5s）挪到
-     * 后台线程（原 {@code cancelActiveTask} 在 EDT 上同步 await 最坏 5 秒无响应）。
+     * <p>signalCancelAny（非阻塞：置 abort / interrupt / cancel future / 摘注入路由槽，
+     * USER_STOP）保留在 EDT 同步执行——经工厂路由当前 + 退役 loop（模型切换换血后，
+     * 在跑回合可能还挂在旧 loop 上，直发 agentLoop 会漏）。维持「UI 复位 ⇒ 路由槽
+     * 必已摘除」不变式：STOP 后立即输入走正常发送，而非被注入垂死回合遭静默作废。
+     * 垂死回合的收尾等待（≤5s）在后台线程。取消后的复位无条件执行（不依赖
+     * TURN_CANCELLED 事件）：回合已终、终态事件仍在 EDT 队列未出队的毫秒窗口内点击
+     * Stop 不死寂（design D3）。
      */
     private void stopActiveTask() {
-        if (activeWorker != null && !activeWorker.isDone()) {
-            activeWorker.cancel(true);
-            activeWorker = null;
-        }
         if (agentLoop != null) {
             final String sessionKey = InstanceContext.currentSessionKey();
-            agentLoop.signalCancel(sessionKey);
+            AgentLoopFactory.signalCancelAny(sessionKey);
             CompletableFuture.runAsync(
                     () -> agentLoop.waitForCancellation(sessionKey, 5, TimeUnit.SECONDS));
         }
@@ -1481,12 +1364,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
         // Show the separate stop button
         stopButton.setVisible(true);
 
-        // Send button keeps "Send" text but routes to injectMessage()
+        // Send button keeps "Send" text; routing stays sendMessage() — busy 与否由
+        // loop 的槽路由仲裁（Phase 2 注入 / Phase 1-2 命令 / 竞态下独立回合）
         sendButton.setToolTipText("Send a follow-up message while AI is processing");
-        for (ActionListener al : sendButton.getActionListeners()) {
-            sendButton.removeActionListener(al);
-        }
-        sendButton.addActionListener(e -> injectMessage());
     }
 
     private void setButtonToSendMode() {
@@ -1507,11 +1387,16 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     }
 
     /**
-     * Removes the loading indicator from the chat area.
+     * Removes the loading indicator from the chat area. 武装位未置时 no-op——指示必不在
+     * 文档里，跳过下层全文档扫描；置位时移除（或确认 miss）后清零。
      */
     private void removeLoadingIndicator() {
+        if (!loadingIndicatorArmed) {
+            return;
+        }
         try {
             messageProcessor.removeLoadingIndicator(chatArea.getStyledDocument());
+            loadingIndicatorArmed = false;
         } catch (BadLocationException e) {
             log.error("Error removing loading indicator", e);
         }
@@ -1583,6 +1468,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener, TurnP
     public void cleanup() {
         // Unregister property change listener
         UIManager.removePropertyChangeListener(this);
+
+        // 摘工厂级回合事件订阅 + 单实例注册：面板销毁后不再接收回合事件，
+        // 静态引用不再钉住本面板（防泄漏与幽灵渲染）。
+        AgentLoopFactory.removeTurnSubscriber(this);
+        INSTANCE = null;
 
         // Detach from SelectionTracker (other consumers may still be subscribed,
         // so we don't call SelectionTracker.uninstall()).

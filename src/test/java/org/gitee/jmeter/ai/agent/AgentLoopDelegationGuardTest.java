@@ -14,6 +14,7 @@ import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.gitee.jmeter.ai.service.AiService;
 import org.junit.jupiter.api.Test;
 
@@ -109,7 +110,7 @@ class AgentLoopDelegationGuardTest {
         AgentLoop loop = newLoop(new TwoStepAiService(), registry);
         try {
             AgentResponse response = loop
-                .processMessage("[delegated-from instanceId=peer-1] analyze", "chat:guard", null, true)
+                .processMessage("[delegated-from instanceId=peer-1] analyze", "chat:guard", null, TurnOrigin.IPC_DELEGATED)
                 .get(30, TimeUnit.SECONDS);
 
             assertTrue(response.isSuccess(), response.getErrorMessage());
@@ -127,11 +128,11 @@ class AgentLoopDelegationGuardTest {
         AgentLoop loop = newLoop(ai, new ToolRegistry());
         try {
             // 回合 1 阻塞在首个 LLM 调用上,会话保持 active
-            var first = loop.processMessage("user message", "chat:busy", null, false);
+            var first = loop.processMessage("user message", "chat:busy", null, TurnOrigin.LOCAL_PANEL);
 
             // 委派请求:必须立即失败,不能并入注入队列(丢失标记)并回"已注入"回执
             AgentResponse delegated = loop
-                .processMessage("[delegated-from instanceId=peer-1] task", "chat:busy", null, true)
+                .processMessage("[delegated-from instanceId=peer-1] task", "chat:busy", null, TurnOrigin.IPC_DELEGATED)
                 .get(5, TimeUnit.SECONDS);
             assertFalse(delegated.isSuccess(), "busy session must reject a delegated request");
             String err = delegated.getErrorMessage() != null ? delegated.getErrorMessage()
@@ -140,7 +141,7 @@ class AgentLoopDelegationGuardTest {
 
             // 对照:普通用户消息仍走注入队列(原行为不变)
             AgentResponse userFollowUp = loop
-                .processMessage("user follow-up", "chat:busy", null, false)
+                .processMessage("user follow-up", "chat:busy", null, TurnOrigin.LOCAL_PANEL)
                 .get(5, TimeUnit.SECONDS);
             assertTrue(userFollowUp.isSuccess());
             assertTrue(String.valueOf(userFollowUp.getContent()).contains("injected"),

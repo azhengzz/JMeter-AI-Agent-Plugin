@@ -8,6 +8,8 @@ import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.command.CommandRouter;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.JMeterToolRegistry;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
@@ -35,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -282,66 +285,57 @@ public final class IpcServer {
             long t0 = System.currentTimeMillis();
             // CLI 直连(delegated=false)的非命令消息加 [from cli] 前缀(随消息文本进回合上下文与
             // jsonl,单一事实源);斜杠命令豁免;委派载荷保持 [delegated-from …] 原样
-            boolean isCommand = isCommandMessage(loop.getCommandRouter(), req.getMessage());
             String message = applyCliProvenance(loop.getCommandRouter(), req.getMessage(), req.isDelegated());
-            // 每回合挂文本累积器:取消/超时响应的 partialContent 来源(GUI 无关);
-            // 同一回调把进度事件经 presenter 转发给面板(委派/CLI 回合的全流显示)
+            // 每回合挂文本累积器:取消/超时响应的 partialContent 来源(GUI 无关)。面板呈现
+            // 不再经此转发——回合事件(STARTED/PROGRESS/终态)由 AgentLoop 统一发射,本
+            // handler 只负责 wire:阻塞等待、超时取消、结构化响应
             TurnContentAccumulator accumulator = new TurnContentAccumulator();
-            AgentLoop.ProgressCallback turnCallback = update -> {
-                accumulator.onProgress(update);
-                loop.notifyProgress(session, update);
-            };
+            AgentLoop.ProgressCallback turnCallback = accumulator::onProgress;
             // delegated=true → 该回合内置 DelegationGuard,回合内 delegate_to_instance 直接报错(防 ping-pong)
             CompletableFuture<AgentResponse> future =
-                    loop.processMessageFromIpc(message, session, turnCallback, req.isDelegated());
-            // 非命令回合才向面板呈现(命令回合无显示契约,与前缀豁免同判据);future 立即完成
-            // = Phase 1/2 同步路径(命令分发/busy 快拒/注入 ack),各自的通知已在 AgentLoop 内发出
-            boolean turnPresented = !isCommand && !future.isDone();
-            if (turnPresented) {
-                loop.notifyTurnStarted(session, message);
-            }
+                    loop.processMessage(message, session, turnCallback,
+                            req.isDelegated() ? TurnOrigin.IPC_DELEGATED : TurnOrigin.IPC_CLI);
             AgentResponse ar;
             try {
                 ar = future.get(timeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException te) {
                 // 超时即取消 in-flight turn:否则 agent 会继续在后台跑完并改测试计划树,
                 // 而 CLI 已向操作者报了失败,产生"报错却已生效"的状态错位。
-                loop.cancelActiveTask(session);
-                if (turnPresented) {
-                    loop.notifyTurnCancelled(session, IpcResponse.CANCEL_REASON_TIMEOUT);
+                loop.cancelActiveTask(session, CancelCause.TIMEOUT);
+                // 取消窗口内自然完成的回合(get 超时→取消之间的 TOCTOU):signalCancel 对
+                // 已完成 future no-op(cancelled=false,终态已按 TURN_COMPLETED 发出),
+                // 按真实结果回 200——否则 CLI 收 504 "已取消" 而回合实际完整生效,
+                // 恰是上注要防的状态错位。isCancelled 分流:真被取消(含中断)的回合仍走
+                // 504;异常完成的按失败语义回 500。
+                if (future.isDone() && !future.isCancelled()) {
+                    try {
+                        send(ex, 200, fromAgentResponse(future.getNow(null),
+                                System.currentTimeMillis() - t0));
+                    } catch (CompletionException completedErr) {
+                        sendError(ex, 500, "agent failed: " + rootMessage(completedErr));
+                    }
+                    return;
                 }
                 send(ex, 504, cancelledResponse(
                         IpcResponse.CANCEL_REASON_TIMEOUT, accumulator,
                         "agent timeout after " + timeout + "ms (turn cancelled)"));
                 return;
             } catch (ExecutionException ee) {
-                // 回合任务自身抛异常(future.completeExceptionally):onTurnCompleted 契约
-                // 含失败语义,通知面板按错误样式收尾,否则 loading 指示器悬挂
-                if (turnPresented) {
-                    loop.notifyTurnCompleted(session, AgentResponse.error("agent failed: " + rootMessage(ee)));
-                }
+                // 回合任务自身抛异常(future.completeExceptionally):面板的失败收尾由
+                // AgentLoop 的 TURN_COMPLETED(error) 事件承担,此处只管 wire 语义
                 sendError(ex, 500, "agent failed: " + rootMessage(ee));
                 return;
             } catch (java.util.concurrent.CancellationException ce) {
                 // Stop 按钮/关闭对话框取消了该回合：409 + 结构化载荷让委派方/CLI 可读地处理
                 // （重试/放弃、展示部分内容），而非落入外层 catch(Exception) 变成 500 "server error: null"
-                if (turnPresented) {
-                    loop.notifyTurnCancelled(session, IpcResponse.CANCEL_REASON_USER_STOP);
-                }
                 send(ex, 409, cancelledResponse(
                         IpcResponse.CANCEL_REASON_USER_STOP, accumulator,
                         "turn cancelled before completion"));
                 return;
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                if (turnPresented) {
-                    loop.notifyTurnCompleted(session, AgentResponse.error("interrupted"));
-                }
                 sendError(ex, 500, "interrupted");
                 return;
-            }
-            if (turnPresented) {
-                loop.notifyTurnCompleted(session, ar);
             }
             send(ex, 200, fromAgentResponse(ar, System.currentTimeMillis() - t0));
         } catch (Exception e) {

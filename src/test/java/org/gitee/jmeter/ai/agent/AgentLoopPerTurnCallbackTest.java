@@ -15,6 +15,7 @@ import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.agent.model.GenerationSettings;
 import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,7 @@ class AgentLoopPerTurnCallbackTest {
         aiService.script(LLMResponse.withToolCalls(
                 List.of(new ToolCall("noop_tool", Map.of())), "A-thinking"));
         aiService.script(LLMResponse.text("A-FINAL"));
-        AgentResponse r1 = loop.processMessage("M1", SESSION_KEY, cbA::add)
+        AgentResponse r1 = loop.processMessage("M1", SESSION_KEY, cbA::add, TurnOrigin.LOCAL_PANEL)
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals("A-FINAL", r1.getContent());
         assertTrue(cbA.stream().anyMatch(u -> u.getType() == ProgressUpdate.Type.THINKING),
@@ -92,7 +93,7 @@ class AgentLoopPerTurnCallbackTest {
         aiService.script(LLMResponse.withToolCalls(
                 List.of(new ToolCall("noop_tool", Map.of())), "B-thinking"));
         aiService.script(LLMResponse.text("B-FINAL"));
-        AgentResponse r2 = loop.processMessage("M2", SESSION_KEY, cbB::add)
+        AgentResponse r2 = loop.processMessage("M2", SESSION_KEY, cbB::add, TurnOrigin.LOCAL_PANEL)
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals("B-FINAL", r2.getContent());
         int aAfterTurn1 = cbA.size();
@@ -108,14 +109,14 @@ class AgentLoopPerTurnCallbackTest {
         aiService.script(LLMResponse.withToolCalls(
                 List.of(new ToolCall("noop_tool", Map.of())), "thinking"));
         aiService.script(LLMResponse.text("GUI-FINAL"));
-        loop.processMessage("M1", SESSION_KEY, guiCb::add).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        loop.processMessage("M1", SESSION_KEY, guiCb::add, TurnOrigin.LOCAL_PANEL).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertFalse(guiCb.isEmpty(), "GUI turn must receive its own events");
 
         // 随后 IPC 回合到达（delegated=true，无回调可用）：事件不得漏进 guiCb
         aiService.script(LLMResponse.withToolCalls(
                 List.of(new ToolCall("noop_tool", Map.of())), "ipc-thinking"));
         aiService.script(LLMResponse.text("IPC-FINAL"));
-        AgentResponse ipc = loop.processMessage("M3", SESSION_KEY, true)
+        AgentResponse ipc = loop.processMessage("M3", SESSION_KEY, null, TurnOrigin.IPC_DELEGATED)
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertEquals("IPC-FINAL", ipc.getContent());
         int before = guiCb.size();

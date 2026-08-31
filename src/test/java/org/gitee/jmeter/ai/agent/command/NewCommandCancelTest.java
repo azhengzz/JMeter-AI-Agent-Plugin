@@ -87,7 +87,7 @@ class NewCommandCancelTest {
     void newOnAnIdleSessionReturnsItsConfirmation() throws Exception {
         AgentLoop loop = newLoop();
         try {
-            AgentResponse response = loop.processMessage("/new", "chat:main", null)
+            AgentResponse response = loop.processMessage("/new", "chat:main")
                 .get(20, TimeUnit.SECONDS);
 
             assertNotNull(response, "/new must produce a response");
@@ -109,7 +109,7 @@ class NewCommandCancelTest {
             session.addMessage(Message.assistant("old answer", null));
             assertEquals(2, session.getUnconsolidatedMessages().size());
 
-            loop.processMessage("/new", "chat:main", null).get(20, TimeUnit.SECONDS);
+            loop.processMessage("/new", "chat:main").get(20, TimeUnit.SECONDS);
 
             assertTrue(loop.getSessionManager().getOrCreate("chat:main")
                     .getUnconsolidatedMessages().isEmpty(),
@@ -122,9 +122,8 @@ class NewCommandCancelTest {
     /**
      * {@code /new} typed while a run is in flight must cancel that run's future, and
      * the {@code /new} command itself must still return its confirmation. The cancelled
-     * future is exactly what makes {@code AgentSwingWorker.doInBackground.get()} throw
-     * {@code CancellationException} — which {@code done()} must treat as benign rather
-     * than surfacing it to the user as an error.
+     * run surfaces to the UI as a benign {@code TURN_CANCELLED} event (stop-style
+     * line), not as an error.
      */
     @Test
     void newDuringAnActiveRunCancelsTheRun() throws Exception {
@@ -133,7 +132,7 @@ class NewCommandCancelTest {
         try {
             // Start a run that blocks inside the LLM call so it stays active.
             CompletableFuture<AgentResponse> run =
-                loop.processMessage("analyze the plan", "chat:main", null);
+                loop.processMessage("analyze the plan", "chat:main");
 
             // Wait until the run is actually in flight (registered as the active task).
             assertTrue(await(() -> loop.hasActiveRun("chat:main")),
@@ -141,7 +140,7 @@ class NewCommandCancelTest {
 
             // Dispatch /new mid-run, exactly as the EDT does via injectMessage.
             CompletableFuture<AgentResponse> newCmd =
-                loop.processMessage("/new", "chat:main", null);
+                loop.processMessage("/new", "chat:main");
             AgentResponse result = newCmd.get(20, TimeUnit.SECONDS);
 
             assertTrue(result.isSuccess(),
@@ -150,10 +149,9 @@ class NewCommandCancelTest {
             assertTrue(result.getContent().contains("New session"),
                 "the user must see the confirmation: " + result.getContent());
 
-            // The in-flight run's future was cancelled — this is what makes
-            // AgentSwingWorker.doInBackground.get() throw CancellationException (the CF
-            // throws it directly per the Future contract; SwingWorker's FutureTask then
-            // wraps it in ExecutionException, which done() now treats as benign).
+            // The in-flight run's future was cancelled — the CF throws
+            // CancellationException directly to any awaiter per the Future contract
+            // (the panel learns of the cancellation via TURN_CANCELLED instead).
             assertThrows(CancellationException.class,
                 () -> run.get(5, TimeUnit.SECONDS),
                 "the active run's future must be cancelled, not completed normally");

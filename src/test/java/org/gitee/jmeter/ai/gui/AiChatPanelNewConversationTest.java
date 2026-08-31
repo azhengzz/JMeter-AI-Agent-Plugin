@@ -103,9 +103,18 @@ class AiChatPanelNewConversationTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
+        if (panel != null) { // 面板构造挂了工厂级订阅表 + 注入 loop 的订阅，一并退役
+            loop.removeTurnSubscriber(panel);
+            AgentLoopFactory.removeTurnSubscriber(panel);
+        }
         // 让仍卡在 LLM 门上的（被取消）回合尽快收尾，减少 tempDir 清理竞态
         aiService.releaseAllPending();
+        // 后台回合的会话 jsonl 迟写与 @TempDir 清理竞态：Windows 下文件锁顶住
+        // sessions 目录删除 → DirectoryNotEmptyException。句柄在 future 完成后
+        //（含 re-publish 后继回合注册）才摘——排空即写盘必已结束，有界等待后再 shutdown
+        awaitUntil(() -> loop.activeTurn(sessionKey).isEmpty(),
+                "active turn drained before teardown");
         loop.shutdown();
         AgentLoopFactory.reset(); // 面板构造可能经工厂缓存了真实 loop，退役之
         if (previousJMeterHome != null) {
@@ -276,7 +285,7 @@ class AiChatPanelNewConversationTest {
      * no-op），其投递任务排在重置之后——必须按代数丢弃，不得渲染进新会话。
      * 确定性构造：冻结 EDT → 入队 [blocker][click] → 放行回合 LLM → 回合完成后的
      * render 任务必然排在 click 之后（入队序）。走真实发送路径（sendMessage →
-     * AgentSwingWorker → 完成回调链），订阅时的渲染代数即生产消费的那份。
+     * submitToLoop → 回合事件流），订阅时的渲染代数即生产消费的那份。
      * （2026-08-23 契约修订前用 Stop→重发布孤儿作载体；Stop 已不产生孤儿，改用
      * 完成回合本身——要验证的属性不变。）
      */
@@ -319,7 +328,7 @@ class AiChatPanelNewConversationTest {
     /**
      * 工具批进度污染：重置时工具批在跑（join() 不响应 interrupt），工具执行完
      * 毕发布的 TOOL_CALL 进度在重置之后投递——必须按代数丢弃。
-     * 走真实发送路径（sendMessage → AgentSwingWorker → progress 回调链）。
+     * 走真实发送路径（sendMessage → submitToLoop → 回合事件流）。
      */
     @Test
     void inFlightToolEventAfterReset_doesNotRenderIntoFreshChat() throws Exception {
@@ -529,7 +538,7 @@ class AiChatPanelNewConversationTest {
                 "loadModelsInBackground.done() landed (model item selected)");
         SwingUtilities.invokeAndWait(() -> { }); // 排空 EDT，确保 done() 完整跑完
         setField(p, "agentLoop", loop);
-        invoke(p, "registerRepublishListener"); // 生产对等：面板监听器挂到注入的 loop 上
+        loop.addTurnSubscriber(p); // 生产对等：回合事件订阅挂到注入的 loop 上
         panel = p;
         return p;
     }

@@ -110,6 +110,17 @@ mvn clean package -DskipTests
 - **AgentConfig** - Agent 配置管理（模型、温度、最大轮次等）
 - **GenerationSettings** - AI 生成参数的唯一来源
 
+#### 回合事件流 (`agent.presenter`)
+所有 UI 呈现的唯一通道（旧单槽 TurnPresenter 与 AgentSwingWorker 已删，见「关键设计模式」）：
+
+- **TurnEvent** / **TurnHandle** / **TurnOrigin** / **CancelCause** / **TurnSubscriber** - 回合事件流 5 类型。`TurnEvent` 7 种 Kind（TURN_STARTED/PROGRESS/TURN_COMPLETED/TURN_CANCELLED/INJECTED/REJECTED_BUSY/COMMAND_RESULT）；`TurnOrigin` 分 LOCAL_PANEL/IPC_CLI/IPC_DELEGATED/REPUBLISH；`TurnHandle` 携进程唯一回合 id 与显示域元数据
+- **订阅挂接**：订阅关系挂 `AgentLoopFactory` 静态表（`addTurnSubscriber` 记全局表并挂存活单例；模型切换换血 loop 后由 `createAgentLoop` 全量重挂，订阅不丢）；`AgentLoop.activeTurn(sessionKey)` 供面板懒创建时领养在跑 IPC 回合
+- **线程契约**：回调线程不保证（EDT/ipc-worker/loop 线程/池化线程均可能）；订阅端（如 AiChatPanel）自投 EDT + 通知时代数快照，防 /new 后迟到事件渗入新会话
+
+**4 处刻意 UX 差异（本地回合显示域，防未来「对齐旧行为」误修）**：① 竞态注入成回合时补画 You 行（旧版该消息从转录消失）；② busy 期本地命令补画 You 行（旧版只渲染结果行）；③ 空闲 `/new` 经完整回合短暂武装 loading+Stop 后自复位（旧版直接渲染不武装）；④ `/new` 回执渲染时机为事件驱动（busy 期 COMMAND_RESULT / 空闲期终态）。
+
+**SILENT 显示域**：`CancelCause.SILENT`（关闭整合取消）仅抑制 LOCAL_PANEL 源回合的取消渲染；IPC 源回合照旧渲染 USER_STOP 回执行（关闭整合取消 IPC 回合时目标面板的终止反馈行不消失）。
+
 #### 命令路由 (`agent/command`)
 - **CommandRouter** - 将用户命令路由到对应处理器
 - **BuiltinCommands** - 内置命令定义
@@ -150,8 +161,7 @@ mvn clean package -DskipTests
 - **SkillsLoader** - 从文件系统加载技能
 - **SkillInfo** / **SkillMetadata** - 技能元数据
 
-#### Agent Swing 集成 (`agent/swing`)
-- **AgentSwingWorker** - SwingWorker 封装，在 UI 线程安全执行 Agent 操作
+> `agent/swing` 包（AgentSwingWorker）已删：本地回合显示换轨至 TurnEvent 流后 worker 不再有职责，面板更新统一由 AgentLoop 事件流驱动（见「回合事件流」）。
 
 ### 工具层 (`org.gitee.jmeter.ai.agent.tools`)
 
@@ -245,7 +255,7 @@ mvn clean package -DskipTests
 
 ### GUI 层 (`org.gitee.jmeter.ai.gui`)
 - **AI** - AI 集成入口
-- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）
+- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）；实现 `TurnSubscriber`——本地/IPC/委派回合的呈现统一由 AgentLoop 回合事件流驱动（唯一显示通道），自投 EDT + 通知时代数快照
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
@@ -346,6 +356,8 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
   - `ComponentSchemaTypeTest` / `SchemaLoaderTest` / `YamlDebugTest`
 - **agent/context/** - 上下文管理测试
   - `ContextWindowManagerTest`
+- **agent/testsupport/** - 回合事件流测试公共脚手架（跨测试文件共享）
+  - `GatedScriptAiService`（脚本化/门控 fake，Stop/Reset 钉子经 `InterruptStrategy.HANG_UNTIL_RELEASED`）/ `RecordingSubscriber` / `NoopTool` / `AwaitUtil`
 - **intellisense/** - 智能提示测试
   - `CommandIntellisenseProviderTest` / `InputBoxIntellisenseTest` / `IntellisensePopupTest`
 - **utils/** - 工具类测试
@@ -355,7 +367,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 - **策略模式**：AiService 接口允许在 Claude、OpenAI 和 Ollama 之间切换
 - **观察者模式**：树选择监听器触发 JSR223 编辑器的上下文菜单更新
-- **工作者模式**：所有 AI API 调用使用 SwingWorker 以避免阻塞 UI
+- **回合事件流模式**：AgentLoop 经 TurnSubscriber 多订阅者事件流驱动所有 UI 呈现（唯一显示通道）。AI 调用跑在 loop 专属 executor 上避免阻塞 UI——旧 SwingWorker（AgentSwingWorker）路线已删：本地/IPC/委派回合换轨至事件流后 worker 不再有职责，UI 更新由订阅端自投 EDT
 - **工厂模式**：AiServiceFactory / AgentLoopFactory 创建服务和 Agent 实例
 - **Agent Loop 模式**：AgentLoop 驱动 LLM 调用 → 工具执行 → 结果反馈的迭代循环
 - **注册中心模式**：ToolRegistry / ProviderRegistry 管理工具和提供者的注册与查找

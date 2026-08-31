@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.memory;
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.instance.InstanceContext;
@@ -115,15 +116,34 @@ public final class CloseConsolidationCoordinator {
     }
 
     /**
+     * 静默取消当前实例会话的全部在跑回合（含阻塞收尾等待，合计 ≤5s）——关闭流程
+     * 取消腿的唯一生产入口（关闭对话框 {@code doInBackground} 调用）。
+     *
+     * <p>走工厂跨实例路由 {@link AgentLoopFactory#cancelActiveTaskAny}:取消触达
+     * 当前+退役 loop 上该会话的在跑回合并等其真收尾——「先取消在跑回合再快照/
+     * 提炼,否则提炼与并发回合写会话相互竞态」的承诺由此覆盖模型切换换血后散布在
+     * 退役 loop 上的回合（此前 getAgentLoop().cancelActiveTask 只达当前单例,重建
+     * 窗口 instance==null 时 IllegalStateException 更被「必无活动回合」假设吞掉）。
+     * 须在非 EDT 线程执行（内含阻塞等待）。
+     *
+     * <p>SILENT 显示域注记:仅抑制 LOCAL_PANEL 源回合的取消渲染;IPC 源回合的终止
+     * 回执照常派发（wire 由 IpcServer 收口）。
+     */
+    public static void cancelActiveTurnsSilently() {
+        AgentLoopFactory.cancelActiveTaskAny(InstanceContext.currentSessionKey(), CancelCause.SILENT);
+    }
+
+    /**
      * 深度提炼成功后清空当前实例会话（数据层）。
      *
      * <p>目的:提炼结果已写入 {@code MEMORY.md}(经系统提示持续生效),原会话消息不再有价值;
      * 清空后 {@link #unconsolidatedSnapshot()} 返回空,<b>杜绝退出被取消后二次触发提炼同一批消息</b>。
      *
-     * <p>走共享重置核心 {@link AgentLoop#resetConversation(String, boolean)}(archive=false,
-     * 刚提炼过不二次归档),与 {@code /new}、"+" 的栅栏语义对齐:中止在跑回合
-     * ——含关闭对话框取消上个回合后、其垂死收尾 re-publish 的孤儿——并翻转会话代数,
-     * 使其后迟到的旧会话渲染/落盘被各层守卫丢弃。
+     * <p>走工厂路由重置 {@link AgentLoopFactory#resetConversationAny}(archive=false,
+     * 刚提炼过不二次归档),与 {@code /new}、"+" 的栅栏语义对齐:RESET 先触达当前+
+     * 退役 loop 上该会话的在跑回合（其 abort 置位先于本侧截断落盘,迟到收尾的落盘
+     * 复查读 flag 后放弃写盘——截断不被复活）,重置核心（栅栏取消+代数+截断）在
+     * self 上执行,使其后迟到的旧会话渲染/落盘被各层守卫丢弃。
      *
      * <p>须在 EDT 调用(与 GUI 清空同线程)。agent 未初始化/无会话时为 no-op。
      */
@@ -140,7 +160,7 @@ public final class CloseConsolidationCoordinator {
         if (session == null) {
             return;
         }
-        loop.resetConversation(session.getKey(), false);
+        AgentLoopFactory.resetConversationAny(loop, session.getKey(), false);
     }
 
     private static AgentLoop agentLoop() {

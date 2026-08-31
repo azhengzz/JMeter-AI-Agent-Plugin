@@ -161,7 +161,7 @@ class SubagentTurnConfluenceIT {
     void subagentResultIsAbsorbedAndRelayedWithinTheSameTurn() throws Exception {
         try (Harness h = new Harness(300)) {
             CompletableFuture<AgentResponse> turn =
-                h.loop.processMessage("audit my plan", "chat:main", null);
+                h.loop.processMessage("audit my plan", "chat:main");
 
             AgentResponse response = turn.get(30, TimeUnit.SECONDS);
 
@@ -193,7 +193,7 @@ class SubagentTurnConfluenceIT {
         try (Harness h = new Harness(6_000)) {
             long start = System.currentTimeMillis();
             CompletableFuture<AgentResponse> turn =
-                h.loop.processMessage("audit my plan", "chat:main", null);
+                h.loop.processMessage("audit my plan", "chat:main");
 
             AgentResponse response = turn.get(30, TimeUnit.SECONDS);
             long elapsed = System.currentTimeMillis() - start;

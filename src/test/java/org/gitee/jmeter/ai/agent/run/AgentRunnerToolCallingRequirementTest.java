@@ -60,7 +60,7 @@ class AgentRunnerToolCallingRequirementTest {
         TextOnlyAiService ai = new TextOnlyAiService();
         AgentLoop loop = newLoop(ai);
         try {
-            AgentResponse response = loop.processMessage("analyze the plan", "chat:test", null)
+            AgentResponse response = loop.processMessage("analyze the plan", "chat:test")
                 .get(20, TimeUnit.SECONDS);
 
             assertNotNull(response);

@@ -1,5 +1,6 @@
 package org.gitee.jmeter.ai.agent.command;
 
+import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.VersionUtils;
@@ -17,8 +18,12 @@ public class BuiltinCommands {
     /** Start a fresh session. Exact command. */
     public static String cmdNew(CommandContext ctx) {
         // 重置核心（唯一实现，与 GUI "+" 按钮共用）：中止在跑回合与子代理、代数 +1
-        // （垂死回合的注入残留不 re-publish 进新会话）、归档/清空/落盘/失效缓存
-        ctx.getLoop().resetConversation(ctx.getSessionOrCreate().getKey());
+        // （垂死回合的注入残留不 re-publish 进新会话）、归档/清空/落盘/失效缓存。
+        // 走工厂跨实例路由：RESET 先触达当前+退役 loop 上该会话的在跑回合（模型
+        // 切换换血后，旧 loop 上的 IPC/委派回合不再漏取消），重置核心在 self（=
+        // ctx.getLoop()，直构 loop 亦正确重置）上执行——命令回合自身的 ThreadLocal
+        // 身份豁免在 self 腿内原样生效（/new 不自杀）
+        AgentLoopFactory.resetConversationAny(ctx.getLoop(), ctx.getSessionOrCreate().getKey());
         return "New session started.";
     }
 

@@ -11,9 +11,14 @@ import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.model.GenerationSettings;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
+import org.gitee.jmeter.ai.agent.presenter.TurnEvent;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
+import org.gitee.jmeter.ai.agent.presenter.TurnSubscriber;
 import org.gitee.jmeter.ai.agent.run.InjectionManager;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.service.AiService;
@@ -53,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>队列满穿透 Phase 3（put 替换槽发生在原回合存活时——per-turn 所有权的关键路径）；</li>
  *   <li>委派消息：健康回合 busy 拒绝 vs 垂死窗口放行成独立委派回合；</li>
  *   <li>re-publish 级联（孤儿回合自身被注入再被 Stop，二级孤儿）；</li>
- *   <li>/new 命令落在垂死窗口；无监听器时的 re-publish；双会话交错；</li>
+ *   <li>/new 命令落在垂死窗口；无订阅者时的 re-publish；双会话交错；</li>
  *   <li>offer 与 cancelRouting 的原子性压力（竞态的穷举攻击：每一条返回 true 的
  *       offer 必须能在队列里找到，无一丢失、无一幻影）；</li>
  *   <li>三会话混合操作 soak（无 ExecutionException、全部收敛）。</li>
@@ -61,7 +66,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AgentLoopAdversarialTest {
 
-    private static final String SESSION_KEY = "test-session";
     private static final long TIMEOUT_SECONDS = 15;
 
     @TempDir
@@ -70,15 +74,16 @@ class AgentLoopAdversarialTest {
     AgentLoop loop;
     ScriptedAiService aiService;
     SessionManager sessionManager;
+    /** 事件派发守卫只放行当前实例键：会话键与其保持一致（「sess-A/B」等跨会话锚点照旧）。 */
+    String sessionKey;
 
-    final List<CompletableFuture<AgentResponse>> orphanFutures = new CopyOnWriteArrayList<>();
-    final java.util.concurrent.atomic.AtomicReference<CountDownLatch> listenerLatch =
-            new java.util.concurrent.atomic.AtomicReference<>(new CountDownLatch(1));
+    /** 孤儿回合（REPUBLISH 源）事件记录器；仅需要孤儿断言的用例按需订阅。 */
+    OrphanRecorder orphans;
 
     @BeforeEach
     void setUp() {
         aiService = new ScriptedAiService();
-        orphanFutures.clear();
+        sessionKey = InstanceContext.currentSessionKey();
 
         MemoryStore memoryStore = Mockito.mock(MemoryStore.class);
         Mockito.when(memoryStore.getMemoryContext()).thenReturn("");
@@ -88,7 +93,7 @@ class AgentLoopAdversarialTest {
         registry.register(new NoopTool());
 
         ContextBuilder contextBuilder = new ContextBuilder(memoryStore, tempDir);
-        sessionManager = new SessionManager(tempDir, SESSION_KEY);
+        sessionManager = new SessionManager(tempDir, sessionKey);
 
         loop = new AgentLoop(registry, memoryStore, consolidator, contextBuilder,
                 sessionManager, aiService);
@@ -99,13 +104,10 @@ class AgentLoopAdversarialTest {
         loop.shutdown();
     }
 
-    private void registerOrphanListener(int expected) {
-        CountDownLatch latch = new CountDownLatch(expected);
-        loop.setRepublishListener(f -> {
-            orphanFutures.add(f);
-            latch.countDown();
-        });
-        listenerLatch.set(latch);
+    /** 订阅孤儿回合事件记录器；@param expected 本测试期望观察到的 STARTED 个数（latch 计数）。 */
+    private void subscribeOrphans(int expected) {
+        orphans = new OrphanRecorder(expected);
+        loop.addTurnSubscriber(orphans);
     }
 
     // ------------------------------------------------------------------
@@ -115,23 +117,22 @@ class AgentLoopAdversarialTest {
     /** 双击 Stop：第二次取消不得抛异常、不得留副作用，后续回合照常。 */
     @Test
     void doubleStop_rapidFire_secondIsNoOp() throws Exception {
-        registerOrphanListener(1);
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.text("R1"));
         ScriptedCall call2 = aiService.scriptGated(LLMResponse.text("R2"));
 
-        loop.processMessage("M1", SESSION_KEY);
+        loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
 
-        loop.cancelActiveTask(SESSION_KEY);   // 第一次 Stop（内部等待收尾 latch）
-        loop.signalCancel(SESSION_KEY);       // 立即第二次（回合已死/收尾中）——不得抛异常
+        loop.cancelActiveTask(sessionKey, CancelCause.USER_STOP);   // 第一次 Stop（内部等待收尾 latch）
+        loop.signalCancel(sessionKey);       // 立即第二次（回合已死/收尾中）——不得抛异常
 
-        assertFalse(loop.hasActiveRun(SESSION_KEY));
+        assertFalse(loop.hasActiveRun(sessionKey));
         complete(call1);
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "cancelled turn settles");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "cancelled turn settles");
 
-        CompletableFuture<AgentResponse> f2 = loop.processMessage("M2", SESSION_KEY);
+        CompletableFuture<AgentResponse> f2 = loop.processMessage("M2", sessionKey);
         await(call2.entered, "second turn LLM call started");
-        assertTrue(loop.hasActiveRun(SESSION_KEY), "双击 Stop 不得影响后续回合");
+        assertTrue(loop.hasActiveRun(sessionKey), "双击 Stop 不得影响后续回合");
         complete(call2);
         assertEquals("R2", f2.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getContent());
     }
@@ -146,22 +147,21 @@ class AgentLoopAdversarialTest {
     /** 连续两轮「起回合→取消」后，第三轮正常回合必须完好（abortFlag/latch 按值清理不串扰）。 */
     @Test
     void consecutiveCancelCycles_thenCleanTurn() throws Exception {
-        registerOrphanListener(1);
         for (int i = 1; i <= 2; i++) {
             ScriptedCall call = aiService.scriptGated(LLMResponse.text("R" + i));
-            CompletableFuture<AgentResponse> f = loop.processMessage("M" + i, SESSION_KEY);
+            CompletableFuture<AgentResponse> f = loop.processMessage("M" + i, sessionKey);
             await(call.entered, "turn " + i + " LLM call started");
-            loop.cancelActiveTask(SESSION_KEY);
+            loop.cancelActiveTask(sessionKey, CancelCause.USER_STOP);
             assertThrows(CancellationException.class, () -> f.get(1, TimeUnit.SECONDS));
             complete(call);
-            awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "turn " + i + " settles");
+            awaitUntil(() -> !loop.hasActiveRun(sessionKey), "turn " + i + " settles");
         }
 
         aiService.scriptImmediate(LLMResponse.text("R3-CLEAN"));
-        CompletableFuture<AgentResponse> f3 = loop.processMessage("M3", SESSION_KEY);
+        CompletableFuture<AgentResponse> f3 = loop.processMessage("M3", sessionKey);
         assertEquals("R3-CLEAN", f3.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getContent(),
                 "两轮取消后的第三轮必须完好");
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "settles");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "settles");
     }
 
     // ------------------------------------------------------------------
@@ -171,13 +171,12 @@ class AgentLoopAdversarialTest {
     /** 健康回合在跑：delegated 请求必须立即 busy 拒绝，不得入队、不得穿透。 */
     @Test
     void delegatedWhileHealthyTurn_busyRejectedFast() throws Exception {
-        registerOrphanListener(1);
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.text("R1"));
 
-        loop.processMessage("M1", SESSION_KEY);
+        loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
 
-        CompletableFuture<AgentResponse> f = loop.processMessage("delegated-task", SESSION_KEY, true);
+        CompletableFuture<AgentResponse> f = loop.processMessage("delegated-task", sessionKey, null, TurnOrigin.IPC_DELEGATED);
         assertTrue(f.isDone(), "健康回合下 delegated 必须立即回执（busy 拒绝），不得排队");
         AgentResponse resp = f.get(1, TimeUnit.SECONDS);
         assertFalse(resp.isSuccess(), "busy 拒绝应为错误回执");
@@ -185,28 +184,27 @@ class AgentLoopAdversarialTest {
                 "拒绝信息应可读地说明 busy：" + resp.getErrorMessage());
 
         complete(call1);
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "settles");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "settles");
     }
 
     /** 垂死窗口内到达的 delegated 请求：路由槽已摘，不得 busy 拒绝，应放行为独立委派回合。 */
     @Test
     void delegatedDuringDyingWindow_runsAsIndependentTurn() throws Exception {
-        registerOrphanListener(1);
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.text("R1"));
         aiService.scriptImmediate(LLMResponse.text("DEL-DONE"));
 
-        loop.processMessage("M1", SESSION_KEY);
+        loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
-        loop.signalCancel(SESSION_KEY);
+        loop.signalCancel(sessionKey);
 
-        CompletableFuture<AgentResponse> f = loop.processMessage("delegated-task", SESSION_KEY, true);
+        CompletableFuture<AgentResponse> f = loop.processMessage("delegated-task", sessionKey, null, TurnOrigin.IPC_DELEGATED);
         assertFalse(f.isDone(), "垂死窗口内 delegated 不应被立即拒绝（槽已摘）");
 
         complete(call1);  // 垂死回合收尾 → 委派回合 pickup
         AgentResponse resp = f.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(resp.isSuccess(), "委派回合应正常完成");
         assertEquals("DEL-DONE", resp.getContent());
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "settles");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "settles");
     }
 
     // ------------------------------------------------------------------
@@ -220,23 +218,23 @@ class AgentLoopAdversarialTest {
      */
     @Test
     void queueFull_21stMessage_fallsThroughToNewTurn_putReplaceSafe() throws Exception {
-        registerOrphanListener(5);  // 20 - 15（5 周期 × 3 条）= 5 条超限残留
+        subscribeOrphans(5);  // 20 - 15（5 周期 × 3 条）= 5 条超限残留
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.withToolCalls(
                 List.of(new ToolCall("c1", "noop_tool", Map.of())), "step 1"));
-        CompletableFuture<AgentResponse> f1 = loop.processMessage("M1", SESSION_KEY);
+        CompletableFuture<AgentResponse> f1 = loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
 
         for (int i = 1; i <= 20; i++) {
-            AgentResponse ack = loop.processMessage("INJ-" + i, SESSION_KEY)
+            AgentResponse ack = loop.processMessage("INJ-" + i, sessionKey)
                     .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             assertTrue(ack.getContent().startsWith("Message injected"),
                     "队列未满时第 " + i + " 条应注入成功");
         }
 
         // 第 21 条：offer 失败（队满）→ 穿透 Phase 3 → 独立回合 future + put 替换槽
-        CompletableFuture<AgentResponse> f21 = loop.processMessage("OVERFLOW-MSG", SESSION_KEY);
+        CompletableFuture<AgentResponse> f21 = loop.processMessage("OVERFLOW-MSG", sessionKey);
         assertFalse(f21.isDone(), "第 21 条应穿透成独立回合 future，而非立即 ack");
-        assertTrue(loop.hasActiveRun(SESSION_KEY), "穿透回合占槽后路由仍应报 active");
+        assertTrue(loop.hasActiveRun(sessionKey), "穿透回合占槽后路由仍应报 active");
 
         // T1 余下脚本：4 次工具调用（各触发一个注入周期）+ 最终回复
         for (int i = 2; i <= 5; i++) {
@@ -249,14 +247,14 @@ class AgentLoopAdversarialTest {
         assertEquals("T1-FINAL", f1.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getContent(),
                 "原回合按句柄抽自己的队列，不受穿透回合 put 替换槽影响");
 
-        assertTrue(listenerLatch.get().await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                "5 条超限残留应各产生一个孤儿 future");
-        assertEquals(5, orphanFutures.size());
+        assertTrue(orphans.latch.get().await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "5 条超限残留应各产生一个 REPUBLISH 源回合 STARTED 事件");
+        assertEquals(5, orphans.started.size());
 
         AgentResponse r21 = f21.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(r21.isSuccess(), "穿透的独立回合应正常完成（脚本耗尽 → DEFAULT-FINAL）");
 
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "all turns settle");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "all turns settle");
     }
 
     // ------------------------------------------------------------------
@@ -269,27 +267,27 @@ class AgentLoopAdversarialTest {
      */
     @Test
     void stopDuringActiveTurn_queuedInjection_discarded_noOrphanNoCascade() throws Exception {
-        registerOrphanListener(4);  // 宽松上限：若实现错误重发布（含级联）会在此暴露
+        subscribeOrphans(4);  // 宽松上限：若实现错误重发布（含级联）会在此暴露
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.text("R1"));
         ScriptedCall callNext = aiService.scriptGated(LLMResponse.text("R-NEXT"));
         aiService.scriptImmediate(LLMResponse.text("ORPHAN-MUST-NOT-RUN"));
 
-        loop.processMessage("M1", SESSION_KEY);
+        loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
-        assertTrue(loop.processMessage("M-left", SESSION_KEY).get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        assertTrue(loop.processMessage("M-left", sessionKey).get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .getContent().startsWith("Message injected"));
 
-        loop.signalCancel(SESSION_KEY);
+        loop.signalCancel(sessionKey);
         complete(call1);
 
-        CompletableFuture<AgentResponse> fNext = loop.processMessage("M-next", SESSION_KEY);
+        CompletableFuture<AgentResponse> fNext = loop.processMessage("M-next", sessionKey);
         await(callNext.entered, "follow-up turn started（隐含垂死收尾已执行）");
         complete(callNext);
         assertEquals("R-NEXT", fNext.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getContent());
 
-        assertTrue(orphanFutures.isEmpty(), "Stop 后的队列残留必须作废，不得重发布成孤儿（含级联）");
+        assertTrue(orphans.started.isEmpty(), "Stop 后的队列残留必须作废，不得重发布成孤儿（含级联）");
         assertFalse(assistantContents().contains("ORPHAN-MUST-NOT-RUN"), "作废消息不得被处理落盘");
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "all turns settle");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "all turns settle");
     }
 
     // ------------------------------------------------------------------
@@ -303,29 +301,27 @@ class AgentLoopAdversarialTest {
      */
     @Test
     void newCommandDuringDyingWindow_settlesClean() throws Exception {
-        registerOrphanListener(1);
         ScriptedCall call1 = aiService.scriptGated(LLMResponse.text("R1"));
 
-        loop.processMessage("M1", SESSION_KEY);
+        loop.processMessage("M1", sessionKey);
         await(call1.entered, "first LLM call started");
-        loop.signalCancel(SESSION_KEY);
+        loop.signalCancel(sessionKey);
 
-        CompletableFuture<AgentResponse> f = loop.processMessage("/new", SESSION_KEY);
+        CompletableFuture<AgentResponse> f = loop.processMessage("/new", sessionKey);
         complete(call1);   // 垂死回合收尾 → /new 回合才 pickup（测试的 fake LLM 吞中断，须显式放行）
 
         AgentResponse resp = f.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertTrue(resp.isSuccess(), "/new 在垂死窗口应正常回执：" + resp.getErrorMessage());
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "settles");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "settles");
     }
 
     /**
-     * 未注册监听器时 re-publish 仍必须执行（WARN 日志 + 回合照跑落盘），不得静默丢弃消息。
+     * 未订阅任何 TurnSubscriber 时 re-publish 仍必须执行（回合照跑落盘），不得静默丢弃消息。
      * 契约修订（2026-08-23）后 Stop 不再触发重发布，改用自然完成（注入周期 5/5 超限）构造：
      * 第 6 条注入在封顶窗口入队、回合自然结束时成为残留。
      */
     @Test
-    void nullListener_republishStillProcesses() throws Exception {
-        loop.setRepublishListener(null);
+    void noSubscriber_republishStillProcesses() throws Exception {
         List<ScriptedCall> calls = new ArrayList<>();
         for (int i = 1; i <= 6; i++) {
             calls.add(aiService.scriptGated(LLMResponse.withToolCalls(
@@ -334,15 +330,15 @@ class AgentLoopAdversarialTest {
         ScriptedCall finalCall = aiService.scriptGated(LLMResponse.text("T1-FINAL"));
         aiService.scriptImmediate(LLMResponse.text("ORPHAN-NO-LISTENER"));
 
-        CompletableFuture<AgentResponse> f1 = loop.processMessage("M1", SESSION_KEY);
+        CompletableFuture<AgentResponse> f1 = loop.processMessage("M1", sessionKey);
         for (int i = 0; i < 5; i++) {
             await(calls.get(i).entered, "LLM call " + (i + 1));
-            assertTrue(loop.processMessage("FOLLOWUP-" + (i + 1), SESSION_KEY)
+            assertTrue(loop.processMessage("FOLLOWUP-" + (i + 1), sessionKey)
                     .get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getContent().startsWith("Message injected"));
             complete(calls.get(i));
         }
         await(calls.get(5).entered, "LLM call 6"); // 周期已 5/5 封顶：LEFT 不再被消化
-        assertTrue(loop.processMessage("LEFT", SESSION_KEY).get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        assertTrue(loop.processMessage("LEFT", sessionKey).get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .getContent().startsWith("Message injected"));
         complete(calls.get(5));
         await(finalCall.entered, "final LLM call");
@@ -351,9 +347,8 @@ class AgentLoopAdversarialTest {
                 "原回合自然完成，残留走 finally re-publish");
 
         awaitUntil(() -> assistantContents().contains("ORPHAN-NO-LISTENER"),
-                "无监听器时孤儿回合仍须执行并落盘");
-        awaitUntil(() -> !loop.hasActiveRun(SESSION_KEY), "settles");
-        assertTrue(orphanFutures.isEmpty());
+                "无订阅者时孤儿回合仍须执行并落盘");
+        awaitUntil(() -> !loop.hasActiveRun(sessionKey), "settles");
     }
 
     // ------------------------------------------------------------------
@@ -363,7 +358,6 @@ class AgentLoopAdversarialTest {
     /** 会话 A 的长回合占住 executor 时：B 起回合→取消→垂死窗口发新消息，全部互不串扰。 */
     @Test
     void twoSessionsInterleaved_blockerStopAndSend() throws Exception {
-        registerOrphanListener(1);
         ScriptedCall blocker = aiService.scriptGated(LLMResponse.text("BLOCK-DONE"));
         ScriptedCall callB = aiService.scriptGated(LLMResponse.text("B1"));
         aiService.scriptImmediate(LLMResponse.text("B2-FINAL"));
@@ -456,7 +450,6 @@ class AgentLoopAdversarialTest {
      */
     @Test
     void chaosSoak_threeSessions_mixedOps_allSettle() throws Exception {
-        registerOrphanListener(4);  // 宽松上限：注入被取消后 re-publish 的孤儿数不定
         String[] sessions = {"s1", "s2", "s3"};
         List<CompletableFuture<AgentResponse>> futures = new ArrayList<>();
 
@@ -491,6 +484,24 @@ class AgentLoopAdversarialTest {
     // 测试基础设施
     // ------------------------------------------------------------------
 
+    /** 孤儿回合（REPUBLISH 源）事件记录器：STARTED 计数喂 latch（终态不在此断言）。 */
+    private static final class OrphanRecorder implements TurnSubscriber {
+        final List<TurnEvent> started = new CopyOnWriteArrayList<>();
+        final java.util.concurrent.atomic.AtomicReference<CountDownLatch> latch;
+
+        OrphanRecorder(int expected) {
+            latch = new java.util.concurrent.atomic.AtomicReference<>(new CountDownLatch(expected));
+        }
+
+        @Override public void onTurnEvent(TurnEvent event) {
+            if (event.turn() != null && event.turn().origin() == TurnOrigin.REPUBLISH
+                    && event.kind() == TurnEvent.Kind.TURN_STARTED) {
+                started.add(event);
+                latch.get().countDown();
+            }
+        }
+    }
+
     private void await(CountDownLatch latch, String what) throws InterruptedException {
         assertTrue(latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Timed out waiting for: " + what);
     }
@@ -508,7 +519,7 @@ class AgentLoopAdversarialTest {
     }
 
     private List<String> assistantContents() {
-        Session session = sessionManager.get(SESSION_KEY);
+        Session session = sessionManager.get(sessionKey);
         if (session == null) {
             return List.of();
         }
