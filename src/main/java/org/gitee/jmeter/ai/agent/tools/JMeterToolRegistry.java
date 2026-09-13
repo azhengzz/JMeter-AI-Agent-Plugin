@@ -4,6 +4,7 @@ import org.gitee.jmeter.ai.agent.tools.exec.ExecTool;
 import org.gitee.jmeter.ai.agent.tools.filesystem.*;
 import org.gitee.jmeter.ai.agent.tools.ipc.DelegateToInstanceTool;
 import org.gitee.jmeter.ai.agent.tools.ipc.ListInstancesTool;
+import org.gitee.jmeter.ai.agent.tools.ipc.ReadInstanceSessionTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.*;
 import org.gitee.jmeter.ai.agent.tools.jmeter.execution.*;
 import org.gitee.jmeter.ai.agent.tools.web.*;
@@ -126,6 +127,14 @@ public class JMeterToolRegistry {
             registry.register(new DelegateToInstanceTool());
         } else {
             log.info("Instance-coordination tools disabled (IPC disabled, no transport)");
+        }
+        // read_instance_session 是纯本地共享目录文件读,不消费 IPC 传输,故独立于 IPC 开关门控;
+        // 数据源是每实例会话文件(sessions/{instanceId}.jsonl),legacy 全局键模式下无文件可读,不注册
+        if (AiConfig.isSessionPerInstance()) {
+            log.info("Registering read_instance_session (per-instance session mode)");
+            registry.register(new ReadInstanceSessionTool());
+        } else {
+            log.info("read_instance_session disabled (legacy global session key, no per-instance files)");
         }
     }
 
