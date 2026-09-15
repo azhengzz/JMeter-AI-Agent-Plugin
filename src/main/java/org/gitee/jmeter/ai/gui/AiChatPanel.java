@@ -19,6 +19,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.gitee.jmeter.ai.intellisense.InputBoxIntellisense;
+import org.gitee.jmeter.ai.intellisense.InstanceMentionProvider;
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.AgentLoopFactory;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
@@ -72,6 +74,8 @@ public class AiChatPanel extends JPanel
     // scrollbar (auto-scroll-to-bottom while the user is pinned to the tail).
     private JScrollPane chatScrollPane;
     private JTextArea messageField;
+    // @-instance mention provider: shared by input intellisense (popup) and send-time parsing.
+    private InstanceMentionProvider instanceMentionProvider;
     private JButton sendButton;
     private JComboBox<String> modelSelector;
     // 上下文窗口用量环形指示器（模型选择器右侧；repaint-only 更新，EDT only）
@@ -369,13 +373,20 @@ public class AiChatPanel extends JPanel
                 BorderFactory.createLineBorder(inputBorderColor),
                 BorderFactory.createEmptyBorder(5, 5, 5, 5)));
 
-        // Setup intellisense for command suggestions
-        new InputBoxIntellisense(messageField);
+        // Setup intellisense for command suggestions and @-instance mentions
+        instanceMentionProvider = new InstanceMentionProvider();
+        new InputBoxIntellisense(messageField, instanceMentionProvider);
 
         // Add key listener for Enter to send message, Shift+Enter for newline
         messageField.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                // intellisense 监听器先注册：弹窗可见时消费 Enter/Tab 以接受候选。
+                // AWT 仍会把已消费的事件投递给同组件的后续 listener，故此处必须
+                // 尊重消费标记——否则"Enter 选中候选"会连带着把消息直接发出。
+                if (e.isConsumed()) {
+                    return;
+                }
                 if (e.getKeyCode() == KeyEvent.VK_ENTER) {
                     e.consume();
                     if (e.isShiftDown()) {
@@ -1091,7 +1102,13 @@ public class AiChatPanel extends JPanel
             }
         }
 
-        agentLoop.processMessage(message, InstanceContext.currentSessionKey());
+        // @-instance mentions ride along as structured references; empty keeps the legacy path.
+        List<InstanceInfo> mentions = instanceMentionProvider.parseMentions(message);
+        if (mentions.isEmpty()) {
+            agentLoop.processMessage(message, InstanceContext.currentSessionKey());
+        } else {
+            agentLoop.processMessage(message, InstanceContext.currentSessionKey(), mentions);
+        }
     }
 
     /**

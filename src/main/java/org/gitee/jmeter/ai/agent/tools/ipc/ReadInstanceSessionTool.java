@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.util.JMeterUtils;
+import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.instance.InstanceContext;
@@ -175,7 +176,10 @@ public class ReadInstanceSessionTool extends AbstractTool {
                 if (contentNode == null || contentNode.isNull()) {
                     continue;
                 }
-                String content = contentNode.asText();
+                // 跨实例读取是公共视图:user 消息剥离对端的 runtime-context 块
+                // (优先对端文件里的 _runtime_context 标记精确剥离,回退 tag 截断)
+                String content = "user".equals(role)
+                        ? stripRuntimeBlock(node, contentNode.asText()) : contentNode.asText();
                 if (content.isBlank()) {
                     continue;
                 }
@@ -191,6 +195,20 @@ public class ReadInstanceSessionTool extends AbstractTool {
             }
         }
         return snapshot;
+    }
+
+    /** 公共视图剥离:优先对端 jsonl 行里的 {@code _runtime_context.suffix} 精确摘除尾随块,回退 tag 截断。 */
+    private static String stripRuntimeBlock(JsonNode node, String content) {
+        String suffix = node.path(ContextBuilder.RUNTIME_CONTEXT_META_KEY).path("suffix").asText("");
+        if (!suffix.isEmpty()) {
+            if (content.equals(suffix)) {
+                return "";
+            }
+            if (content.endsWith("\n\n" + suffix)) {
+                return content.substring(0, content.length() - suffix.length() - 2);
+            }
+        }
+        return ContextBuilder.stripRuntimeContext(content);
     }
 
     private ToolResult render(String instanceId, String query, SessionSnapshot snapshot) {

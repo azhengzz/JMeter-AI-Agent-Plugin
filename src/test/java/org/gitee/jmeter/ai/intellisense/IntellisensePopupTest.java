@@ -30,42 +30,64 @@ public class IntellisensePopupTest {
     public void testSetSelectedIndex() {
         // Instead of showing the popup (which requires a visible component),
         // we'll just set the data directly
-        List<String> suggestions = Arrays.asList("/new", "/status", "/help");
+        List<IntellisenseSuggestion> suggestions = Arrays.asList(
+                IntellisenseSuggestion.of("/new"),
+                IntellisenseSuggestion.of("/status"),
+                IntellisenseSuggestion.of("/help"));
 
         // Set the data directly on the JList
-        popup.suggestionList.setListData(suggestions.toArray(new String[0]));
+        popup.suggestionList.setListData(suggestions.toArray(new IntellisenseSuggestion[0]));
 
         // Test setting selected index
         popup.setSelectedIndex(1);
-        assertEquals("/status", popup.getSelectedValue());
+        assertEquals("/status", popup.getSelectedValue().insert());
 
         // Test setting another index
         popup.setSelectedIndex(2);
-        assertEquals("/help", popup.getSelectedValue());
+        assertEquals("/help", popup.getSelectedValue().insert());
     }
-    
+
     @Test
     public void testGetSuggestionCount() {
         // Set the data directly on the JList
-        List<String> suggestions = Arrays.asList("/new", "/status", "/help", "/exit");
-        popup.suggestionList.setListData(suggestions.toArray(new String[0]));
-        
+        List<IntellisenseSuggestion> suggestions = Arrays.asList(
+                IntellisenseSuggestion.of("/new"),
+                IntellisenseSuggestion.of("/status"),
+                IntellisenseSuggestion.of("/help"),
+                IntellisenseSuggestion.of("/exit"));
+        popup.suggestionList.setListData(suggestions.toArray(new IntellisenseSuggestion[0]));
+
         // Test getting suggestion count
         assertEquals(4, popup.getSuggestionCount());
     }
-    
+
     @Test
     public void testGetSelectedIndex() {
         // Set the data directly on the JList
-        List<String> suggestions = Arrays.asList("/new", "/status", "/help");
-        popup.suggestionList.setListData(suggestions.toArray(new String[0]));
-        
+        List<IntellisenseSuggestion> suggestions = Arrays.asList(
+                IntellisenseSuggestion.of("/new"),
+                IntellisenseSuggestion.of("/status"),
+                IntellisenseSuggestion.of("/help"));
+        popup.suggestionList.setListData(suggestions.toArray(new IntellisenseSuggestion[0]));
+
         // Test getting selected index (initially -1 since no selection)
         assertEquals(-1, popup.getSelectedIndex());
-        
+
         // Change selection and test again
         popup.setSelectedIndex(2);
         assertEquals(2, popup.getSelectedIndex());
+    }
+
+    @Test
+    public void testDisplayAndInsertCanDiffer() {
+        IntellisenseSuggestion suggestion = new IntellisenseSuggestion(
+                "@12345-1694567890123 · a.jmx · pid 12345", "@12345-1694567890123 ");
+
+        popup.suggestionList.setListData(new IntellisenseSuggestion[]{suggestion});
+        popup.setSelectedIndex(0);
+
+        assertEquals(suggestion, popup.getSelectedValue());
+        assertEquals("@12345-1694567890123 ", popup.getSelectedValue().insert());
     }
     
     @Test

@@ -463,7 +463,10 @@ public class MemoryConsolidator {
         for (Message message : messages) {
             String timestamp = message.getTimestamp().format(TIMESTAMP_FORMAT);
             String role = message.getRole().toString().toUpperCase();
-            String content = message.getContent();
+            // 公共视图(记忆蒸馏/HISTORY.md)剥离 runtime-context 块——LLM 回放保留,
+            // 记忆/归档只见正文(对齐 Nanobot public_history_message)
+            String content = message.getRole() == Message.Role.USER
+                    ? ContextBuilder.stripRuntimeContext(message) : message.getContent();
             if (content == null) continue;
 
             String toolsInfo = message.hasToolCalls() ?

@@ -10,7 +10,7 @@ import java.util.List;
  */
 public class IntellisensePopup {
     private final JPopupMenu popupMenu;
-    protected final JList<String> suggestionList; // Changed to protected for testing
+    protected final JList<IntellisenseSuggestion> suggestionList; // Changed to protected for testing
     private final JScrollPane scrollPane;
 
     public IntellisensePopup() {
@@ -25,9 +25,21 @@ public class IntellisensePopup {
         popupMenu.add(scrollPane);
     }
 
-    public void show(Component parent, int x, int y, List<String> suggestions) {
-        suggestionList.setListData(suggestions.toArray(new String[0]));
-        suggestionList.setSelectedIndex(0);
+    public void show(Component parent, int x, int y, List<IntellisenseSuggestion> suggestions) {
+        // 后台刷新触发的就地重渲染不得重置键盘选中(用户正 Down 到某行时刷新落地,
+        // 高亮跳回第一行会让下一个 Enter 插错实例)——同 display 项尽量保序恢复
+        IntellisenseSuggestion previous = suggestionList.getSelectedValue();
+        suggestionList.setListData(suggestions.toArray(new IntellisenseSuggestion[0]));
+        int restore = 0;
+        if (previous != null) {
+            for (int i = 0; i < suggestions.size(); i++) {
+                if (previous.display().equals(suggestions.get(i).display())) {
+                    restore = i;
+                    break;
+                }
+            }
+        }
+        suggestionList.setSelectedIndex(restore);
         suggestionList.setVisibleRowCount(Math.min(5, suggestions.size()));
         popupMenu.pack();
         popupMenu.show(parent, x, y);
@@ -50,7 +62,7 @@ public class IntellisensePopup {
         suggestionList.addKeyListener(listener);
     }
 
-    public String getSelectedValue() {
+    public IntellisenseSuggestion getSelectedValue() {
         return suggestionList.getSelectedValue();
     }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.instance.InstanceContext;
@@ -325,6 +326,14 @@ public class SessionManager {
             }
         }
 
+        // Runtime-context 精确剥离标记(块随消息持久化,公共视图按标记摘除;
+        // 字段名对齐 Nanobot 的顶层 _runtime_context)
+        if (message.getMetadata() != null
+                && message.getMetadata().containsKey(ContextBuilder.RUNTIME_CONTEXT_META_KEY)) {
+            node.set(ContextBuilder.RUNTIME_CONTEXT_META_KEY,
+                    mapper.valueToTree(message.getMetadata().get(ContextBuilder.RUNTIME_CONTEXT_META_KEY)));
+        }
+
         return node;
     }
 
@@ -386,6 +395,16 @@ public class SessionManager {
                 if (node.has("name")) {
                     builder.metadata(java.util.Collections.singletonMap("toolName", node.get("name").asText()));
                 }
+            }
+
+            // Runtime-context 精确剥离标记(round-trip;与 toolName 互斥——分别属 user/tool 角色)
+            if (node.has(ContextBuilder.RUNTIME_CONTEXT_META_KEY)
+                    && node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY).isObject()) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> marker = mapper.convertValue(
+                        node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY), java.util.Map.class);
+                builder.metadata(new java.util.LinkedHashMap<>(
+                        java.util.Collections.singletonMap(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker)));
             }
 
             return builder.build();

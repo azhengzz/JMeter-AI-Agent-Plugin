@@ -2,6 +2,8 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
+import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,9 +33,10 @@ public class AgentRunSpec {
     private final String reasoningEffort;
     private final List<Message> initialMessages;
     private final AtomicBoolean abortFlag;
-    private final Function<Integer, List<String>> injectionCallback;
+    private final Function<Integer, List<InjectionItem>> injectionCallback;
     private final boolean persistSession;
     private final boolean delegated;
+    private final List<InstanceInfo> instanceMentions;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -50,6 +53,7 @@ public class AgentRunSpec {
         this.injectionCallback = builder.injectionCallback;
         this.persistSession = builder.persistSession;
         this.delegated = builder.delegated;
+        this.instanceMentions = builder.instanceMentions;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -63,7 +67,7 @@ public class AgentRunSpec {
     public String getReasoningEffort() { return reasoningEffort; }
     public List<Message> getInitialMessages() { return initialMessages; }
     public AtomicBoolean getAbortFlag() { return abortFlag; }
-    public Function<Integer, List<String>> getInjectionCallback() { return injectionCallback; }
+    public Function<Integer, List<InjectionItem>> getInjectionCallback() { return injectionCallback; }
 
     /**
      * Whether this run persists its messages to the session store and runs memory
@@ -77,6 +81,13 @@ public class AgentRunSpec {
      * the run task so tools executed in this turn refuse to delegate again.
      */
     public boolean isDelegated() { return delegated; }
+
+    /**
+     * Peer JMeter instances the user @-mentioned in this turn's message
+     * (structured references rendered into the per-turn runtime context).
+     * Empty list when the turn carries no mentions.
+     */
+    public List<InstanceInfo> getInstanceMentions() { return instanceMentions; }
 
     public static Builder builder() {
         return new Builder();
@@ -94,9 +105,10 @@ public class AgentRunSpec {
         private String reasoningEffort;
         private List<Message> initialMessages;
         private AtomicBoolean abortFlag;
-        private Function<Integer, List<String>> injectionCallback;
+        private Function<Integer, List<InjectionItem>> injectionCallback;
         private boolean persistSession = true;
         private boolean delegated = false;
+        private List<InstanceInfo> instanceMentions = List.of();
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -153,7 +165,7 @@ public class AgentRunSpec {
             return this;
         }
 
-        public Builder injectionCallback(Function<Integer, List<String>> callback) {
+        public Builder injectionCallback(Function<Integer, List<InjectionItem>> callback) {
             this.injectionCallback = callback;
             return this;
         }
@@ -170,6 +182,12 @@ public class AgentRunSpec {
         /** Mark this run as a cross-instance delegated turn (arms DelegationGuard). */
         public Builder delegated(boolean delegated) {
             this.delegated = delegated;
+            return this;
+        }
+
+        /** Peer instances @-mentioned by the user (per-turn runtime context). Null normalizes to empty. */
+        public Builder instanceMentions(List<InstanceInfo> mentions) {
+            this.instanceMentions = mentions == null ? List.of() : mentions;
             return this;
         }
 

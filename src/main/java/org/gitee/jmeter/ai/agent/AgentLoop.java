@@ -25,6 +25,7 @@ import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 import org.gitee.jmeter.ai.agent.turn.Turn;
 import org.gitee.jmeter.ai.agent.turn.TurnRegistry;
 import org.gitee.jmeter.ai.instance.InstanceContext;
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -213,6 +214,17 @@ public class AgentLoop {
     }
 
     /**
+     * 面板携带 @-实例引用的入口：解析后的结构化引用随回合进入每回合 Runtime Context。
+     * busy/命令路径自然丢弃引用（消息文本里的 @token 仍在，AI 可自行解析）。
+     */
+    public CompletableFuture<AgentResponse> processMessage(
+            String message,
+            String sessionKey,
+            List<InstanceInfo> instanceMentions) {
+        return doProcessMessage(message, sessionKey, null, TurnOrigin.LOCAL_PANEL, instanceMentions);
+    }
+
+    /**
      * 来源化入口（事件流主路径）：显式声明回合来源——事件载荷与显示域判定
      * （{@link TurnHandle#visibleToPanel()}）的唯一依据。delegated 语义随来源派生
      * （仅 IPC_DELEGATED 为 true）。
@@ -222,14 +234,15 @@ public class AgentLoop {
             String sessionKey,
             ProgressCallback callback,
             TurnOrigin origin) {
-        return doProcessMessage(message, sessionKey, callback, origin);
+        return doProcessMessage(message, sessionKey, callback, origin, List.of());
     }
 
     private CompletableFuture<AgentResponse> doProcessMessage(
             String message,
             String sessionKey,
             ProgressCallback callback,
-            TurnOrigin origin) {
+            TurnOrigin origin,
+            List<InstanceInfo> instanceMentions) {
         boolean delegated = origin == TurnOrigin.IPC_DELEGATED;
         String raw = message.trim();
 
@@ -282,8 +295,8 @@ public class AgentLoop {
                 }
             }
 
-            // Route to pending queue for mid-turn injection
-            TurnRegistry.OfferStatus offered = activeTurnTokens.offer(sessionKey, message, false);
+            // Route to pending queue for mid-turn injection（携带 @-实例引用：busy 注入不降级）
+            TurnRegistry.OfferStatus offered = activeTurnTokens.offer(sessionKey, message, false, instanceMentions);
             if (offered == TurnRegistry.OfferStatus.OFFERED) {
                 log.info("Message enqueued for mid-turn injection in session {}", sessionKey);
                 // 事件流（唯一通道）：注入 ack 无条件派发——本地注入回显同样由事件
@@ -309,7 +322,7 @@ public class AgentLoop {
         }
 
         // Phase 3: Normal processing (via executor)
-        return startTurn(raw, message, sessionKey, callback, delegated, origin);
+        return startTurn(raw, message, sessionKey, callback, delegated, origin, instanceMentions);
     }
 
     /**
@@ -338,7 +351,8 @@ public class AgentLoop {
             String sessionKey,
             ProgressCallback callback,
             boolean delegated,
-            TurnOrigin origin) {
+            TurnOrigin origin,
+            List<InstanceInfo> instanceMentions) {
         // 回合身份句柄（进程唯一 id + 来源 + 显示域元数据 + 终态去重位）。REPUBLISH 的
         // echoText 为 null——You 回显已由 INJECTED 事件给过，孤儿回合不再重复回显。
         // 句柄随 Turn 构造、先于注册表可见（不按旧 activeTurnHandles.put 的时机后写）：
@@ -432,6 +446,7 @@ public class AgentLoop {
                                 .abortFlag(turn.abortFlag())
                                 .injectionCallback(limit -> drainInjected(turn, limit))
                                 .delegated(delegated)
+                                .instanceMentions(instanceMentions)
                                 .build();
 
                             // Run agent（同步直调：跑在本 executor 线程上，
@@ -634,7 +649,7 @@ public class AgentLoop {
                     // 孤儿回合的呈现走事件流（REPUBLISH 源 TurnEvent，订阅者按活回合集合
                     // 领养渲染）——不再有调用方消费 future 的通道
                     startTurn(item.getText(), item.getText(), sessionKey, callback, false,
-                            TurnOrigin.REPUBLISH);
+                            TurnOrigin.REPUBLISH, List.of());
                 } catch (RejectedExecutionException ree) {
                     // executor 已退役（模型切换换血）：本回合自身的返回值不受影响，
                     // 但残留消息无处投递——ERROR 可见化（消息内容进日志便于找回）
@@ -1001,7 +1016,7 @@ public class AgentLoop {
      * <p>Ready messages (e.g. the user typing) always win: the blocking wait only
      * happens when the queue is empty.
      */
-    private List<String> drainInjected(Turn turn, int limit) {
+    private List<InjectionItem> drainInjected(Turn turn, int limit) {
         var manager = subagentManager;
         // Only wait on subagents spawned by the turn that is still running: a
         // leftover from an earlier turn has its result discarded on arrival, so
@@ -1026,11 +1041,7 @@ public class AgentLoop {
         // 进不了队列），而队列里既有的消息只在「上一次 abort 检查之后、本次抽干
         // 之前」这段同线程无阻塞的指令间隙内可能被抽走——窗口为指令级而非秒级
         // LLM 调用窗口，可忽略。
-        List<String> texts = new ArrayList<>(items.size());
-        for (InjectionItem item : items) {
-            texts.add(item.getText());
-        }
-        return texts;
+        return items;
     }
 
     /**

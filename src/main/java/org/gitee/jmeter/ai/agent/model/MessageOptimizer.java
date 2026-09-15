@@ -5,9 +5,15 @@ import org.gitee.jmeter.ai.utils.AiConfig;
 /**
  * Utility for optimizing messages before persistence.
  * Based on Nanobot's session persistence optimizations.
+ *
+ * <p>NOTE: runtime-context stripping is deliberately NOT done here. The only correct
+ * strip is {@code ContextBuilder.stripRuntimeContext} (tag-based, handles the
+ * user-text-first layout), applied by AgentRunner right after this method for USER
+ * messages. The old prefix-layout stripper that lived here once ate the real user
+ * text whenever the runtime block contained a blank line (e.g. the @-instance
+ * mention section) — persistence then kept only the block tail.
  */
 public class MessageOptimizer {
-    private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context";
 
     /**
      * Optimize a message content for persistence.
@@ -25,11 +31,6 @@ public class MessageOptimizer {
             }
         }
 
-        // Handle user messages - remove runtime context prefix
-        if (role == Message.Role.USER) {
-            content = removeRuntimeContext(content);
-        }
-
         int maxChars = AiConfig.getToolResultMaxChars();
 
         // Handle tool result messages - truncate large results
@@ -42,28 +43,6 @@ public class MessageOptimizer {
             content = content.substring(0, maxChars) + "\n...(truncated)";
         }
 
-        return content;
-    }
-
-    /**
-     * Remove runtime context prefix from user message.
-     */
-    private static String removeRuntimeContext(String content) {
-        int runtimeIndex = content.indexOf(RUNTIME_CONTEXT_TAG);
-        if (runtimeIndex >= 0) {
-            // Find the end of the runtime context block (look for double newline)
-            int endOfRuntime = content.indexOf("\n\n", runtimeIndex);
-            if (endOfRuntime > 0) {
-                // Keep only the user message part after runtime context
-                String userPart = content.substring(endOfRuntime + 2).trim();
-                if (!userPart.isEmpty()) {
-                    return userPart;
-                } else {
-                    // If user part is empty, return null to skip this message
-                    return null;
-                }
-            }
-        }
         return content;
     }
 

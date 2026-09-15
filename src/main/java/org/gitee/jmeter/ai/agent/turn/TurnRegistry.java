@@ -1,5 +1,6 @@
 package org.gitee.jmeter.ai.agent.turn;
 
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,11 +73,20 @@ public class TurnRegistry extends ConcurrentHashMap<String, Turn> {
      * @return 见 {@link OfferStatus}；FULL 时消息未入队、归宿由调用方决定
      */
     public OfferStatus offer(String sessionKey, String message, boolean announcement) {
+        return offer(sessionKey, message, announcement, List.of());
+    }
+
+    /**
+     * 同 {@link #offer(String, String, boolean)}，但携带发送时解析出的 @-实例结构化引用
+     * （busy 期注入不降级，排空侧渲染进注入块的实例小节）。
+     */
+    public OfferStatus offer(String sessionKey, String message, boolean announcement,
+                             List<InstanceInfo> mentions) {
         AtomicReference<OfferStatus> result = new AtomicReference<>(OfferStatus.NO_SLOT);
         computeIfPresent(sessionKey, (key, turn) -> {
             LinkedBlockingQueue<InjectionItem> queue = turn.queue();
             if (!turn.closed() && queue != null) {
-                result.set(queue.offer(new InjectionItem(message, announcement))
+                result.set(queue.offer(new InjectionItem(message, announcement, mentions))
                         ? OfferStatus.OFFERED : OfferStatus.FULL);
             }
             return turn;

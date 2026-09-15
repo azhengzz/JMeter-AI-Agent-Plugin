@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.context.ContextWindowManager;
+import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.hooks.AgentHookContext;
@@ -11,6 +12,7 @@ import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
 import org.gitee.jmeter.ai.instance.DelegationGuard;
 import org.gitee.jmeter.ai.service.AiService;
 import org.slf4j.Logger;
@@ -18,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -147,7 +150,8 @@ public class AgentRunner {
                 messages = contextBuilder.buildMessages(
                     session.getHistory(AiConfig.getMaxHistorySize()),
                     spec.getUserMessage(),
-                    toolRegistry.getToolDefinitions()
+                    toolRegistry.getToolDefinitions(),
+                    spec.getInstanceMentions()
                 );
             }
 
@@ -223,21 +227,21 @@ public class AgentRunner {
             return InjectionResult.noContinue(injectionCycle);
         }
 
-        Function<Integer, List<String>> callback = spec.getInjectionCallback();
+        Function<Integer, List<InjectionItem>> callback = spec.getInjectionCallback();
         if (callback == null) {
             return InjectionResult.noContinue(injectionCycle);
         }
 
-        List<String> rawMessages = callback.apply(MAX_INJECTIONS_PER_TURN);
-        if (rawMessages == null || rawMessages.isEmpty()) {
+        List<InjectionItem> items = callback.apply(MAX_INJECTIONS_PER_TURN);
+        if (items == null || items.isEmpty()) {
             return InjectionResult.noContinue(injectionCycle);
         }
 
         injectionCycle++;
-        appendInjectedMessages(currentMessages, rawMessages);
+        appendInjectedMessages(currentMessages, items);
 
         log.info("Injected {} messages at cycle {}/{}",
-            rawMessages.size(), injectionCycle, MAX_INJECTION_CYCLES);
+            items.size(), injectionCycle, MAX_INJECTION_CYCLES);
 
         return new InjectionResult(true, injectionCycle, true);
     }
@@ -246,18 +250,36 @@ public class AgentRunner {
      * Append injected user messages while preserving role alternation.
      * Ported from Nanobot's _append_injected_messages.
      * Consecutive user messages are merged with "\n\n" separator.
+     *
+     * <p>整批注入合并为一条,消息<b>末尾</b>附一个 runtime context(对齐 Nanobot
+     * {@code _to_user_message}:排空的 pending 消息逐条解析并 append 块)。注入条目携带的
+     * @-实例引用合并去重后渲染进注入块的实例小节(busy 注入不降级);工具引导行按实际
+     * 注册裁剪。块必须尾随:stripRuntimeContext 按尾随块精确剥离,块若卡在正文中间会
+     * 吞掉其后文本——故合并进已带块的既有 user 消息(drain6 的现实场景)时先剥旧块、
+     * 拼正文、再挂新块。
+     * Package-private for testability.
      */
-    private void appendInjectedMessages(List<Message> currentMessages, List<String> injections) {
-        for (String text : injections) {
-            if (!currentMessages.isEmpty()
-                    && currentMessages.get(currentMessages.size() - 1).getRole() == Message.Role.USER) {
-                Message last = currentMessages.get(currentMessages.size() - 1);
-                String merged = last.getContent() + "\n\n" + text;
-                currentMessages.set(currentMessages.size() - 1, Message.user(merged));
-            } else {
-                currentMessages.add(Message.user(text));
+    void appendInjectedMessages(List<Message> currentMessages, List<InjectionItem> items) {
+        List<String> texts = new ArrayList<>(items.size());
+        Map<String, InstanceInfo> mentions = new LinkedHashMap<>();
+        for (InjectionItem item : items) {
+            texts.add(item.getText());
+            for (InstanceInfo info : item.getMentions()) {
+                mentions.putIfAbsent(info.getInstanceId(), info);
             }
         }
+        String block = contextBuilder.buildInjectionRuntimeContext(
+                List.copyOf(mentions.values()), toolRegistry.getToolDefinitions());
+        String joined = String.join("\n\n", texts);
+        if (currentMessages.isEmpty()
+                || currentMessages.get(currentMessages.size() - 1).getRole() != Message.Role.USER) {
+            currentMessages.add(Message.user(joined + "\n\n" + block));
+            return;
+        }
+        Message last = currentMessages.get(currentMessages.size() - 1);
+        String base = ContextBuilder.stripRuntimeContext(last.getContent());
+        currentMessages.set(currentMessages.size() - 1, Message.user(
+                base + "\n\n" + joined + "\n\n" + block));
     }
 
     private static class InjectionResult {
@@ -429,7 +451,7 @@ public class AgentRunner {
             // 手写保留、不走 checkpoint:此处绕过 MAX_INJECTION_CYCLES 上限、
             // 直接 append、永不 continue——已用满 5 周期后打到 maxIterations 的场景仍须抽干。
             if (spec.getInjectionCallback() != null) {
-                List<String> remaining = spec.getInjectionCallback().apply(MAX_INJECTIONS_PER_TURN);
+                List<InjectionItem> remaining = spec.getInjectionCallback().apply(MAX_INJECTIONS_PER_TURN);
                 if (remaining != null && !remaining.isEmpty()) {
                     state.hadInjections = true;
                     appendInjectedMessages(state.currentMessages, remaining);
@@ -753,12 +775,17 @@ public class AgentRunner {
                 continue;
             }
 
-            // Strip runtime-context block from user messages so jsonl stores only the
-            // real user input. Mirrors Nanobot _save_turn: tag-based slice + skip if empty.
+            // 持久化保留尾随 runtime-context 块并挂精确剥离标记(对齐 Nanobot:LLM 回放
+            // 能看到历史消息当时的时间/脚本/选区/实例引用;公共视图按标记剥离)。
+            Map<String, Object> persistMetadata = msg.getMetadata();
             if (msg.getRole() == Message.Role.USER) {
-                optimizedContent = ContextBuilder.stripRuntimeContext(optimizedContent);
-                if (optimizedContent.isEmpty()) {
-                    continue;
+                Map<String, Object> marker = ContextBuilder.runtimeContextMarker(optimizedContent);
+                if (marker != null) {
+                    persistMetadata = new java.util.LinkedHashMap<>();
+                    if (msg.getMetadata() != null) {
+                        persistMetadata.putAll(msg.getMetadata());
+                    }
+                    persistMetadata.put(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker);
                 }
             }
 
@@ -768,7 +795,7 @@ public class AgentRunner {
                 .toolCalls(msg.getToolCalls())
                 .toolCallId(msg.getToolCallId())
                 .reasoningContent(msg.getReasoningContent())
-                .metadata(msg.getMetadata())
+                .metadata(persistMetadata)
                 .timestamp(msg.getTimestamp())
                 .build();
             session.addMessage(optimizedMsg);

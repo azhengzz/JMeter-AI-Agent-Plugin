@@ -10,6 +10,7 @@ import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 import org.gitee.jmeter.ai.agent.testsupport.GatedScriptAiService;
 import org.gitee.jmeter.ai.agent.testsupport.NoopTool;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class AgentRunnerLoopSequencingTest {
     }
 
     /** 依序供数的注入回调：按调用次序返回构造时给定的各组消息，耗尽后返回空表。 */
-    private static final class ScriptedInjections implements Function<Integer, List<String>> {
+    private static final class ScriptedInjections implements Function<Integer, List<InjectionItem>> {
         private final List<List<String>> rounds;
         private int consumed;
         int invocations;
@@ -64,10 +65,15 @@ class AgentRunnerLoopSequencingTest {
         }
 
         @Override
-        public List<String> apply(Integer maxMessages) {
+        public List<InjectionItem> apply(Integer maxMessages) {
             invocations++;
             int idx = consumed++;
-            return idx < rounds.size() ? rounds.get(idx) : List.of();
+            if (idx >= rounds.size()) {
+                return List.of();
+            }
+            return rounds.get(idx).stream()
+                    .map(text -> new InjectionItem(text, false))
+                    .toList();
         }
     }
 
@@ -445,7 +451,7 @@ class AgentRunnerLoopSequencingTest {
     }
 
     private AgentRunResult run(GatedScriptAiService ai, RecordingHook hook,
-            Function<Integer, List<String>> injections, SpecTweak tweak) {
+            Function<Integer, List<InjectionItem>> injections, SpecTweak tweak) {
         try {
             Path workspace = Files.createTempDirectory("loopseq-test-ws");
             workspace.toFile().deleteOnExit();
@@ -476,6 +482,10 @@ class AgentRunnerLoopSequencingTest {
     }
 
     private static List<String> contents(AgentRunResult r) {
-        return r.getCurrentMessages().stream().map(Message::getContent).toList();
+        // 注入消息现附尾随 runtime-context 块(对齐 Nanobot 排空语义,块内含实时时间戳):
+        // 比较用剥离后的正文——块的存在性与位置由 AgentRunnerInjectionRuntimeContextTest 锚定
+        return r.getCurrentMessages().stream()
+                .map(m -> ContextBuilder.stripRuntimeContext(m.getContent()))
+                .toList();
     }
 }
