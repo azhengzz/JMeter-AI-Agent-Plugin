@@ -209,10 +209,11 @@ public class MessageProcessor {
     /**
      * Remove the loading indicator by locating its literal text and removing that range.
      * Text-search + range remove is used because {@code setInnerHTML(elem, "")} was a visual
-     * no-op under HTMLEditorKit; length is clamped to document bounds to avoid HTMLDocument's
-     * trailing-implied-char boundary error. Note: this scans the whole document (O(N)) on
-     * every call — frequent callers (progress rendering) should gate on their own armed flag
-     * and skip the call when the indicator cannot be present.
+     * no-op under HTMLEditorKit — {@code setOuterHTML(elem, "")} is equally inert; length is
+     * clamped to document bounds to avoid HTMLDocument's trailing-implied-char boundary error.
+     * Note: this scans the whole document (O(N)) on every call — frequent callers (progress
+     * rendering) should gate on their own armed flag and skip the call when the indicator
+     * cannot be present.
      */
     public void removeLoadingIndicator(StyledDocument doc) throws BadLocationException {
         // 迁移期护栏：同 appendHtml——文档变更入口只允许 EDT 调用
@@ -229,9 +230,19 @@ public class MessageProcessor {
             return;
         }
         int end = idx + "AI is thinking...".length();
-        // Also remove trailing newline(s) left by the indicator block so no blank gap remains.
-        while (end < full.length() && (full.charAt(end) == '\n' || full.charAt(end) == '\r')) {
-            end++;
+        // Consume the PRECEDING newline(s) — the indicator paragraph's opening boundary — and
+        // deliberately KEEP the trailing terminator. The newline after the indicator text is
+        // the paragraph terminator of its own <div>; deleting it would make HTMLDocument merge
+        // paragraphs, absorbing the FOLLOWING block into the indicator's element and inheriting
+        // its attributes (a green italic "[Injected] You: ..." line appended while the turn
+        // runs turned gray italic this way). Extending forward is unsafe; extending backward is
+        // not: the indicator div is consumed whole and the orphaned terminator harmlessly ends
+        // the preceding line. The one shape backward consumption cannot clean is an indicator
+        // with nothing before it (idx stays 0), which leaves its emptied div behind as a blank
+        // line — accepted deliberately, because removing that remnant re-triggers the merge
+        // above. Unreachable in practice: the panel always shows its welcome message first.
+        while (idx > 0 && (full.charAt(idx - 1) == '\n' || full.charAt(idx - 1) == '\r')) {
+            idx--;
         }
         int len = Math.min(end - idx, doc.getLength() - idx);
         if (len <= 0) {
