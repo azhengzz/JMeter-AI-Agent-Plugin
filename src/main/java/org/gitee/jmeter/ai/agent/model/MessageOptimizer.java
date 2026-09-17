@@ -21,6 +21,12 @@ public class MessageOptimizer {
      */
     public static String optimizeContent(Message.Role role, String content, boolean hasToolCalls) {
         if (content == null) {
+            // 带 tool_calls 的 assistant 消息 content 可为 null（OpenAI 工具调用响应恒
+            // null）：落盘为空串而非整条丢弃——丢弃会让其后的 tool 结果成孤儿，下次加载
+            // 被 findLegalStart 截肢整段回合尾（与 shouldSkip 不跳过这类消息的口径对齐）。
+            if (role == Message.Role.ASSISTANT && hasToolCalls) {
+                return "";
+            }
             return null;
         }
 

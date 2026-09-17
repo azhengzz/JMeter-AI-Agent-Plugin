@@ -157,8 +157,31 @@ public class AgentLoopFactory {
     /** @param archiveSnapshot false 供关闭期深度提炼成功后的清空复用（不再二次归档）。 */
     public static List<Message> resetConversationAny(AgentLoop self, String sessionKey,
                                                      boolean archiveSnapshot) {
-        signalCancelRouted(sessionKey, CancelCause.RESET, self);
+        signalCancelAndMarkResetRouted(sessionKey, self);
         return self.resetConversation(sessionKey, archiveSnapshot);
+    }
+
+    /**
+     * RESET 路由腿专用：取消之外还要<b>翻代数</b>。被取消回合的「中止落盘/悬空尾收尾」
+     * 以「会话重置代数未翻转」为 RESET 判别（AgentRunSpec 的 epoch 闭包捕获发起
+     * loop 的代数表）——只取消不翻代数，退役 loop 上垂死回合的中止落盘守卫恒判未重置，
+     * 会把旧会话内容写回 self 腿刚截断的 jsonl（换血双写者复活）。self 腿的取消+
+     * 代数翻转由 {@link AgentLoop#resetConversation} 在栅栏内自做（保持「取消+代数」
+     * 互斥不变式），此处只触达其余 loop。
+     */
+    private static void signalCancelAndMarkResetRouted(String sessionKey, AgentLoop exclude) {
+        AgentLoop current = currentLoopSnapshot();
+        if (current != null && current != exclude) {
+            current.signalCancel(sessionKey, CancelCause.RESET);
+            current.markConversationReset(sessionKey);
+        }
+        for (AgentLoop retired : retiredLoops) {
+            if (retired != exclude && retired.hasActiveRun(sessionKey)) {
+                retired.signalCancel(sessionKey, CancelCause.RESET);
+                retired.markConversationReset(sessionKey);
+            }
+        }
+        retiredLoops.removeIf(l -> l != exclude && !l.hasActiveRun(sessionKey));
     }
 
     /**

@@ -41,6 +41,11 @@ import java.util.stream.Collectors;
 public class AgentRunner {
     private static final Logger log = LoggerFactory.getLogger(AgentRunner.class);
     private static final String DEFAULT_RUN_ID_PREFIX = "run-";
+    // 中止落盘合成消息文案（对齐 Nanobot session/recovery.py：合成行专属，真实消息不带）
+    private static final String INTERRUPTED_NO_RESPONSE =
+        "Error: Task interrupted before a response was generated.";
+    private static final String INTERRUPTED_TOOL_RESULT =
+        "Error: Task interrupted before this tool finished.";
     // 每次注入检查点最多从队列中取出的用户消息数
     private static final int MAX_INJECTIONS_PER_TURN = 3;
     // 单次 Agent run 最多经历的注入周期数；超出部分留在队列，由 finally 块重新提交为独立 processMessage
@@ -139,20 +144,48 @@ public class AgentRunner {
                 memoryConsolidator.maybeConsolidate(session, abortSignal);
             }
 
+            // 会话重置代数快照：epoch 翻转 ⟺ 会话被重置（markConversationReset
+            // 在栅栏锁下先翻代数再清空）。中止落盘/悬空尾懒收尾以「代数未翻转」为 RESET
+            // 判别——CancelCause 会被 signalCancel 的 abortVisible 守卫吞掉（Stop-后-//new
+            // 序列下 RESET 永远写不进 cause），epoch 不可被取消时序欺骗。无供应商
+            // （子代理/直构测试）= 不判重置，两条新写路径均不执行。
+            final long epochAtStart = spec.getResetEpochSupplier() != null
+                ? spec.getResetEpochSupplier().get() : Long.MIN_VALUE;
+
             // Create hook context
             AgentHookContext context = new AgentHookContext(runId, session, spec.getUserMessage());
 
             // Build initial messages (getHistory now returns only unconsolidated messages)
             List<Message> messages;
+            // 触发消息是否已提前落盘（persist-early）：终局保存据此去重（skipCount 前移），
+            // 中止落盘据此判定「回合确实开跑过」（早落盘被跳过 = 回合起点前即被取消）。
+            boolean inputPersistedEarly = false;
             if (spec.getInitialMessages() != null && !spec.getInitialMessages().isEmpty()) {
                 messages = new ArrayList<>(spec.getInitialMessages());
             } else {
+                // 懒收尾先于历史快照：上一回合遗留的悬空 user 尾（进程强杀、Error
+                // 逃逸、LLM 错误回合、迭代上限收尾抽干——「合法 USER 尾」不存在）以合成
+                // assistant 收尾闭合，且收尾进入本回合 LLM 上下文——否则请求中出现连续
+                // 两条 user（Anthropic 400）。仅持久化会话（子代理无会话文件）。
+                if (spec.isPersistSession()) {
+                    closeDanglingUserTail(session, spec, epochAtStart, abortSignal);
+                }
+                // 历史快照必须先于早落盘：刚落盘的触发消息不得经 getHistory 再入
+                // 上下文（否则 LLM 上下文中触发消息出现两次）
+                List<Message> history = session.getHistory(AiConfig.getMaxHistorySize());
                 messages = contextBuilder.buildMessages(
-                    session.getHistory(AiConfig.getMaxHistorySize()),
+                    history,
                     spec.getUserMessage(),
                     toolRegistry.getToolDefinitions(),
                     spec.getInstanceMentions()
                 );
+                // 早落盘：回合开始即把触发 user 消息（含 Runtime Context 块 +
+                // 标记，与终局同一变换）写入 jsonl——Stop/取消/崩溃后刚发的消息不再丢失
+                if (spec.isPersistSession()) {
+                    // messages 末位 = 触发 user 消息（buildMessages 拼在最后）；true = 已落盘
+                    inputPersistedEarly = persistUserMessageEarly(
+                        session, messages.get(messages.size() - 1), abortSignal, spec, epochAtStart);
+                }
             }
 
             // Run agent loop
@@ -160,8 +193,8 @@ public class AgentRunner {
 
             // Skip session persistence if task was cancelled (Nanobot: CancelledError skips session.save)
             // and always skip it for ephemeral subagent runs.
-            if (spec.isPersistSession() && !isAborted(spec)) {
-                int skipCount = Math.max(0, messages.size() - 1);
+            if (spec.isPersistSession() && !isAborted(spec) && result.isSuccess()) {
+                int skipCount = Math.max(0, messages.size() - (inputPersistedEarly ? 0 : 1));
                 saveMessagesToSession(session, result.getCurrentMessages(), skipCount, abortSignal);
                 // 后置整合必须同步内联、跑在 run 执行线程上,不能丢到后台线程。前提:
                 // 回合 future 一旦 complete,AgentLoop.whenComplete 会立即把本回合的 abort
@@ -177,6 +210,15 @@ public class AgentRunner {
                 // 取消兜底:整合等锁/写盘前都查 abortSignal(flag+中断,均在 run 执行线程求值),
                 // 被取消则不落盘,与前置整合一致。
                 memoryConsolidator.maybeConsolidate(session, abortSignal);
+            } else if (spec.isPersistSession() && inputPersistedEarly
+                    && resetEpochUnchanged(spec, epochAtStart)) {
+                // 中止落盘：回合没跑完（Stop 或异常中止）时把半成品写盘——已完成的
+                // 真实消息照写，半截的 tool_call/对话尾用合成中断标记补全（防下次
+                // 请求 400）；被 /new 重置的回合不做中止落盘（resetEpochUnchanged 已拦）。
+                // skipCount = messages.size()：触发消息已早落盘，只追加回合内新增
+                // 消息；此路径不做后置整合。
+                materializeInterruptedTurn(session, result.getCurrentMessages(),
+                    messages.size(), spec, epochAtStart);
             }
 
             log.info("Agent run {} completed with success={}", runId, result.isSuccess());
@@ -203,9 +245,10 @@ public class AgentRunner {
             // does not hand it to the next run (which would bail at iteration 1
             // and answer with nothing). ORDERING INVARIANT: this sweep must stay
             // AFTER the persistence chain has read the interrupt bit — the guard
-            // `spec.isPersistSession() && !isAborted(spec)` and, under it, the
-            // abortSignal rechecks (saveMessagesToSession、lockLongTermMemory 等锁
-            // 轮询) all evaluate isAborted on this thread. Sweeping earlier would
+            // `spec.isPersistSession() && !isAborted(spec) && result.isSuccess()`、其下的
+            // abortSignal rechecks（saveMessagesToSession、lockLongTermMemory 等锁
+            // 轮询）与中止落盘分支（materializeInterruptedTurn 的代数复查）都在本
+            // 线程上读 isAborted/epoch。Sweeping earlier would
             // wash an interrupted run into "completed" and let a half-finished
             // turn be written to the session.
             Thread.interrupted();
@@ -339,6 +382,7 @@ public class AgentRunner {
             Instant startTime) {
 
         LoopState state = new LoopState(messages, spec, defaultMaxIterations);
+        try {
 
         // Fail fast: tool calling is mandatory for the agent. A service that does not
         // support tool calling must NOT silently degrade to a tool-less text loop.
@@ -486,6 +530,27 @@ public class AgentRunner {
             .stopReason(context.getStopReason())
             .hadInjections(state.hadInjections)
             .build();
+        } catch (Exception e) {
+            // 异常安全结果：携带部分转录（state.currentMessages）供 run() 的
+            // 中止落盘分支使用。hook 零新增发射（外部行为与现状一致）；errorMessage 与 usage
+            // metadata 与 run() 既有 catch 结果同形，保证 toAgentResponse 终态文本不变；
+            // 新增字段仅 currentMessages 与 stopReason="exception"。Error 仍逃逸
+            // catch(Exception)，与 kill -9 同形，由悬空尾懒收尾兜底。
+            log.error("Agent loop failed mid-run for session {}", spec.getSessionKey(), e);
+            java.util.Map<String, Object> errMeta = new java.util.HashMap<>();
+            errMeta.put("usage", context.getUsage());
+            return AgentRunResult.builder()
+                .runId(context.getRunId())
+                .errorMessage(e.getMessage())
+                .success(false)
+                .startTime(startTime)
+                .endTime(Instant.now())
+                .session(session)
+                .currentMessages(state.currentMessages)
+                .metadata(errMeta)
+                .stopReason("exception")
+                .build();
+        }
     }
 
     /**
@@ -760,45 +825,10 @@ public class AgentRunner {
             return;
         }
         for (int i = skipCount; i < allMessages.size(); i++) {
-            Message msg = allMessages.get(i);
-
-            // Skip messages that should be skipped
-            if (MessageOptimizer.shouldSkip(msg)) {
-                continue;
+            Message persistable = toPersistableMessage(allMessages.get(i));
+            if (persistable != null) {
+                session.addMessage(persistable);
             }
-
-            // Optimize content for persistence
-            String optimizedContent = MessageOptimizer.optimizeContent(
-                msg.getRole(), msg.getContent(), msg.hasToolCalls());
-
-            if (optimizedContent == null) {
-                continue;
-            }
-
-            // 持久化保留尾随 runtime-context 块并挂精确剥离标记(对齐 Nanobot:LLM 回放
-            // 能看到历史消息当时的时间/脚本/选区/实例引用;公共视图按标记剥离)。
-            Map<String, Object> persistMetadata = msg.getMetadata();
-            if (msg.getRole() == Message.Role.USER) {
-                Map<String, Object> marker = ContextBuilder.runtimeContextMarker(optimizedContent);
-                if (marker != null) {
-                    persistMetadata = new java.util.LinkedHashMap<>();
-                    if (msg.getMetadata() != null) {
-                        persistMetadata.putAll(msg.getMetadata());
-                    }
-                    persistMetadata.put(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker);
-                }
-            }
-
-            Message optimizedMsg = Message.builder()
-                .role(msg.getRole())
-                .content(optimizedContent)
-                .toolCalls(msg.getToolCalls())
-                .toolCallId(msg.getToolCallId())
-                .reasoningContent(msg.getReasoningContent())
-                .metadata(persistMetadata)
-                .timestamp(msg.getTimestamp())
-                .build();
-            session.addMessage(optimizedMsg);
         }
         // 落盘前的最后一道复查：伤害发生在写文件——last-writer-wins
         // 会覆盖重置线程刚写的空文件。入口复查后若重置恰好落地（载体被调度出去的
@@ -813,5 +843,209 @@ public class AgentRunner {
     private boolean isAborted(AgentRunSpec spec) {
         return (spec.getAbortFlag() != null && spec.getAbortFlag().get())
                 || Thread.currentThread().isInterrupted();
+    }
+
+    /**
+     * 会话自回合开始是否未被 /new 重置（无供应商时无法判别，按已重置处理）。
+     *
+     * @return true = 会话自回合开始未被重置，允许落盘；false = 已被重置（或无法判别），
+     *         禁止写盘——旧回合内容会复活进刚清空的新会话
+     */
+    private static boolean resetEpochUnchanged(AgentRunSpec spec, long epochAtStart) {
+        return epochAtStart != Long.MIN_VALUE
+                && spec.getResetEpochSupplier() != null
+                && spec.getResetEpochSupplier().get() == epochAtStart;
+    }
+
+    /**
+     * 单消息持久化变换（终局保存/早落盘/中止落盘三路共用）：
+     * {@code shouldSkip} → null；{@code optimizeContent} 为 null → null（整条跳过）；
+     * USER 消息保留尾随 runtime-context 块并挂 {@code _runtime_context} 精确剥离标记
+     * （对齐 Nanobot：LLM 回放能看到历史消息当时的时间/脚本/选区/实例引用，公共视图
+     * 按标记剥离）；timestamp/reasoningContent/metadata 原样重建。
+     */
+    private Message toPersistableMessage(Message msg) {
+        if (MessageOptimizer.shouldSkip(msg)) {
+            return null;
+        }
+        String optimizedContent = MessageOptimizer.optimizeContent(
+            msg.getRole(), msg.getContent(), msg.hasToolCalls());
+        if (optimizedContent == null) {
+            return null;
+        }
+        Map<String, Object> persistMetadata = msg.getMetadata();
+        if (msg.getRole() == Message.Role.USER) {
+            Map<String, Object> marker = ContextBuilder.runtimeContextMarker(optimizedContent);
+            if (marker != null) {
+                persistMetadata = new java.util.LinkedHashMap<>();
+                if (msg.getMetadata() != null) {
+                    persistMetadata.putAll(msg.getMetadata());
+                }
+                persistMetadata.put(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker);
+            }
+        }
+        return Message.builder()
+            .role(msg.getRole())
+            .content(optimizedContent)
+            .toolCalls(msg.getToolCalls())
+            .toolCallId(msg.getToolCallId())
+            .reasoningContent(msg.getReasoningContent())
+            .metadata(persistMetadata)
+            .timestamp(msg.getTimestamp())
+            .build();
+    }
+
+    /**
+     * 早落盘（对齐 Nanobot {@code _persist_user_message_early}）：回合开始
+     * 即把触发 user 消息写入 jsonl——Stop/取消/崩溃后刚发的消息不再丢失。守卫与姊妹
+     * 写路径同纪律（对抗测试修订）：入口查中止信号（重置经 signalCancel 先置 flag 再
+     * clear，先到则不写），addMessage 后、saveSession 前复查重置代数——重置若在
+     * [入口检查 → 落盘] 跨度内完整落地（载体线程被调度出去的窗口，含消息变换与全文件
+     * 写），此处复查即收窄，防旧会话触发消息复活进刚清空的新会话（last-writer-wins
+     * 覆盖重置线程刚写的空文件）；复查失败时跳过文件写，内存追加残留随重置 invalidate
+     * 失效（旧 Session 对象不再被 flush）。落盘失败仅 log（尽力而为，不影响回合）。
+     */
+    private boolean persistUserMessageEarly(Session session, Message trigger,
+            BooleanSupplier abortSignal, AgentRunSpec spec, long epochAtStart) {
+        try {
+            if (abortSignal.getAsBoolean()) {
+                return false;
+            }
+            Message persistable = toPersistableMessage(trigger);
+            if (persistable == null) {
+                return false;
+            }
+            session.addMessage(persistable);
+            if (!resetEpochUnchanged(spec, epochAtStart)) {
+                return false;
+            }
+            sessionManager.saveSession(session);
+            log.info("Early-persisted triggering user message for session {}", session.getKey());
+            return true;
+        } catch (Exception e) {
+            log.warn("Early user-message persist failed for session {}", session.getKey(), e);
+            return false;
+        }
+    }
+
+    /**
+     * 悬空 user 尾懒收尾（对齐 Nanobot {@code restore_pending_interruption}
+     * 的效果）：会话末条为 USER（进程强杀、Error 逃逸、LLM 错误回合、迭代上限收尾抽干
+     * 均可遗留——「合法 USER 尾」不存在，任何 user 尾都会使下回合请求出现连续两条
+     * user，Anthropic 对连续同角色消息返回 400）时追加合成 assistant 收尾。守卫与早
+     * 落盘同纪律：追加前查中止信号、提交前复查代数（重置进行中则放弃文件写——清空后
+     * 末条非 USER，无需收尾；内存追加残留随重置 invalidate 失效，不再被 flush）。
+     */
+    private void closeDanglingUserTail(Session session, AgentRunSpec spec, long epochAtStart,
+            BooleanSupplier abortSignal) {
+        try {
+            if (spec.getResetEpochSupplier() == null || abortSignal.getAsBoolean()) {
+                return;
+            }
+            List<Message> existing = session.getMessages();
+            if (existing.isEmpty()
+                    || existing.get(existing.size() - 1).getRole() != Message.Role.USER) {
+                return;
+            }
+            session.addMessage(syntheticInterruptedCloser());
+            if (!resetEpochUnchanged(spec, epochAtStart)) {
+                return;
+            }
+            sessionManager.saveSession(session);
+            log.info("Closed dangling user tail for session {}", session.getKey());
+        } catch (Exception e) {
+            log.warn("Failed to close dangling user tail for session {}", session.getKey(), e);
+        }
+    }
+
+    /**
+     * 中止落盘（对齐 Nanobot {@code session/recovery.py} 的中断收尾语义，即
+     * materialize）：取消/异常中止的回合不整回合丢弃——compose-then-commit，局部
+     * 构造完整列表（真实 partial + 全部合成消息）后一次性提交，任一并发 flush 只见
+     * 中止落盘前/后的完整状态。真实保留全部已完成迭代（同步 runner 手握全量消息，
+     * 优于 Nanobot checkpoint 只保末迭代）；每个悬空 tool_call 补合成 tool 结果
+     * （不带则下回合请求违反 provider 约束：assistant.tool_calls 必须有配对结果）；
+     * 无 assistant 产出或尾为 USER 补合成 assistant 收尾（杜绝连续 user）。入口与
+     * 提交前复查重置代数；方法整体 catch——中止落盘是尽力而为的持久化增强，自身
+     * 异常绝不影响回合结果与 GUI 终态。
+     */
+    private void materializeInterruptedTurn(Session session, List<Message> currentMessages,
+            int skipCount, AgentRunSpec spec, long epochAtStart) {
+        try {
+            if (!resetEpochUnchanged(spec, epochAtStart)) {
+                return;
+            }
+            List<Message> committed = new ArrayList<>();
+            boolean sawAssistant = false;
+            for (int i = Math.max(0, skipCount); i < currentMessages.size(); i++) {
+                Message persistable = toPersistableMessage(currentMessages.get(i));
+                if (persistable != null) {
+                    committed.add(persistable);
+                    sawAssistant |= persistable.getRole() == Message.Role.ASSISTANT;
+                }
+            }
+            // 悬空 tool_call：本次落盘范围内带 tool_calls 的 assistant 无后续配对结果者逐个
+            // 补合成结果（abort 落在工具执行前/后的窗口；更早迭代的调用已被各自结果
+            // 从 dangling 集合移除）
+            Map<String, ToolCall> dangling = new LinkedHashMap<>();
+            for (Message msg : committed) {
+                if (msg.getRole() == Message.Role.ASSISTANT) {
+                    for (ToolCall call : msg.getToolCalls()) {
+                        if (call.getId() != null) {
+                            dangling.put(call.getId(), call);
+                        }
+                    }
+                } else if (msg.getRole() == Message.Role.TOOL && msg.getToolCallId() != null) {
+                    dangling.remove(msg.getToolCallId());
+                }
+            }
+            for (ToolCall call : dangling.values()) {
+                committed.add(syntheticInterruptedToolResult(call));
+            }
+            // 无 assistant 产出（中止早于任何回复）或尾为 USER（触发/注入未被回应）：
+            // 补合成收尾——无真实消息、只有收尾 = Nanobot「user-only 回合以错误收尾」同形
+            boolean tailUser = !committed.isEmpty()
+                    && committed.get(committed.size() - 1).getRole() == Message.Role.USER;
+            if (!sawAssistant || tailUser) {
+                committed.add(syntheticInterruptedCloser());
+            }
+            if (committed.isEmpty()) {
+                return;
+            }
+            if (!resetEpochUnchanged(spec, epochAtStart)) {
+                // 提交前复查（compose-then-commit：尚未 addMessage，无内存残留）
+                return;
+            }
+            session.addMessages(committed);
+            sessionManager.saveSession(session);
+            log.info("Materialized {} message(s) for interrupted session {}",
+                committed.size(), session.getKey());
+        } catch (Exception e) {
+            log.warn("Interrupted-turn materialization failed for session {}", session.getKey(), e);
+        }
+    }
+
+    /** 合成 assistant 中断收尾（文案对齐 Nanobot recovery.py；标记经 jsonl 顶层 _recovery_interrupted round-trip）。 */
+    private static Message syntheticInterruptedCloser() {
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, Boolean.TRUE);
+        return Message.builder()
+            .role(Message.Role.ASSISTANT)
+            .content(INTERRUPTED_NO_RESPONSE)
+            .metadata(metadata)
+            .build();
+    }
+
+    /** 合成 tool 中断结果（悬空 tool_call 的配对；metadata 须新建可变 Map——Message 的元数据 Map 不可原地改）。 */
+    private static Message syntheticInterruptedToolResult(ToolCall call) {
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("toolName", call.getName());
+        metadata.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, Boolean.TRUE);
+        return Message.builder()
+            .role(Message.Role.TOOL)
+            .content(INTERRUPTED_TOOL_RESULT)
+            .toolCallId(call.getId())
+            .metadata(metadata)
+            .build();
     }
 }

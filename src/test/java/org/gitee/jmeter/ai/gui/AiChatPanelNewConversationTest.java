@@ -469,11 +469,14 @@ class AiChatPanelNewConversationTest {
         awaitTurnSettled();
         // 栅栏完整：M2 残留被丢弃（不 re-publish——可通过脚本未消费验证）
         assertTrue(aiService.script.isEmpty(), "残留不得被 re-publish 成回合");
-        // 不二次归档：consolidator 不被调用（快照本身为空——回合运行中消息尚未落
-        // session，持久化发生在回合结束时，被中止的回合不落盘——abort 不落盘语义）
+        // 不二次归档：consolidator 不被调用（no-archive 变体语义不变）
         Mockito.verify(consolidator, Mockito.never())
                 .archiveMessagesAsync(Mockito.anyList());
-        assertTrue(snapshot.isEmpty(), "回合运行中重置：消息尚未持久化进 session");
+        // 契约修订（persist-user-message-early）：触发消息回合开始即早落盘——重置时
+        // 随快照返回（归属旧会话，归档与否由调用方决定）；中止回合的其余消息不落盘
+        assertEquals(1, snapshot.size(), "回合运行中重置：快照含早落盘的触发消息");
+        assertEquals("M1", org.gitee.jmeter.ai.agent.context.ContextBuilder
+                .stripRuntimeContext(snapshot.get(0)));
     }
 
     /**

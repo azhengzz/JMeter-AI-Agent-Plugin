@@ -136,8 +136,8 @@ mvn clean package -DskipTests
 - **SessionManager** - 管理多个会话的生命周期（每实例会话模式只加载当前 instanceId 的 jsonl，不解析历史遗留/其他实例文件）
 
 #### Agent 运行 (`agent/run`)
-- **AgentRunner** - 执行 Agent 运行（同步方法，跑在调用方线程：主链路 = agent-loop 专用执行器线程，子代理 = subagent 池线程；`runAgentLoop` 经 `LoopState` + 分支函数分解）
-- **AgentRunSpec** - 运行规格定义
+- **AgentRunner** - 执行 Agent 运行（同步方法，跑在调用方线程：主链路 = agent-loop 专用执行器线程，子代理 = subagent 池线程；`runAgentLoop` 经 `LoopState` + 分支函数分解）。持久化三阶段（对齐 Nanobot persist-early，详见 `openspec/specs/` 的 `early-user-message-persist` 能力）：① 触发 user 消息**回合开始即早落盘**（含 Runtime Context 块 + `_runtime_context` 标记，终局 skipCount 去重）；② 回合没跑完（非重置取消或内部异常中止）时**中止落盘**——真实已完成消息 + 合成中断标记（`"Error: Task interrupted before this tool finished."` 悬空 tool_call 配对 / `"Error: Task interrupted before a response was generated."` 收尾，jsonl 顶层 `_recovery_interrupted: true`，LLM 上下文不可见）；③ 回合开始时**悬空 user 尾懒收尾**（任何 USER 尾——崩溃/Error 逃逸/LLM 错误回合/drain6 遗留——补合成收尾，防 Anthropic 连续同角色 400）。RESET 判别用 session epoch 活引用（`AgentRunSpec.resetEpochSupplier`，`resetConversationAny` 路由腿同步翻退役 loop 代数），中止落盘 compose-then-commit + 异常隔离
+- **AgentRunSpec** - 运行规格定义（含 `resetEpochSupplier` 会话重置代数活引用）
 - **AgentRunResult** - 运行结果
 
 #### 回合对象 (`agent.turn`)
@@ -266,7 +266,7 @@ mvn clean package -DskipTests
 - **ContextUsageRing** - 上下文窗口用量环形指示器（模型选择器右侧；分子 = 最近一次 LLM 调用 `prompt_tokens`，分母 = `jmeter.ai.context.window.tokens`；repaint-only 更新防 revalidate 传播，会话重置经 `advanceRenderEpoch` 一并归零）
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
 - **ComponentFinder** - 查找 JMeter 组件
-- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N（仅 user/assistant 口径），选"是"先 `cancelActiveTask` 停掉在跑回合、再经 SwingWorker 后台深度提炼并回传进度，提供"Skip & Exit"逃生按钮；N=0/测试运行中/开关关闭时不弹）。被取消的整合回合经共享 abort flag 写盘前放弃落盘（不会覆盖提炼结果）
+- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N（**全量消息口径**，含 tool 消息），选"是"先 `cancelActiveTask` 停掉在跑回合、再经 SwingWorker 后台深度提炼并回传进度，提供"Skip & Exit"逃生按钮；N=0/测试运行中/开关关闭时不弹——注意回合运行中关闭时，早落盘的触发消息使 N≥1，原「N=0 不弹」门不再触发）。被取消的整合回合经共享 abort flag 写盘前放弃落盘（不会覆盖提炼结果）
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
 - **CommandIntellisenseProvider** - 提供命令建议（/new、/status、/help）

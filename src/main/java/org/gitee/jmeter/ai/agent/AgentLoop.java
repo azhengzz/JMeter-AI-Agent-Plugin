@@ -445,6 +445,9 @@ public class AgentLoop {
                                 .reasoningEffort(generationSettings.getReasoningEffort())
                                 .abortFlag(turn.abortFlag())
                                 .injectionCallback(limit -> drainInjected(turn, limit))
+                                // 会话重置代数活引用（中止落盘/懒收尾的 RESET 判别，
+                                // 对齐 republishLeftovers 的 epoch 纪律；详见 AgentRunSpec）
+                                .resetEpochSupplier(() -> currentEpoch(sessionKey))
                                 .delegated(delegated)
                                 .instanceMentions(instanceMentions)
                                 .build();

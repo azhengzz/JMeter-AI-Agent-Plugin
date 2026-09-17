@@ -38,6 +38,23 @@ public class ContextBuilder {
 
     public static final String RUNTIME_CONTEXT_META_KEY = "_runtime_context";
 
+    /**
+     * 中止落盘标记：取消/异常中止回合的合成收尾消息专属（真实消息不带），经
+     * SessionManager 落为 jsonl 顶层布尔字段（字段名对齐 Nanobot 的
+     * {@code _recovery_interrupted}）。LLM 上下文不可见（getHistory 清洗丢弃
+     * metadata），中断语义由合成消息的文本内容本身传达。
+     *
+     * <p>中止落盘（materialize）= 把被中断的回合里**已经真实发生**的部分补成一条
+     * 形状完整、下次加载不报错的记录落盘，而不是整回合丢弃。具体三步：① 留下真实
+     * 产出的消息（已拿到的 assistant 回复、已执行完的 tool 结果、已发出的 user
+     * 消息）；② 给每个只发出、没等到结果的 tool_call 补一条 tool 消息
+     * "Error: Task interrupted before this tool finished." 凑成配对；③ 回合一条回复
+     * 都没有时，补一条 assistant 收尾 "Error: Task interrupted before a response was
+     * generated."。②③ 补出来的就是本标记所指的合成消息——它们不是真实发生的对话，
+     * 而是为了让残缺记录在协议上合法（provider 不接受悬空 tool_call）而伪造的占位。
+     */
+    public static final String RECOVERY_INTERRUPTED_META_KEY = "_recovery_interrupted";
+
     // Bootstrap files to load from workspace (similar to Nanobot's BOOTSTRAP_FILES)
     private static final String[] BOOTSTRAP_FILES = {
         "AGENTS.md",

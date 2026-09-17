@@ -334,6 +334,12 @@ public class SessionManager {
                     mapper.valueToTree(message.getMetadata().get(ContextBuilder.RUNTIME_CONTEXT_META_KEY)));
         }
 
+        // 中止落盘标记(取消/异常中止回合的合成消息专属;字段名对齐 Nanobot 顶层 _recovery_interrupted)
+        if (message.getMetadata() != null
+                && message.getMetadata().containsKey(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY)) {
+            node.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, true);
+        }
+
         return node;
     }
 
@@ -392,19 +398,37 @@ public class SessionManager {
                 if (node.has("tool_call_id")) {
                     builder.toolCallId(node.get("tool_call_id").asText());
                 }
-                if (node.has("name")) {
-                    builder.metadata(java.util.Collections.singletonMap("toolName", node.get("name").asText()));
-                }
             }
 
-            // Runtime-context 精确剥离标记(round-trip;与 toolName 互斥——分别属 user/tool 角色)
+            // metadata 合并语义(三键可共存):toolName(TOOL 角色经顶层 name 字段)、
+            // _runtime_context(USER 角色)、_recovery_interrupted(任意角色,合成消息)。
+            // 原实现按键序整替换(「与 toolName 互斥」只对前两键成立)——第三键加入后
+            // 会静默互相覆盖,故统一收集进同一 LinkedHashMap 一次挂载
+            java.util.Map<String, Object> metadata = null;
+            if (role == Message.Role.TOOL && node.has("name")) {
+                metadata = new java.util.LinkedHashMap<>();
+                metadata.put("toolName", node.get("name").asText());
+            }
             if (node.has(ContextBuilder.RUNTIME_CONTEXT_META_KEY)
                     && node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY).isObject()) {
                 @SuppressWarnings("unchecked")
                 java.util.Map<String, Object> marker = mapper.convertValue(
                         node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY), java.util.Map.class);
-                builder.metadata(new java.util.LinkedHashMap<>(
-                        java.util.Collections.singletonMap(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker)));
+                if (metadata == null) {
+                    metadata = new java.util.LinkedHashMap<>();
+                }
+                metadata.put(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker);
+            }
+            if (node.has(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY)
+                    && node.get(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY).isBoolean()
+                    && node.get(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY).asBoolean(false)) {
+                if (metadata == null) {
+                    metadata = new java.util.LinkedHashMap<>();
+                }
+                metadata.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, Boolean.TRUE);
+            }
+            if (metadata != null) {
+                builder.metadata(metadata);
             }
 
             return builder.build();

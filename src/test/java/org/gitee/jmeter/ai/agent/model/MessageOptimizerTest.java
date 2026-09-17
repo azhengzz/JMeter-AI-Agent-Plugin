@@ -34,6 +34,17 @@ class MessageOptimizerTest {
         assertNull(MessageOptimizer.optimizeContent(Message.Role.USER, null, false));
     }
 
+    /**
+     * null-content 的工具调用 assistant（OpenAI 路径工具响应恒 null content）落盘为
+     * 空串而非丢弃——丢弃会让其 tool 结果成孤儿、下次加载被 findLegalStart 截肢。
+     */
+    @Test
+    void nullContentAssistantWithToolCallsPersistsAsEmptyString() {
+        assertEquals("", MessageOptimizer.optimizeContent(Message.Role.ASSISTANT, null, true));
+        // 无 tool_calls 的 null-content assistant 仍整条丢弃（与 shouldSkip 口径一致）
+        assertNull(MessageOptimizer.optimizeContent(Message.Role.ASSISTANT, null, false));
+    }
+
     @Test
     void emptyAssistantWithoutToolCallsIsSkipped() {
         assertNull(MessageOptimizer.optimizeContent(Message.Role.ASSISTANT, "", false));

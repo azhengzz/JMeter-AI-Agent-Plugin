@@ -8,6 +8,7 @@ import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Specification for running an agent.
@@ -37,6 +38,7 @@ public class AgentRunSpec {
     private final boolean persistSession;
     private final boolean delegated;
     private final List<InstanceInfo> instanceMentions;
+    private final Supplier<Long> resetEpochSupplier;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -54,6 +56,7 @@ public class AgentRunSpec {
         this.persistSession = builder.persistSession;
         this.delegated = builder.delegated;
         this.instanceMentions = builder.instanceMentions;
+        this.resetEpochSupplier = builder.resetEpochSupplier;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -89,6 +92,16 @@ public class AgentRunSpec {
      */
     public List<InstanceInfo> getInstanceMentions() { return instanceMentions; }
 
+    /**
+     * 会话重置代数的活引用（{@code () -> currentEpoch(sessionKey)} 闭包，由
+     * AgentLoop.startTurn 接线）。epoch 翻转 ⟺ 会话被重置（markConversationReset
+     * 在栅栏锁下先翻代数再清空）——中止落盘/悬空尾懒收尾以「代数未翻转」为 RESET
+     * 判别（对齐 republishLeftovers 的既有纪律），取代 CancelCause：cause 会被
+     * signalCancel 的 abortVisible 守卫吞掉（Stop-后-//new 序列），epoch 不可被
+     * 取消时序欺骗。null（子代理/直构测试）= 不判重置，中止落盘不执行。
+     */
+    public Supplier<Long> getResetEpochSupplier() { return resetEpochSupplier; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -109,6 +122,7 @@ public class AgentRunSpec {
         private boolean persistSession = true;
         private boolean delegated = false;
         private List<InstanceInfo> instanceMentions = List.of();
+        private Supplier<Long> resetEpochSupplier;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -188,6 +202,15 @@ public class AgentRunSpec {
         /** Peer instances @-mentioned by the user (per-turn runtime context). Null normalizes to empty. */
         public Builder instanceMentions(List<InstanceInfo> mentions) {
             this.instanceMentions = mentions == null ? List.of() : mentions;
+            return this;
+        }
+
+        /**
+         * 会话重置代数活引用（见 {@link #getResetEpochSupplier()} 的判别语义）。
+         * null（默认）= 不判重置：中止落盘与悬空尾懒收尾不执行（子代理路径）。
+         */
+        public Builder resetEpochSupplier(Supplier<Long> supplier) {
+            this.resetEpochSupplier = supplier;
             return this;
         }
 
