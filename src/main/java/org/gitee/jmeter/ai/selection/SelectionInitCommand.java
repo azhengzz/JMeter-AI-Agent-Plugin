@@ -16,6 +16,7 @@ import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.action.ExitCommand;
 import org.apache.jmeter.gui.action.Load;
 import org.apache.jmeter.gui.action.LoadRecentProject;
+import org.apache.jmeter.gui.action.RevertProject;
 import org.apache.jmeter.gui.action.Save;
 import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.util.JMeterUtils;
@@ -31,6 +32,12 @@ import org.slf4j.LoggerFactory;
  * 借此作为安全时机调用 {@link SelectionTracker#install()} 注册全局 L1/L2 监听器。
  *
  * <p>用 AtomicBoolean 防止用户重复加载测试计划时多次 install 导致监听器叠加。
+ *
+ * <p>首次之后的 ADD_ALL 不再做 install，但会补一次 {@link #syncJmxPathNow()}：
+ * 每次计划打开/关闭（含拖拽 .jmx 进窗口、File→Revert 这类绕过 ActionRouter OPEN/CLOSE
+ * 路由的路径）都汇经 {@code Close.closeProject} 派发的路由 ADD_ALL，且派发经 invokeLater
+ * 在加载完成后到达，此刻 {@code GuiPackage.getTestPlanFile()} 已是新值——这是绕路加载
+ * 唯一能被捕获的同步时机。
  */
 public class SelectionInitCommand implements Command {
 
@@ -49,7 +56,11 @@ public class SelectionInitCommand implements Command {
             return;
         }
         if (!INSTALLED.compareAndSet(false, true)) {
-            log.info("SelectionInitCommand: already installed, skipping");
+            // 已安装后 ADD_ALL 仍是 jmxPath 的关键同步时机:拖拽 .jmx 进窗口 / Revert 打开计划时
+            // 不经 ActionRouter 的 OPEN/CLOSE 路由,Load/Close 的 post 监听收不到事件;而这些路径
+            // 都汇经 Close.closeProject 派发的路由 ADD_ALL(invokeLater,晚于加载完成),据此补写一次。
+            log.info("SelectionInitCommand: already installed, re-syncing jmxPath");
+            EventQueue.invokeLater(SelectionInitCommand::syncJmxPathNow);
             return;
         }
         log.info("SelectionInitCommand received ADD_ALL, scheduling SelectionTracker.install()");
@@ -163,9 +174,13 @@ public class SelectionInitCommand implements Command {
     }
 
     /**
-     * 注册 jmxPath 维护监听:对 {@code Load}/{@code LoadRecentProject}/{@code Save}/{@code Close}
-     * 类 {@code Command} 挂 post-action 监听(EDT,doAction 之后触发),把当前计划文件路径原子写回
-     * 本实例 {@code port-{pid}.json}。{@code Close} 同时覆盖 File→New(经 {@code clearTestPlan} 把路径置 null)。
+     * 注册 jmxPath 维护监听:对 {@code Load}/{@code LoadRecentProject}/{@code Save}/{@code Close}/{@code RevertProject}
+     * 类 {@code Command} 挂 post-action 监听(EDT,doAction 之后触发),
+     * 把当前计划文件路径原子写回本实例 {@code port-{pid}.json}。{@code Close} 同时覆盖 File→New
+     * (经 {@code clearTestPlan} 把路径置 null)。
+     *
+     * <p>这些监听只覆盖经 ActionRouter 路由的动作;拖拽 .jmx 进窗口(JMeter 静态直调
+     * Close+Load,无路由事件)等绕路加载由 ADD_ALL 重同步兜底,见 {@link #doAction(ActionEvent)}。
      *
      * <p>读 {@link GuiPackage#getTestPlanFile()} 是自校正的:Close 被用户在"未保存改动"框取消时,
      * doAction 不清计划,post 监听读到的仍是原路径(恰为真实状态)。无计划返回 null→写空串。
@@ -178,7 +193,8 @@ public class SelectionInitCommand implements Command {
             router.addPostActionListener(LoadRecentProject.class, sync);
             router.addPostActionListener(Save.class, sync);
             router.addPostActionListener(Close.class, sync);
-            log.info("jmxPath sync listeners registered (Load/LoadRecentProject/Save/Close)");
+            router.addPostActionListener(RevertProject.class, sync);
+            log.info("jmxPath sync listeners registered (Load/LoadRecentProject/Save/Close/RevertProject)");
         } catch (Throwable t) {
             log.error("Failed to register jmxPath listeners", t);
         }
@@ -186,9 +202,13 @@ public class SelectionInitCommand implements Command {
 
     /**
      * 读当前计划文件路径并原子写回本实例端口文件的 {@code jmxPath}(无计划写空)。best-effort,异常不抛。
-     * 须在 EDT 调用(读 {@link GuiPackage})。端口文件不存在(IPC 未就绪)时 {@code updateJmxPath} 返回 false。
+     * 须在 EDT 调用(读 {@link GuiPackage})。IPC 关闭、GUI 未就绪或端口文件不存在(IPC 未就绪)时
+     * 不做任何事。供本类动作监听/ADD_ALL 重同步与 {@code open_jmx_file} 工具(绕过路由加载后)共用。
      */
-    private static void syncJmxPathNow() {
+    public static void syncJmxPathNow() {
+        if (!org.gitee.jmeter.ai.utils.AiConfig.isIpcEnabled()) {
+            return;
+        }
         try {
             GuiPackage gp = GuiPackage.getInstance();
             if (gp == null) {
@@ -196,7 +216,9 @@ public class SelectionInitCommand implements Command {
             }
             String file = gp.getTestPlanFile();
             File ipcDir = InstanceRegistry.ipcDir(new File(JMeterUtils.getJMeterHome()));
-            InstanceRegistry.updateJmxPath(ipcDir, InstanceRegistry.currentPid(), file == null ? "" : file);
+            if (InstanceRegistry.updateJmxPath(ipcDir, InstanceRegistry.currentPid(), file == null ? "" : file)) {
+                log.info("jmxPath synced to port file: {}", file == null ? "" : file);
+            }
         } catch (Throwable t) {
             log.error("jmxPath sync failed (best-effort): {}", t.toString());
         }
