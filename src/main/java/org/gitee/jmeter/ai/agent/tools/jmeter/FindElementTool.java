@@ -27,6 +27,11 @@ public class FindElementTool extends AbstractTool {
         return "find_element";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: searches the tree and serializes matches. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

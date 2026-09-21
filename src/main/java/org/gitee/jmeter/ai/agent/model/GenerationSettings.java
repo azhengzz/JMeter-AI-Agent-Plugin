@@ -26,9 +26,9 @@ public class GenerationSettings {
      */
     public static GenerationSettings fromConfig() {
         return new GenerationSettings(
-            Double.parseDouble(AiConfig.getProperty("jmeter.ai.temperature", "0.7")),
-            Integer.parseInt(AiConfig.getProperty("jmeter.ai.max.tokens", "4096")),
-            AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium")
+            AiConfig.getTemperature(),
+            AiConfig.getMaxTokens(),
+            AiConfig.getReasoningEffort()
         );
     }
 

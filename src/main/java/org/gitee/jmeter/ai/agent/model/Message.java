@@ -24,12 +24,17 @@ public class Message {
 
     private Message(Role role, String content, List<ToolCall> toolCalls, String toolCallId,
                     String reasoningContent, Map<String, Object> metadata) {
+        this(role, content, toolCalls, toolCallId, reasoningContent, metadata, null);
+    }
+    
+    private Message(Role role, String content, List<ToolCall> toolCalls, String toolCallId,
+                    String reasoningContent, Map<String, Object> metadata, LocalDateTime timestamp) {
         this.role = role;
         this.content = content;
         this.toolCalls = toolCalls != null ? toolCalls : Collections.emptyList();
         this.toolCallId = toolCallId;
         this.reasoningContent = reasoningContent;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = timestamp != null ? timestamp : LocalDateTime.now();
         this.metadata = metadata != null ? metadata : Collections.emptyMap();
     }
 
@@ -152,6 +157,7 @@ public class Message {
         private String toolCallId;
         private String reasoningContent;
         private Map<String, Object> metadata;
+        private LocalDateTime timestamp;
 
         public Builder role(Role role) {
             this.role = role;
@@ -183,8 +189,17 @@ public class Message {
             return this;
         }
 
+        /**
+         * 透传原始时刻,使 rebuild(落盘优化/jsonl 加载)不把 timestamp 洗成 rebuild 时刻;
+         * 不设置则与历史行为一致,build 时取当前时刻。
+         */
+        public Builder timestamp(LocalDateTime timestamp) {
+            this.timestamp = timestamp;
+            return this;
+        }
+
         public Message build() {
-            return new Message(role, content, toolCalls, toolCallId, reasoningContent, metadata);
+            return new Message(role, content, toolCalls, toolCallId, reasoningContent, metadata, timestamp);
         }
     }
 }

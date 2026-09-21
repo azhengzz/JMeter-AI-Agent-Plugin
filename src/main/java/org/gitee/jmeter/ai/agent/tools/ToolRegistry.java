@@ -216,8 +216,7 @@ public class ToolRegistry {
         if (detail.isEmpty()) return "(empty)";
 
         // Read from configuration (shared with chat UI)
-        int maxDetailLength = Integer.parseInt(
-            org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+        int maxDetailLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         if (detail.length() > maxDetailLength) return detail.substring(0, maxDetailLength) + "...(truncated)";
         return detail;
@@ -233,8 +232,7 @@ public class ToolRegistry {
         }
 
         // Read from configuration (shared with chat UI)
-        int maxDetailLength = Integer.parseInt(
-            org.gitee.jmeter.ai.utils.AiConfig.getProperty("ai.chat.tool.result.max.length", "500"));
+        int maxDetailLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         String argsStr = parameters.toString();
         if (argsStr.length() > maxDetailLength) {
@@ -288,14 +286,21 @@ public class ToolRegistry {
         final long finalTimeout = effectiveTimeout;
         // Concurrent tools run on the pooled tool-executor, which has no run context
         // of its own — carry the caller's over so tools like spawn still know their
-        // session, and clear it so the pooled thread keeps nothing stale.
+        // session, and clear it so the pooled thread keeps nothing stale. The
+        // delegation guard rides the same channel (Nanobot contextvars → Java carry).
         final org.gitee.jmeter.ai.agent.run.AgentRunContext runContext =
                 org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
+        final boolean delegatedTurn =
+                org.gitee.jmeter.ai.instance.DelegationGuard.isActive();
         return CompletableFuture.supplyAsync(() -> {
                     org.gitee.jmeter.ai.agent.run.AgentRunContext.set(runContext);
+                    if (delegatedTurn) {
+                        org.gitee.jmeter.ai.instance.DelegationGuard.begin();
+                    }
                     try {
                         return executeWithEvent(name, parameters);
                     } finally {
+                        org.gitee.jmeter.ai.instance.DelegationGuard.end();
                         org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
                     }
                 }, executor)

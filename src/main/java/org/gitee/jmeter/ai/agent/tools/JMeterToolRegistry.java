@@ -2,6 +2,9 @@ package org.gitee.jmeter.ai.agent.tools;
 
 import org.gitee.jmeter.ai.agent.tools.exec.ExecTool;
 import org.gitee.jmeter.ai.agent.tools.filesystem.*;
+import org.gitee.jmeter.ai.agent.tools.ipc.DelegateToInstanceTool;
+import org.gitee.jmeter.ai.agent.tools.ipc.ListInstancesTool;
+import org.gitee.jmeter.ai.agent.tools.ipc.ReadInstanceSessionTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.*;
 import org.gitee.jmeter.ai.agent.tools.jmeter.execution.*;
 import org.gitee.jmeter.ai.agent.tools.web.*;
@@ -15,11 +18,6 @@ import org.slf4j.LoggerFactory;
  */
 public class JMeterToolRegistry {
     private static final Logger log = LoggerFactory.getLogger(JMeterToolRegistry.class);
-
-    // Configuration keys
-    private static final String FS_TOOLS_ENABLED = "agent.tools.filesystem.enabled";
-    private static final String WEB_TOOLS_ENABLED = "agent.tools.websearch.enabled";
-    private static final String EXEC_TOOLS_ENABLED = "agent.tools.exec.enabled";
 
     /**
      * Register all default JMeter tools with the given registry.
@@ -60,6 +58,9 @@ public class JMeterToolRegistry {
 
         // Register exec tool if enabled
         registerExecTools(registry);
+
+        // Register cross-instance coordination tools if IPC + coordination enabled
+        registerInstanceCoordinationTools(registry);
     }
 
     /**
@@ -67,8 +68,8 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerFilesystemTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(FS_TOOLS_ENABLED, "false"));
+    private static void registerFilesystemTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isFilesystemToolsEnabled();
 
         if (enabled) {
             log.info("Registering filesystem tools");
@@ -86,8 +87,8 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerWebTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(WEB_TOOLS_ENABLED, "false"));
+    private static void registerWebTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isWebsearchToolsEnabled();
 
         if (enabled) {
             log.info("Registering web tools");
@@ -103,14 +104,37 @@ public class JMeterToolRegistry {
      *
      * @param registry The tool registry to register tools with
      */
-    public static void registerExecTools(ToolRegistry registry) {
-        boolean enabled = Boolean.parseBoolean(AiConfig.getProperty(EXEC_TOOLS_ENABLED, "false"));
+    private static void registerExecTools(ToolRegistry registry) {
+        boolean enabled = AiConfig.isExecToolsEnabled();
 
         if (enabled) {
             log.info("Registering exec tool");
             registry.register(new ExecTool());
         } else {
             log.info("Exec tool is disabled");
+        }
+    }
+
+    /**
+     * Register cross-instance coordination tools (list_instances / delegate_to_instance) when
+     * IPC is enabled. IPC provides the transport (port files + /agent endpoint); without it the
+     * tools would only ever fail, so they are not registered.
+     */
+    public static void registerInstanceCoordinationTools(ToolRegistry registry) {
+        if (AiConfig.isIpcEnabled()) {
+            log.info("Registering instance-coordination tools");
+            registry.register(new ListInstancesTool());
+            registry.register(new DelegateToInstanceTool());
+        } else {
+            log.info("Instance-coordination tools disabled (IPC disabled, no transport)");
+        }
+        // read_instance_session 是纯本地共享目录文件读,不消费 IPC 传输,故独立于 IPC 开关门控;
+        // 数据源是每实例会话文件(sessions/{instanceId}.jsonl),legacy 全局键模式下无文件可读,不注册
+        if (AiConfig.isSessionPerInstance()) {
+            log.info("Registering read_instance_session (per-instance session mode)");
+            registry.register(new ReadInstanceSessionTool());
+        } else {
+            log.info("read_instance_session disabled (legacy global session key, no per-instance files)");
         }
     }
 

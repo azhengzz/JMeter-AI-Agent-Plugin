@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.gitee.jmeter.ai.agent.context.ContextBuilder;
 import org.gitee.jmeter.ai.agent.model.Message;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
-import org.gitee.jmeter.ai.utils.AiConfig;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,8 +16,8 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,30 +32,32 @@ public class SessionManager {
 
     private final Map<String, Session> sessions;
     private final Path sessionStorage;
+    /** 启动只加载该 session key 的 jsonl(每实例会话隔离),不解析历史遗留/其他实例文件。 */
+    private final String focusSessionKey;
 
-    public SessionManager() {
-        this(getDefaultWorkspace());
+    /**
+     * 便捷构造:聚焦全局遗留会话键 {@link InstanceContext#LEGACY_SESSION_KEY} 加载
+     * (等价于 {@code agent.session.per-instance=false} 的回退行为)。
+     */
+    public SessionManager(Path workspace) {
+        this(workspace, InstanceContext.LEGACY_SESSION_KEY);
     }
 
-    public SessionManager(Path workspace) {
+    /**
+     * @param focusSessionKey 每实例会话模式下传入当前 {@code instanceId} session key,实例只需
+     *                        解析自己的 jsonl——历史遗留 {@code jmeter-ai-chat.jsonl} 与失活
+     *                        孤立实例文件不再被整文件载入内存(启动成本归零;遗留迁移与回收
+     *                        {@code SessionReaper} 均直接读文件,不受影响)。始终非 null。
+     */
+    public SessionManager(Path workspace, String focusSessionKey) {
         this.sessionStorage = workspace.resolve("sessions");
         this.sessions = new ConcurrentHashMap<>();
+        this.focusSessionKey = focusSessionKey;
 
         ensureDirectories();
         loadSessions();
 
         log.info("SessionManager initialized with workspace: {}", sessionStorage);
-    }
-
-    private static Path getDefaultWorkspace() {
-        Path defaultWorkspace = Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            // Fix path separators: replace backslashes with forward slashes
-            String fixedPath = configuredPath.replace('\\', '/');
-            return Paths.get(fixedPath);
-        }
-        return defaultWorkspace;
     }
 
     private void ensureDirectories() {
@@ -121,30 +124,62 @@ public class SessionManager {
      * Save a session to disk in JSONL format (Nanobot compatible).
      * Line 1: metadata JSON
      * Lines 2+: one message JSON per line
+     *
+     * <p>文件写持 session 的 monitor（与 {@link Session} 各方法同一把锁）串行化：
+     * 会话重置线程（EDT 清空落盘）与回合载体线程（追加落盘）并发写同一 jsonl 时，
+     * 两个写路径按各自偏移交错会写出撕裂内容。
+     *
+     * <p><b>原子写（对齐 {@code MemoryStore.writeLongTermMemory}）：</b>先写完整
+     * 临时文件再原子替换——写中途被杀（agent-loop 为 daemon 线程，JVM 退出不等
+     * 写完）或盘满中断都不留半截 jsonl，移动前的旧文件始终完整；撕裂 jsonl 曾被
+     * 加载侧整文件丢弃、再被 {@link #getOrCreate} 的空会话覆写不可逆销毁）。
      */
     public void saveSession(Session session) {
         Path sessionFile = getSessionFile(session.getKey());
-        try (BufferedWriter writer = Files.newBufferedWriter(sessionFile)) {
-            // Line 1: metadata
-            ObjectNode metadata = mapper.createObjectNode();
-            metadata.put("_type", "metadata");
-            metadata.put("key", session.getKey());
-            metadata.put("created_at", session.getCreatedAt().toString());
-            metadata.put("updated_at", session.getUpdatedAt().toString());
-            metadata.putObject("metadata");
-            metadata.put("last_consolidated", session.getLastConsolidatedIndex());
-            writer.write(mapper.writeValueAsString(metadata));
-            writer.newLine();
+        synchronized (session) {
+            Path tmp = null;
+            try {
+                tmp = Files.createTempFile(sessionStorage, "session-", ".tmp");
+                try (BufferedWriter writer = Files.newBufferedWriter(tmp)) {
+                    // Line 1: metadata
+                    ObjectNode metadata = mapper.createObjectNode();
+                    metadata.put("_type", "metadata");
+                    metadata.put("key", session.getKey());
+                    metadata.put("created_at", session.getCreatedAt().toString());
+                    metadata.put("updated_at", session.getUpdatedAt().toString());
+                    metadata.putObject("metadata");
+                    metadata.put("last_consolidated", session.getLastConsolidatedIndex());
+                    writer.write(mapper.writeValueAsString(metadata));
+                    writer.newLine();
 
-            // Lines 2+: messages
-            for (Message message : session.getMessages()) {
-                ObjectNode msgNode = messageToJson(message);
-                writer.write(mapper.writeValueAsString(msgNode));
-                writer.newLine();
+                    // Lines 2+: messages（getMessages 已是快照拷贝，迭代安全）
+                    for (Message message : session.getMessages()) {
+                        ObjectNode msgNode = messageToJson(message);
+                        writer.write(mapper.writeValueAsString(msgNode));
+                        writer.newLine();
+                    }
+                }
+                try {
+                    Files.move(tmp, sessionFile,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, sessionFile,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException e) {
+                log.error("Failed to save session: {}", session.getKey(), e);
+            } finally {
+                if (tmp != null) {
+                    try {
+                        Files.deleteIfExists(tmp);
+                    } catch (IOException e) {
+                        // move 成功后 tmp 已不存在（清理无害）；move 失败时清掉半截
+                        // tmp 防堆积——旧 jsonl 完好，本轮回退到上次成功的落盘
+                        log.debug("Failed to delete temp session file {}", tmp, e);
+                    }
+                }
             }
-
-        } catch (IOException e) {
-            log.error("Failed to save session: {}", session.getKey(), e);
         }
     }
 
@@ -159,6 +194,7 @@ public class SessionManager {
 
             Files.list(sessionStorage)
                     .filter(p -> p.toString().endsWith(".jsonl"))
+                    .filter(p -> p.getFileName().toString().equals(safeFileName(focusSessionKey)))
                     .forEach(this::loadSessionFile);
 
             log.info("Loaded {} sessions from disk", sessions.size());
@@ -183,7 +219,18 @@ public class SessionManager {
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
 
-                JsonNode node = mapper.readTree(line);
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    // 逐行容忍（对齐下方 jsonToMessage 的既有语义）：半截/损坏行只丢弃
+                    // 本行、完好前缀照常加载——写中途被杀/盘满留下的撕裂行不再让整
+                    // 个会话文件失效、再被 getOrCreate 的空会话覆写不可逆销毁
+                    // （2026-09-09 审计 P1 修复）
+                    log.warn("Skipping corrupted session line in {}: {}",
+                            sessionFile.getFileName(), e.getMessage());
+                    continue;
+                }
 
                 if (node.has("_type") && "metadata".equals(node.get("_type").asText())) {
                     sessionKey = node.has("key") ? node.get("key").asText() : null;
@@ -218,10 +265,16 @@ public class SessionManager {
         }
     }
 
+    /**
+     * Sanitize a session key into a safe filename ({@code {safeKey}.jsonl}).
+     * 与 {@link #loadSessions} 的 focus 过滤共用同一规范化,保证读写命中同一文件。
+     */
+    private static String safeFileName(String sessionKey) {
+        return sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_") + ".jsonl";
+    }
+
     private Path getSessionFile(String sessionKey) {
-        // Sanitize session key for filename
-        String safeKey = sessionKey.replaceAll("[^a-zA-Z0-9-_]", "_");
-        return sessionStorage.resolve(safeKey + ".jsonl");
+        return sessionStorage.resolve(safeFileName(sessionKey));
     }
 
     /**
@@ -273,6 +326,20 @@ public class SessionManager {
             }
         }
 
+        // Runtime-context 精确剥离标记(块随消息持久化,公共视图按标记摘除;
+        // 字段名对齐 Nanobot 的顶层 _runtime_context)
+        if (message.getMetadata() != null
+                && message.getMetadata().containsKey(ContextBuilder.RUNTIME_CONTEXT_META_KEY)) {
+            node.set(ContextBuilder.RUNTIME_CONTEXT_META_KEY,
+                    mapper.valueToTree(message.getMetadata().get(ContextBuilder.RUNTIME_CONTEXT_META_KEY)));
+        }
+
+        // 中止落盘标记(取消/异常中止回合的合成消息专属;字段名对齐 Nanobot 顶层 _recovery_interrupted)
+        if (message.getMetadata() != null
+                && message.getMetadata().containsKey(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY)) {
+            node.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, true);
+        }
+
         return node;
     }
 
@@ -315,14 +382,53 @@ public class SessionManager {
                 builder.reasoningContent(node.get("reasoning_content").asText());
             }
 
+            // Preserve the message's original timestamp (round-trip fidelity) instead of
+            // resetting it to load time. Legacy lines without a parseable timestamp fall
+            // back to load-time now(), matching the historical behavior.
+            if (node.has("timestamp") && !node.get("timestamp").isNull()) {
+                try {
+                    builder.timestamp(LocalDateTime.parse(node.get("timestamp").asText()));
+                } catch (DateTimeParseException ignore) {
+                    // keep load-time default
+                }
+            }
+
             // Parse tool result fields
             if (role == Message.Role.TOOL) {
                 if (node.has("tool_call_id")) {
                     builder.toolCallId(node.get("tool_call_id").asText());
                 }
-                if (node.has("name")) {
-                    builder.metadata(java.util.Collections.singletonMap("toolName", node.get("name").asText()));
+            }
+
+            // metadata 合并语义(三键可共存):toolName(TOOL 角色经顶层 name 字段)、
+            // _runtime_context(USER 角色)、_recovery_interrupted(任意角色,合成消息)。
+            // 原实现按键序整替换(「与 toolName 互斥」只对前两键成立)——第三键加入后
+            // 会静默互相覆盖,故统一收集进同一 LinkedHashMap 一次挂载
+            java.util.Map<String, Object> metadata = null;
+            if (role == Message.Role.TOOL && node.has("name")) {
+                metadata = new java.util.LinkedHashMap<>();
+                metadata.put("toolName", node.get("name").asText());
+            }
+            if (node.has(ContextBuilder.RUNTIME_CONTEXT_META_KEY)
+                    && node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY).isObject()) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> marker = mapper.convertValue(
+                        node.get(ContextBuilder.RUNTIME_CONTEXT_META_KEY), java.util.Map.class);
+                if (metadata == null) {
+                    metadata = new java.util.LinkedHashMap<>();
                 }
+                metadata.put(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker);
+            }
+            if (node.has(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY)
+                    && node.get(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY).isBoolean()
+                    && node.get(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY).asBoolean(false)) {
+                if (metadata == null) {
+                    metadata = new java.util.LinkedHashMap<>();
+                }
+                metadata.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, Boolean.TRUE);
+            }
+            if (metadata != null) {
+                builder.metadata(metadata);
             }
 
             return builder.build();

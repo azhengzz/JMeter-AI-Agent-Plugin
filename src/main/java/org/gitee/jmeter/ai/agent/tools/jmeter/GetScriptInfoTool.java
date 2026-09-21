@@ -25,6 +25,11 @@ public class GetScriptInfoTool extends AbstractTool {
         return "get_script_info";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: exposes GuiPackage.getTestPlanFile() and version info. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

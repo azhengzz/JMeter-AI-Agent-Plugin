@@ -8,13 +8,13 @@ import org.gitee.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandle
 import org.gitee.jmeter.ai.agent.validation.ComponentSchemaLoader;
 import org.gitee.jmeter.ai.agent.validation.ComponentValidator;
 import org.gitee.jmeter.ai.utils.ElementRegistry;
+import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.jmeter.testelement.TestElement;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -40,7 +40,7 @@ public abstract class AbstractJMeterElementTool extends AbstractTool {
         // Initialize validator with schema loader
         String jmeterHome = JMeterUtils.getJMeterHome();
         if (jmeterHome != null) {
-            Path skillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
+            Path skillsDir = WorkspacePaths.builtinSkillsDir();
             ComponentSchemaLoader schemaLoader = new ComponentSchemaLoader(skillsDir);
             this.componentValidator = new ComponentValidator(schemaLoader);
             // Populate ElementRegistry from same skills directory.

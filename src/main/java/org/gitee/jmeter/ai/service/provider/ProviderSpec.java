@@ -16,16 +16,18 @@ public final class ProviderSpec {
     private final String backend;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final Set<String> thinkingModels;
-    private final boolean rawHttpClientOnly;  // Use raw HTTP instead of SDK (for incompatible APIs)
 
     // How to inject the thinking on/off toggle into extra_body.
     // ""                — no extra_body needed (default)
     // "thinking_type"   — {"thinking": {"type": "enabled"/"disabled"}}  (DeepSeek, VolcEngine, BytePlus)
     // "enable_thinking" — {"enable_thinking": true/false}  (DashScope)
-    // "reasoning_split" — {"reasoning_split": true/false}  (MiniMax)
+    // "minimax_thinking" — MiniMax 思考开关（thinking.type，非 reasoning_split）：
+    //                      开 → {"thinking":{"type": adaptive(M3)/enabled(M2.x)}, "reasoning_split": true}；
+    //                      关 → {"thinking":{"type":"disabled"}}
     private final String thinkingStyle;
 
-    // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code, kimi-k3).
+    // Models whose thinking mode cannot be disabled (e.g. Moonshot kimi-k2.7-code, kimi-k3,
+    // Zhipu glm-5.3/glm-5.3-flash).
     // Sending a disabled thinking.type for these models causes API rejection;
     // force enabled regardless of reasoning_effort.
     private final Set<String> thinkingAlwaysOnModels;
@@ -41,7 +43,6 @@ public final class ProviderSpec {
         this.thinkingModels = builder.thinkingModels != null
                 ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingModels))
                 : Collections.emptySet();
-        this.rawHttpClientOnly = builder.rawHttpClientOnly;
         this.thinkingStyle = builder.thinkingStyle;
         this.thinkingAlwaysOnModels = builder.thinkingAlwaysOnModels != null
                 ? Collections.unmodifiableSet(new HashSet<>(builder.thinkingAlwaysOnModels))
@@ -83,10 +84,6 @@ public final class ProviderSpec {
     public boolean supportsThinking(String model) {
         if (thinkingModels.isEmpty()) return true;
         return model != null && thinkingModels.contains(model.toLowerCase());
-    }
-
-    public boolean isRawHttpClientOnly() {
-        return rawHttpClientOnly;
     }
 
     public String getThinkingStyle() {
@@ -133,7 +130,6 @@ public final class ProviderSpec {
         private String backend = "openai_compat";
         private final Map<String, Map<String, Object>> modelOverrides = new HashMap<>();
         private Set<String> thinkingModels;
-        private boolean rawHttpClientOnly = false;
         private String thinkingStyle = "";
         private Set<String> thinkingAlwaysOnModels;
 
@@ -168,20 +164,8 @@ public final class ProviderSpec {
         }
 
         /**
-         * Mark this provider as requiring raw HTTP client only.
-         * This is for providers whose API responses are not fully compatible with OpenAI SDK.
-         *
-         * @param rawHttpClientOnly true to use raw HTTP client instead of SDK
-         * @return this builder
-         */
-        public Builder rawHttpClientOnly(boolean rawHttpClientOnly) {
-            this.rawHttpClientOnly = rawHttpClientOnly;
-            return this;
-        }
-
-        /**
          * Set the thinking style for this provider.
-         * @param thinkingStyle one of "", "thinking_type", "enable_thinking", "reasoning_split"
+         * @param thinkingStyle one of "", "thinking_type", "enable_thinking", "minimax_thinking"
          * @return this builder
          */
         public Builder thinkingStyle(String thinkingStyle) {

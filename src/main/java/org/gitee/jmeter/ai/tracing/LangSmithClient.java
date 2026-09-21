@@ -23,18 +23,15 @@ import java.util.UUID;
 /**
  * Client for sending traces to LangSmith using the official SDK.
  *
- * Configuration:
+ * Configuration (all read via {@link AiConfig}):
  * - langsmith.api.key: LangSmith API key (required)
  * - langsmith.project.name: Project name (default: "jmeter-ai")
- * - langsmith.endpoint: API endpoint (reads from environment or uses default)
- * - langsmith.enabled: Enable/disable tracing (default: true)
+ * - langsmith.endpoint: API endpoint (default: https://api.smith.langchain.com; override for self-hosted)
+ * - langsmith.enabled: Enable/disable tracing (default: false)
  * - langsmith.sample.rate: Sampling rate 0.0-1.0 (default: 1.0 = trace all)
  */
 public class LangSmithClient {
     private static final Logger log = LoggerFactory.getLogger(LangSmithClient.class);
-
-    private static final String DEFAULT_PROJECT = "jmeter-ai";
-    private static final double DEFAULT_SAMPLE_RATE = 1.0;
 
     private final String projectName;
     private final boolean enabled;
@@ -45,9 +42,9 @@ public class LangSmithClient {
     private final Map<String, String> dottedOrderCache;
 
     private LangSmithClient() {
-        this.projectName = AiConfig.getProperty("langsmith.project.name", DEFAULT_PROJECT);
-        this.enabled = Boolean.parseBoolean(AiConfig.getProperty("langsmith.enabled", "true"));
-        this.sampleRate = Double.parseDouble(AiConfig.getProperty("langsmith.sample.rate", String.valueOf(DEFAULT_SAMPLE_RATE)));
+        this.projectName = AiConfig.getLangsmithProjectName();
+        this.enabled = AiConfig.isLangsmithEnabled();
+        this.sampleRate = AiConfig.getLangsmithSampleRate();
         this.dottedOrderCache = new LinkedHashMap<>(64, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
@@ -56,7 +53,7 @@ public class LangSmithClient {
         };
 
         RunService service = null;
-        String apiKey = AiConfig.getProperty("langsmith.api.key", "");
+        String apiKey = AiConfig.getLangsmithApiKey();
 
         if (enabled && !apiKey.isEmpty()) {
             try {
@@ -64,6 +61,8 @@ public class LangSmithClient {
                 LangsmithOkHttpClient.Builder clientBuilder = LangsmithOkHttpClient.builder();
                 // Set API key explicitly
                 clientBuilder.apiKey(apiKey);
+                // Endpoint (default official cloud; override for self-hosted)
+                clientBuilder.baseUrl(AiConfig.getLangsmithEndpoint());
 
                 LangsmithClient client = clientBuilder.build();
                 service = client.runs();
@@ -116,7 +115,7 @@ public class LangSmithClient {
     public LLMRun createRun(String runId, String name, Map<String, Object> inputs, List<String> tags) {
         if (!isEnabled() || !shouldSample()) {
             log.debug("LangSmith disabled or sampled out, skipping trace");
-            return new LLMRun(runId, name, this, false);
+            return new LLMRun(runId, this, false);
         }
 
         try {
@@ -180,16 +179,19 @@ public class LangSmithClient {
             runService.create(createParams);
             log.info("LangSmith run created successfully: runId={}", runId);
 
-            return new LLMRun(runId, name, this, true);
+            return new LLMRun(runId, this, true);
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Catch Throwable (not Exception): a Jackson/jar version skew throws
+            // NoSuchMethodError (an Error) which must not abort the agent run —
+            // tracing is best-effort. Return an inactive no-op run.
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
                 log.debug("LangSmith create interrupted (agent stopped): runId={}", runId);
             } else {
                 log.error("Failed to create LangSmith run: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
             }
-            return new LLMRun(runId, name, this, false);
+            return new LLMRun(runId, this, false);
         }
     }
 
@@ -269,7 +271,7 @@ public class LangSmithClient {
             runService.update(runId, updateParams);
             log.info("LangSmith run updated successfully: runId={}", runId);
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
                 log.debug("LangSmith update interrupted (agent stopped): runId={}", runId);
@@ -294,25 +296,16 @@ public class LangSmithClient {
     }
 
     /**
-     * Get the sample rate for tracing.
-     */
-    public double getSampleRate() {
-        return sampleRate;
-    }
-
-    /**
      * Represents a single LLM run that can be updated with results.
      */
     public static class LLMRun {
         private final String runId;
-        private final String name;
         private final LangSmithClient client;
         private final boolean active;
         private final long startTime;
 
-        LLMRun(String runId, String name, LangSmithClient client, boolean active) {
+        LLMRun(String runId, LangSmithClient client, boolean active) {
             this.runId = runId;
-            this.name = name;
             this.client = client;
             this.active = active;
             this.startTime = System.currentTimeMillis();
@@ -341,27 +334,5 @@ public class LangSmithClient {
                 client.updateRun(runId, Map.of(), "error", error);
             }
         }
-
-        public String getRunId() {
-            return runId;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public boolean isActive() {
-            return active;
-        }
-    }
-
-    /**
-     * Convert a list of conversation strings to LangSmith message format.
-     */
-    public static Map<String, Object> formatConversation(java.util.List<String> conversation) {
-        Map<String, Object> result = new HashMap<>();
-        result.put("conversation", conversation);
-        result.put("message_count", conversation.size());
-        return result;
     }
 }

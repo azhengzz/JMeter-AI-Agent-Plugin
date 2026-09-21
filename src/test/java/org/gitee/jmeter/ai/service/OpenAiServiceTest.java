@@ -43,9 +43,10 @@ class OpenAiServiceTest {
     static void setUpAll() {
         aiConfigMock = mockStatic(AiConfig.class);
         aiConfigMock.when(() -> AiConfig.getDefaultModel()).thenReturn("openai:gpt-4o");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.temperature", "0.7")).thenReturn("0.7");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.max.tokens", "4096")).thenReturn("4096");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium")).thenReturn("medium");
+        aiConfigMock.when(() -> AiConfig.getDefaultProvider()).thenReturn("openai");
+        aiConfigMock.when(() -> AiConfig.getTemperature()).thenReturn(0.7);
+        aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
+        aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");
         // initializeClient reads these via getConfigValue; unmocked calls return null which would NPE
         aiConfigMock.when(() -> AiConfig.getProperty("openai.api.key", null)).thenReturn(null);
         aiConfigMock.when(() -> AiConfig.getProperty("openai.api.key", "")).thenReturn("");
@@ -136,6 +137,13 @@ class OpenAiServiceTest {
                 invokeInstance("extractModelName", new Class<?>[]{String.class}, "gpt-4o"));
     }
 
+    @Test
+    void testExtractModelName_OllamaTagStyle_NotStripped() throws Throwable {
+        // Ollama tags use ":" inside the model name; a non-provider prefix must not be stripped
+        assertEquals("qwen3.5:2b",
+                invokeInstance("extractModelName", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
     // ==================== toReasoningEffort (static) ====================
 
     @ParameterizedTest
@@ -203,54 +211,4 @@ class OpenAiServiceTest {
         );
     }
 
-    // ==================== extractUserFriendlyErrorMessage ====================
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_InsufficientQuota() throws Throwable {
-        Exception e = new RuntimeException("Error: insufficient_quota");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("credit balance"), "expected credit balance hint, got: " + result);
-    }
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_InvalidApiKey() throws Throwable {
-        Exception e = new RuntimeException("Error: invalid_api_key");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Invalid API key"), "expected invalid api key hint, got: " + result);
-    }
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_RateLimit() throws Throwable {
-        Exception e = new RuntimeException("Error: rate_limit_exceeded");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Rate limit"), "expected rate limit hint, got: " + result);
-    }
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_ModelNotFound() throws Throwable {
-        Exception e = new RuntimeException("Error: model_not_found");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.toLowerCase().contains("not found"), "expected not found hint, got: " + result);
-    }
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_ContextLengthExceeded() throws Throwable {
-        Exception e = new RuntimeException("Error: context_length_exceeded");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("too long"), "expected too-long hint, got: " + result);
-    }
-
-    @Test
-    void testExtractUserFriendlyErrorMessage_GenericFallback() throws Throwable {
-        Exception e = new RuntimeException("some unknown error");
-        String result = (String) invokeInstance(
-                "extractUserFriendlyErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertFalse(result.startsWith("Error: insufficient_quota"),
-                "should not leak raw error code for unknown errors");
-    }
 }

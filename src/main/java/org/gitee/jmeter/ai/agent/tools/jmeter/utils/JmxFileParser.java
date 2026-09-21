@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
+import org.gitee.jmeter.ai.utils.AiConfig;
 
 /**
  * Pure DOM-based parser for JMeter .jmx files.
@@ -262,7 +262,7 @@ public final class JmxFileParser {
         if (s == null) {
             return null;
         }
-        int max = AgentConfig.getInstance().getMaxStringLength();
+        int max = AiConfig.getMaxStringLength();
         if (s.length() <= max) {
             return s;
         }

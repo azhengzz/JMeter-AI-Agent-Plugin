@@ -6,10 +6,14 @@ import com.sun.net.httpserver.HttpServer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.AgentLoopFactory;
+import org.gitee.jmeter.ai.agent.command.CommandRouter;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
+import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.JMeterToolRegistry;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
+import org.gitee.jmeter.ai.instance.InstanceContext;
 import org.gitee.jmeter.ai.ipc.protocol.IpcRequest;
 import org.gitee.jmeter.ai.ipc.protocol.IpcResponse;
 import org.gitee.jmeter.ai.service.AiService;
@@ -33,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,19 +53,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       工具内部已自包 {@code EdtRunner}(invokeAndWait)上 EDT。<b>本 handler 绝不再包 EDT</b>,
  *       否则 EDT 上调 invokeAndWait 会抛 Error/死锁。</li>
  *   <li>{@code POST /agent} —— 调 {@link AgentLoop#processMessage} 推消息进 Agent,
- *       默认复用 {@link #AGENT_SESSION_KEY} 会话,与 GUI 聊天共享历史。</li>
+ *       默认复用本实例 {@code instanceId} 会话(经 {@code InstanceContext}),与 GUI 聊天共享历史。</li>
  *   <li>{@code GET /health} —— 健康检查(需 token)。</li>
  * </ul>
  *
- * <p>安全:默认 {@code jmeter.ai.ipc.enabled=false};仅绑 127.0.0.1(拒绝通配地址);
+ * <p>安全:默认 {@code jmeter.ai.ipc.enabled=true};仅绑 127.0.0.1(拒绝通配地址);
  * 每端点校验 {@code X-IPC-Token}(常量时间比较);白名单排除 exec/fs/web/测试执行类工具。
  */
 public final class IpcServer {
     private static final Logger log = LoggerFactory.getLogger(IpcServer.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    /** Agent 路由默认复用的会话 key(与 AiChatPanel 一致,共享会话/记忆)。 */
-    public static final String AGENT_SESSION_KEY = "jmeter-ai-chat";
 
     /** body 上限 1MB,防止恶意/错误请求 OOM。 */
     private static final int MAX_BODY_BYTES = 1 << 20;
@@ -179,7 +181,8 @@ public final class IpcServer {
         String pid = InstanceRegistry.currentPid();
         try {
             File ipcDir = InstanceRegistry.ipcDir(new File(JMeterUtils.getJMeterHome()));
-            InstanceRegistry.writeInstance(ipcDir, pid, actualPort, expectedToken, bind);
+            InstanceRegistry.writeInstance(ipcDir, pid, actualPort, expectedToken, bind,
+                    InstanceContext.instanceId(), "");
         } catch (Exception e) {
             log.error("IPC server bound on {}:{} but failed to write port file "
                     + "(CLI discovery won't work): {}", bind, actualPort, e.getMessage());
@@ -277,21 +280,57 @@ public final class IpcServer {
                 return;
             }
             String session = (req.getSession() == null || req.getSession().isEmpty())
-                    ? AGENT_SESSION_KEY : req.getSession();
+                    ? InstanceContext.currentSessionKey() : req.getSession();
             long timeout = AiConfig.getIpcAgentTimeoutMs();
             long t0 = System.currentTimeMillis();
-            CompletableFuture<AgentResponse> future = loop.processMessage(req.getMessage(), session);
+            // CLI 直连(delegated=false)的非命令消息加 [from cli] 前缀(随消息文本进回合上下文与
+            // jsonl,单一事实源);斜杠命令豁免;委派载荷保持 [delegated-from …] 原样
+            String message = applyCliProvenance(loop.getCommandRouter(), req.getMessage(), req.isDelegated());
+            // 每回合挂文本累积器:取消/超时响应的 partialContent 来源(GUI 无关)。面板呈现
+            // 不再经此转发——回合事件(STARTED/PROGRESS/终态)由 AgentLoop 统一发射,本
+            // handler 只负责 wire:阻塞等待、超时取消、结构化响应
+            TurnContentAccumulator accumulator = new TurnContentAccumulator();
+            AgentLoop.ProgressCallback turnCallback = accumulator::onProgress;
+            // delegated=true → 该回合内置 DelegationGuard,回合内 delegate_to_instance 直接报错(防 ping-pong)
+            CompletableFuture<AgentResponse> future =
+                    loop.processMessage(message, session, turnCallback,
+                            req.isDelegated() ? TurnOrigin.IPC_DELEGATED : TurnOrigin.IPC_CLI);
             AgentResponse ar;
             try {
                 ar = future.get(timeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException te) {
                 // 超时即取消 in-flight turn:否则 agent 会继续在后台跑完并改测试计划树,
                 // 而 CLI 已向操作者报了失败,产生"报错却已生效"的状态错位。
-                loop.cancelActiveTask(session);
-                sendError(ex, 504, "agent timeout after " + timeout + "ms (turn cancelled)");
+                loop.cancelActiveTask(session, CancelCause.TIMEOUT);
+                // 取消窗口内自然完成的回合(get 超时→取消之间的 TOCTOU):signalCancel 对
+                // 已完成 future no-op(cancelled=false,终态已按 TURN_COMPLETED 发出),
+                // 按真实结果回 200——否则 CLI 收 504 "已取消" 而回合实际完整生效,
+                // 恰是上注要防的状态错位。isCancelled 分流:真被取消(含中断)的回合仍走
+                // 504;异常完成的按失败语义回 500。
+                if (future.isDone() && !future.isCancelled()) {
+                    try {
+                        send(ex, 200, fromAgentResponse(future.getNow(null),
+                                System.currentTimeMillis() - t0));
+                    } catch (CompletionException completedErr) {
+                        sendError(ex, 500, "agent failed: " + rootMessage(completedErr));
+                    }
+                    return;
+                }
+                send(ex, 504, cancelledResponse(
+                        IpcResponse.CANCEL_REASON_TIMEOUT, accumulator,
+                        "agent timeout after " + timeout + "ms (turn cancelled)"));
                 return;
             } catch (ExecutionException ee) {
+                // 回合任务自身抛异常(future.completeExceptionally):面板的失败收尾由
+                // AgentLoop 的 TURN_COMPLETED(error) 事件承担,此处只管 wire 语义
                 sendError(ex, 500, "agent failed: " + rootMessage(ee));
+                return;
+            } catch (java.util.concurrent.CancellationException ce) {
+                // Stop 按钮/关闭对话框取消了该回合：409 + 结构化载荷让委派方/CLI 可读地处理
+                // （重试/放弃、展示部分内容），而非落入外层 catch(Exception) 变成 500 "server error: null"
+                send(ex, 409, cancelledResponse(
+                        IpcResponse.CANCEL_REASON_USER_STOP, accumulator,
+                        "turn cancelled before completion"));
                 return;
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
@@ -303,6 +342,56 @@ public final class IpcServer {
             log.error("IPC /agent error", e);
             sendError(ex, 500, "server error: " + rootMessage(e));
         }
+    }
+
+    /** CLI 直连消息的来源前缀(与委派的 {@code [delegated-from …]} 同为消息文本一部分)。 */
+    static final String CLI_PREFIX = "[from cli] ";
+
+    /**
+     * CLI 直连(delegated=false)的非命令消息加 {@code [from cli] } 来源前缀——随消息文本进
+     * 会话存储与面板渲染(单一事实源)。斜杠命令豁免:命中
+     * {@link CommandRouter#isPriority}/{@link CommandRouter#isDispatchable} 则原样投递,
+     * 前缀会把 {@code jmeter-cli agent "/status"} 这类命令挡成普通消息发给 LLM(命令分发是
+     * trim 后的精确匹配)。委派消息的 {@code [delegated-from …]} 前缀由发起侧添加,维持不动。
+     * 包内可见以便单测。
+     */
+    static String applyCliProvenance(CommandRouter router, String message, boolean delegated) {
+        if (delegated) {
+            return message;
+        }
+        if (isCommandMessage(router, message)) {
+            return message;
+        }
+        return CLI_PREFIX + message;
+    }
+
+    /**
+     * 消息是否命中已知斜杠命令（trim 后 {@link CommandRouter#isPriority} 或
+     * {@link CommandRouter#isDispatchable}）。前缀豁免与回合呈现豁免共用此判据——
+     * 命令回合无面板显示契约，本地面板从不渲染命令的 "You:" 行。
+     */
+    static boolean isCommandMessage(CommandRouter router, String message) {
+        String trimmed = message.trim();
+        return router.isPriority(trimmed) || router.isDispatchable(trimmed);
+    }
+
+    /**
+     * 构造 409/504 的结构化取消响应体：{@code cancelled=true} + {@code cancelReason}
+     * （区分目标用户 STOP 与超时自取消）+ {@code partialContent}（累积器截断快照，
+     * 无累积则省略字段）。提取为静态便于单测直接验证响应体形状。
+     */
+    static IpcResponse cancelledResponse(String cancelReason, TurnContentAccumulator accumulator,
+            String error) {
+        IpcResponse resp = new IpcResponse();
+        resp.setSuccess(false);
+        resp.setError(error);
+        resp.setCancelled(true);
+        resp.setCancelReason(cancelReason);
+        String partial = accumulator == null ? "" : accumulator.snapshotTruncated();
+        if (!partial.isEmpty()) {
+            resp.setPartialContent(partial);
+        }
+        return resp;
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {

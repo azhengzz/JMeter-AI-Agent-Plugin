@@ -34,6 +34,12 @@ public class ProviderRegistry {
 
         // Zhipu AI (GLM): GLM-4.5+ 支持 thinking.type=enabled/disabled。
         // GLM-4.5/4.6 为混合推理（动态决定），GLM-4.7/5/5.1 默认开启思考。
+        // GLM-5.3/5.3-flash 强制思考：thinking.type 仅支持 enabled（传 disabled 直接报错），
+        //   思考程度改由顶层 reasoning_effort（low/high/max，默认 max）控制。沿 Kimi K3 先例
+        //   注册 thinkingAlwaysOnModels（仅强制 thinking.type=enabled；reasoning.effort=none 时
+        //   省略 reasoning_effort，服务端按默认 max 深度思考——这些模型不支持 none，误配不报错
+        //   但也不省 token，README 已提示用户直接配 low/high/max）。
+        //   https://docs.bigmodel.cn/cn/guide/start/migrate-to-glm-new
         // 偏离 Nanobot：通过 reasoning_effort 显式控制（none→disabled，medium/high→enabled）。
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("zhipu")
@@ -46,6 +52,7 @@ public class ProviderRegistry {
                 //         "glm-4.5", "glm-4.5-air", "glm-4.5-flash",
                 //         "glm-4.6", "glm-4.7",
                 //         "glm-5", "glm-5.1")
+                .thinkingAlwaysOnModels("glm-5.3", "glm-5.3-flash")
                 .build());
 
         // Moonshot (Kimi). base_url follows the official Kimi K3 quickstart (api.moonshot.cn/v1).
@@ -71,15 +78,29 @@ public class ProviderRegistry {
                 .addModelOverride("kimi-k3", "temperature", 1.0)
                 .build());
 
-        // MiniMax
+        // MiniMax. 思考开关是 thinking.type（不是 reasoning_split——后者只是输出格式开关）：
+        //   M3 系列：开=adaptive / 关=disabled（传 enabled 直接 HTTP 400）；
+        //   M2.x 系列：开=enabled / 关=disabled（服务端忽略 disabled，思考关不掉，已知限制）。
+        //   思考开时一并发送 reasoning_split:true，使推理落到 reasoning_content 字段。
+        //   详见 minimax_thinking 样式与
+        //   https://platform.minimaxi.com/docs/api-reference/text-openai-api#thinking-控制
         PROVIDERS.add(new ProviderSpec.Builder()
                 .name("minimax")
                 .displayName("MiniMax")
                 .defaultApiBase("https://api.minimaxi.com/v1")
                 .envKey("minimax.api.key")
                 .keywords("minimax")
-                .rawHttpClientOnly(true)  // MiniMax returns extra fields not compatible with OpenAI SDK
-                .thinkingStyle("reasoning_split")
+                .thinkingStyle("minimax_thinking")
+                .build());
+
+        // LangCat (OpenAI 兼容, thinking_type: thinking={"type":"enabled"|"disabled"})
+        PROVIDERS.add(new ProviderSpec.Builder()
+                .name("langcat")
+                .displayName("LangCat")
+                .defaultApiBase("https://api.longcat.chat/openai/v1")
+                .envKey("langcat.api.key")
+                .keywords("langcat", "longcat")
+                .thinkingStyle("thinking_type")
                 .build());
 
         // =====================================================

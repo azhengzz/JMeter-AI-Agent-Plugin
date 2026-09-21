@@ -2,10 +2,13 @@ package org.gitee.jmeter.ai.agent.run;
 
 import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
+import org.gitee.jmeter.ai.agent.turn.InjectionItem;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Specification for running an agent.
@@ -23,27 +26,26 @@ public class AgentRunSpec {
     private final String userMessage;
     private final String sessionKey;
     private final AgentHook hook;
-    private final boolean concurrentTools;
     private final int maxIterations;
     private final boolean failOnToolError;
-    private final Map<String, Object> options;
     private final String model;
     private final Double temperature;
     private final Integer maxTokens;
     private final String reasoningEffort;
     private final List<Message> initialMessages;
     private final AtomicBoolean abortFlag;
-    private final Function<Integer, List<String>> injectionCallback;
+    private final Function<Integer, List<InjectionItem>> injectionCallback;
     private final boolean persistSession;
+    private final boolean delegated;
+    private final List<InstanceInfo> instanceMentions;
+    private final Supplier<Long> resetEpochSupplier;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
         this.sessionKey = builder.sessionKey;
         this.hook = builder.hook;
-        this.concurrentTools = builder.concurrentTools;
         this.maxIterations = builder.maxIterations;
         this.failOnToolError = builder.failOnToolError;
-        this.options = builder.options != null ? builder.options : Collections.emptyMap();
         this.model = builder.model;
         this.temperature = builder.temperature;
         this.maxTokens = builder.maxTokens;
@@ -52,28 +54,53 @@ public class AgentRunSpec {
         this.abortFlag = builder.abortFlag;
         this.injectionCallback = builder.injectionCallback;
         this.persistSession = builder.persistSession;
+        this.delegated = builder.delegated;
+        this.instanceMentions = builder.instanceMentions;
+        this.resetEpochSupplier = builder.resetEpochSupplier;
     }
 
     public String getUserMessage() { return userMessage; }
     public String getSessionKey() { return sessionKey; }
     public AgentHook getHook() { return hook; }
-    public boolean isConcurrentTools() { return concurrentTools; }
     public int getMaxIterations() { return maxIterations; }
     public boolean isFailOnToolError() { return failOnToolError; }
-    public Map<String, Object> getOptions() { return options; }
     public String getModel() { return model; }
     public Double getTemperature() { return temperature; }
     public Integer getMaxTokens() { return maxTokens; }
     public String getReasoningEffort() { return reasoningEffort; }
     public List<Message> getInitialMessages() { return initialMessages; }
     public AtomicBoolean getAbortFlag() { return abortFlag; }
-    public Function<Integer, List<String>> getInjectionCallback() { return injectionCallback; }
+    public Function<Integer, List<InjectionItem>> getInjectionCallback() { return injectionCallback; }
 
     /**
      * Whether this run persists its messages to the session store and runs memory
      * consolidation. Subagent runs set this to false for complete isolation.
      */
     public boolean isPersistSession() { return persistSession; }
+
+    /**
+     * Whether this run executes a cross-instance delegated task (IPC {@code /agent}
+     * with {@code delegated=true}). The runner arms {@code DelegationGuard} inside
+     * the run task so tools executed in this turn refuse to delegate again.
+     */
+    public boolean isDelegated() { return delegated; }
+
+    /**
+     * Peer JMeter instances the user @-mentioned in this turn's message
+     * (structured references rendered into the per-turn runtime context).
+     * Empty list when the turn carries no mentions.
+     */
+    public List<InstanceInfo> getInstanceMentions() { return instanceMentions; }
+
+    /**
+     * 会话重置代数的活引用（{@code () -> currentEpoch(sessionKey)} 闭包，由
+     * AgentLoop.startTurn 接线）。epoch 翻转 ⟺ 会话被重置（markConversationReset
+     * 在栅栏锁下先翻代数再清空）——中止落盘/悬空尾懒收尾以「代数未翻转」为 RESET
+     * 判别（对齐 republishLeftovers 的既有纪律），取代 CancelCause：cause 会被
+     * signalCancel 的 abortVisible 守卫吞掉（Stop-后-//new 序列），epoch 不可被
+     * 取消时序欺骗。null（子代理/直构测试）= 不判重置，中止落盘不执行。
+     */
+    public Supplier<Long> getResetEpochSupplier() { return resetEpochSupplier; }
 
     public static Builder builder() {
         return new Builder();
@@ -83,18 +110,19 @@ public class AgentRunSpec {
         private String userMessage;
         private String sessionKey;
         private AgentHook hook;
-        private boolean concurrentTools = false;
         private int maxIterations = 40;
         private boolean failOnToolError = false;
-        private Map<String, Object> options;
         private String model;
         private Double temperature;
         private Integer maxTokens;
         private String reasoningEffort;
         private List<Message> initialMessages;
         private AtomicBoolean abortFlag;
-        private Function<Integer, List<String>> injectionCallback;
+        private Function<Integer, List<InjectionItem>> injectionCallback;
         private boolean persistSession = true;
+        private boolean delegated = false;
+        private List<InstanceInfo> instanceMentions = List.of();
+        private Supplier<Long> resetEpochSupplier;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -111,11 +139,6 @@ public class AgentRunSpec {
             return this;
         }
 
-        public Builder concurrentTools(boolean concurrent) {
-            this.concurrentTools = concurrent;
-            return this;
-        }
-
         public Builder maxIterations(int iterations) {
             this.maxIterations = iterations;
             return this;
@@ -123,14 +146,6 @@ public class AgentRunSpec {
 
         public Builder failOnToolError(boolean fail) {
             this.failOnToolError = fail;
-            return this;
-        }
-
-        public Builder option(String key, Object value) {
-            if (this.options == null) {
-                this.options = new HashMap<>();
-            }
-            this.options.put(key, value);
             return this;
         }
 
@@ -164,7 +179,7 @@ public class AgentRunSpec {
             return this;
         }
 
-        public Builder injectionCallback(Function<Integer, List<String>> callback) {
+        public Builder injectionCallback(Function<Integer, List<InjectionItem>> callback) {
             this.injectionCallback = callback;
             return this;
         }
@@ -178,12 +193,33 @@ public class AgentRunSpec {
             return this;
         }
 
+        /** Mark this run as a cross-instance delegated turn (arms DelegationGuard). */
+        public Builder delegated(boolean delegated) {
+            this.delegated = delegated;
+            return this;
+        }
+
+        /** Peer instances @-mentioned by the user (per-turn runtime context). Null normalizes to empty. */
+        public Builder instanceMentions(List<InstanceInfo> mentions) {
+            this.instanceMentions = mentions == null ? List.of() : mentions;
+            return this;
+        }
+
+        /**
+         * 会话重置代数活引用（见 {@link #getResetEpochSupplier()} 的判别语义）。
+         * null（默认）= 不判重置：中止落盘与悬空尾懒收尾不执行（子代理路径）。
+         */
+        public Builder resetEpochSupplier(Supplier<Long> supplier) {
+            this.resetEpochSupplier = supplier;
+            return this;
+        }
+
         public AgentRunSpec build() {
             Objects.requireNonNull(sessionKey, "sessionKey is required");
 
             // Enforce the subagent isolation invariants at construction time so a
             // mis-wired subagent run fails fast instead of silently polluting the
-            // main session (see design.md blocker 2). Checked before the
+            // main session. Checked before the
             // userMessage requirement so a subagent gets the actionable error.
             if (sessionKey.startsWith(SUBAGENT_SESSION_PREFIX)) {
                 if (persistSession) {

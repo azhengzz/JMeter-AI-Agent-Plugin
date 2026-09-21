@@ -4,6 +4,7 @@ import org.gitee.jmeter.ai.gui.render.MarkdownParserHolder;
 import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
 import org.junit.jupiter.api.Test;
 
+import javax.swing.SwingUtilities;
 import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 import java.awt.Font;
@@ -46,7 +47,7 @@ class MessageProcessorApiTest {
     void appendMarkdownAppendsHtmlFragment() throws Exception {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = new DefaultStyledDocument(); // non-HTMLDocument → fallback raw insert
-        mp.appendMarkdown(doc, "**hi**", null);
+        onEdt(() -> mp.appendMarkdown(doc, "**hi**", null));
         assertTrue(doc.getText(0, doc.getLength()).contains("<strong>hi</strong>"),
                 "markdown HTML appended: " + doc.getText(0, doc.getLength()));
     }
@@ -55,7 +56,7 @@ class MessageProcessorApiTest {
     void appendStyledEscapesHtml() throws Exception {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = new DefaultStyledDocument();
-        mp.appendStyled(doc, "<b>not bold</b> & more", null);
+        onEdt(() -> mp.appendStyled(doc, "<b>not bold</b> & more", null));
         String text = doc.getText(0, doc.getLength());
         assertTrue(text.contains("&lt;b&gt;"), "angle brackets escaped: " + text);
         assertFalse(text.contains("<b>not bold</b>"), "no raw markup: " + text);
@@ -65,7 +66,7 @@ class MessageProcessorApiTest {
     void appendStyledAppliesBoldStyle() throws Exception {
         MessageProcessor mp = new MessageProcessor();
         StyledDocument doc = new DefaultStyledDocument();
-        mp.appendStyled(doc, "x", null, Font.BOLD);
+        onEdt(() -> mp.appendStyled(doc, "x", null, Font.BOLD));
         assertTrue(doc.getText(0, doc.getLength()).contains("font-weight:bold"),
                 "bold style in CSS: " + doc.getText(0, doc.getLength()));
     }
@@ -91,17 +92,33 @@ class MessageProcessorApiTest {
         int[] scrollCount = {0};
 
         mp.setAutoScroll(() -> true, () -> scrollCount[0]++);
-        mp.appendHtml(doc, "<div>a</div>");
-        mp.appendHtml(doc, "<div>b</div>");
+        onEdt(() -> mp.appendHtml(doc, "<div>a</div>"));
+        onEdt(() -> mp.appendHtml(doc, "<div>b</div>"));
         assertEquals(2, scrollCount[0], "runner fires once per append while pinned to bottom");
 
         // User scrolled away from the bottom → probe reports false → runner must not fire.
         mp.setAutoScroll(() -> false, () -> scrollCount[0]++);
-        mp.appendHtml(doc, "<div>c</div>");
+        onEdt(() -> mp.appendHtml(doc, "<div>c</div>"));
         assertEquals(2, scrollCount[0], "runner does not fire when not pinned to bottom");
 
         // No collaborators wired → no scrolling at all (headless default).
         MessageProcessor bare = new MessageProcessor();
-        bare.appendHtml(doc, "<div>d</div>"); // must not throw
+        onEdt(() -> bare.appendHtml(doc, "<div>d</div>")); // must not throw
+    }
+
+    /** EDT 护栏对等：MessageProcessor 文档变更入口已加 isDispatchThread 断言，测试调用须上 EDT。 */
+    private static void onEdt(ThrowingRunnable body) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                body.run();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 }

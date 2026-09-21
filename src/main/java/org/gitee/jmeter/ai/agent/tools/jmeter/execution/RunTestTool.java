@@ -135,8 +135,8 @@ public class RunTestTool extends AbstractTool {
 
         boolean ignoreTimers = getBooleanParameter(parameters, "ignore_timers", false);
 
-        // Reset and inject collector
-        AgentResultCollector.reset();
+        // Reset and inject collector (tag this run as Agent-initiated)
+        AgentResultCollector.reset(AgentResultCollector.RunProvenance.AGENT);
         AgentResultCollector collector = new AgentResultCollector();
 
         // Execute tree injection and start on EDT
@@ -172,6 +172,10 @@ public class RunTestTool extends AbstractTool {
                     String actionName = ignoreTimers
                             ? ActionNames.ACTION_START_NO_TIMERS
                             : ActionNames.ACTION_START;
+                    // Arm re-injection: Start.doAction may synchronously fire SAVE
+                    // (popupShouldSave) which strips our collector for a clean .jmx; the Save
+                    // POST-listener restores it before startEngine clones the tree.
+                    AgentResultCollector.armForStartReinject();
                     ActionRouter.getInstance().actionPerformed(
                             new ActionEvent(this, ActionEvent.ACTION_PERFORMED, actionName));
                     log.info("Triggered test start action: {}", actionName);

@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,8 +18,7 @@ import java.util.List;
  * Usage:
  * <pre>
  * String prompt = SystemPrompt.get();                          // Use unified config + bootstrap files
- * String prompt = SystemPrompt.get("custom prompt");           // Direct override
- * String prompt = SystemPrompt.getWithWorkspace(workspace);    // With workspace info
+ * String prompt = SystemPrompt.getDefaultWithWorkspace(workspace); // With workspace info
  * </pre>
  */
 public class SystemPrompt {
@@ -34,10 +32,6 @@ public class SystemPrompt {
         "TOOLS.md"
     };
 
-    // Default workspace path
-    private static final Path DEFAULT_WORKSPACE =
-        Paths.get(System.getProperty("user.home")).resolve(".jmeter-ai").resolve("agent");
-
     /**
      * The default JMeter system prompt used when no custom prompt is configured.
      * Based on Nanobot's identity section format.
@@ -45,7 +39,7 @@ public class SystemPrompt {
     public static final String DEFAULT_JMETER_SYSTEM_PROMPT = buildDefaultPrompt();
 
     private static String buildDefaultPrompt() {
-        return getDefaultWithWorkspace(DEFAULT_WORKSPACE);
+        return getDefaultWithWorkspace(WorkspacePaths.resolveWorkspace());
     }
 
     /**
@@ -112,9 +106,31 @@ public class SystemPrompt {
                 """, runtime, workspaceSection, platformPolicy);
     }
 
+    /**
+     * 跨实例协作心智模型,仅当 IPC 开启(协作工具已注册)时由
+     * {@code ContextBuilder.buildSystemPrompt()} 注入。IPC 关闭时不注入,避免提示词提及
+     * 不存在的工具(list_instances/delegate_to_instance)而自相矛盾。
+     *
+     * <p>注入门控须与 {@code JMeterToolRegistry.registerInstanceCoordinationTools} 的
+     * 协作工具注册门控保持一致(目前均为 {@code AiConfig.isIpcEnabled()})。
+     */
+    public static final String CROSS_INSTANCE_COORDINATION_PROMPT = """
+            # Cross-Instance Coordination
 
-    // Keys for configuration
-    private static final String UNIFIED_PROMPT_KEY = "jmeter.ai.system.prompt";
+            You run on a machine that may have several JMeter AI instances open at once. Each
+            instance has its OWN open .jmx test plan and its OWN conversation, but they SHARE
+            long-term memory (MEMORY.md) — facts you write to memory are visible to peer
+            instances on their next turn.
+
+            - When the user's task references a script THIS instance does not have open, call
+              list_instances to check whether a peer instance holds it.
+            - Delegate a self-contained task to that peer with delegate_to_instance; the peer
+              sees only your `task` text, not this conversation. Delegation blocks until the
+              peer replies, so use it when you need the result in this turn.
+            - Prefer acting locally when the element lives in this instance's plan; delegate
+              only when the work genuinely belongs to a peer's open script.
+            """;
+
 
     /**
      * Get the system prompt using unified configuration.
@@ -127,7 +143,7 @@ public class SystemPrompt {
      */
     public static String get() {
         // Check unified configuration
-        String unifiedPrompt = AiConfig.getProperty(UNIFIED_PROMPT_KEY, "");
+        String unifiedPrompt = AiConfig.getSystemPrompt();
         if (!unifiedPrompt.isEmpty()) {
             log.debug("Using unified system prompt");
             return unifiedPrompt;
@@ -143,47 +159,12 @@ public class SystemPrompt {
     }
 
     /**
-     * Get the system prompt with direct override.
-     *
-     * @param override  Direct override prompt (takes highest priority)
-     * @return The system prompt to use
-     */
-    public static String get(String override) {
-        if (override != null && !override.isEmpty()) {
-            return override;
-        }
-        return get();
-    }
-
-    /**
-     * Get the built-in default prompt without checking any configuration.
-     *
-     * @return The default JMeter system prompt
-     */
-    public static String getDefault() {
-        return DEFAULT_JMETER_SYSTEM_PROMPT;
-    }
-
-    /**
-     * Check if unified system prompt is configured.
-     *
-     * @return true if unified prompt is configured
-     */
-    public static boolean isUnifiedConfigured() {
-        return !AiConfig.getProperty(UNIFIED_PROMPT_KEY, "").isEmpty();
-    }
-
-    /**
      * Get the workspace path from configuration.
      *
      * @return The workspace path
      */
     private static Path getWorkspacePath() {
-        String configuredPath = AiConfig.getProperty("agent.workspace.path", null);
-        if (configuredPath != null && !configuredPath.isEmpty()) {
-            return Path.of(configuredPath);
-        }
-        return DEFAULT_WORKSPACE;
+        return WorkspacePaths.resolveWorkspace();
     }
 
     /**

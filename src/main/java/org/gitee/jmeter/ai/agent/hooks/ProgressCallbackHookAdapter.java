@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Adapter to convert legacy ProgressCallback to AgentHook.
@@ -25,8 +26,7 @@ public class ProgressCallbackHookAdapter implements AgentHook {
 
     public ProgressCallbackHookAdapter(AgentLoop.ProgressCallback callback) {
         this.callback = callback;
-        this.showThinking = Boolean.parseBoolean(
-            AiConfig.getProperty("ai.chat.show.thinking", "false"));
+        this.showThinking = AiConfig.isChatShowThinking();
     }
 
     @Override
@@ -39,9 +39,12 @@ public class ProgressCallbackHookAdapter implements AgentHook {
 
             String display;
             if (reasoningContent != null && !reasoningContent.isEmpty()) {
-                // Structured reasoning_content is separated from content
+                // Structured reasoning_content is separated from content. content may be null
+                // (a thinking+tool_use iteration emits no text block) — concatenating it
+                // verbatim would paint a literal "null"; append only real content.
                 display = showThinking
-                        ? "<think>" + reasoningContent + "</think>" + "\n" + content
+                        ? "<think>" + reasoningContent + "</think>"
+                          + (content != null && !content.isEmpty() ? "\n" + content : "")
                         : TextUtils.stripThink(content);
             } else {
                 // No structured field — thinking may be embedded as <think/> tags in content
@@ -79,6 +82,12 @@ public class ProgressCallbackHookAdapter implements AgentHook {
         if (callback == null || content == null || content.isEmpty()) return;
         String display = this.showThinking ? content : TextUtils.stripThink(content);
         publish(ProgressUpdate.intermediateResponse(display));
+    }
+
+    @Override
+    public void onUsage(Map<String, Integer> usage, AgentHookContext context) {
+        if (callback == null) return;
+        publish(ProgressUpdate.usage(usage));
     }
 
     @Override

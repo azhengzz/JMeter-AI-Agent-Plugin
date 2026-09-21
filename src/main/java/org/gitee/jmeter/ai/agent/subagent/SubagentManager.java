@@ -37,11 +37,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * own ephemeral session, then hands its result back through a {@link ResultSink}
  * so the main agent can absorb it within the same turn.
  *
- * <p>Two invariants matter (see design.md):
+ * <p>Two invariants matter:
  * <ul>
- *   <li>Every spawn builds its OWN {@link AgentRunner}. The runner tracks its
- *       running thread in a single field, so a shared instance would let
- *       concurrent runs clobber each other's Stop target.</li>
+ *   <li>Every spawn builds its OWN {@link AgentRunner} (cheap, keeps concurrent
+ *       runs isolated from any future per-run state). Cancel/shutdown
+ *       interrupts reach the task's pool thread directly through
+ *       {@code handle.runThread} — {@link AgentRunner} does not track its own
+ *       thread.</li>
  *   <li>Subagents run through {@code agentRunner.run(spec)} directly, never
  *       through {@code AgentLoop.processMessage}, whose session bookkeeping is
  *       not governed by {@code persistSession}.</li>
@@ -64,8 +66,10 @@ public class SubagentManager {
     private final int maxIterations;
     private final long toolTimeoutMs;
     private final int toolResultMaxChars;
-    private final long statusRetentionMs;
-    private final int maxCompletedStatuses;
+    /** 完成态状态可查询保留时长(秒),超期由 {@link #pruneTerminalStatuses()} 回收。 */
+    private final long statusRetentionSeconds;
+    /** 每会话完成态状态保留上限,超出按最旧淘汰(内存有界,防晚到结果无限累积)。 */
+    private final int statusMaxCompleted;
 
     private final ExecutorService executor;
 
@@ -101,18 +105,12 @@ public class SubagentManager {
         this.resultSink = resultSink;
         this.generationSettings = aiService != null ? aiService.getGenerationSettings() : null;
 
-        this.maxConcurrent = Math.max(1, Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.max.concurrent", "1")));
-        this.maxIterations = Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.max.iterations", "50"));
-        this.toolTimeoutMs = Long.parseLong(
-            AiConfig.getProperty("agent.tools.timeout.ms", "30000"));
-        this.toolResultMaxChars = Integer.parseInt(
-            AiConfig.getProperty("agent.tool.result.max.chars", "16000"));
-        this.statusRetentionMs = Long.parseLong(
-            AiConfig.getProperty("agent.subagent.status.retention.seconds", "60")) * 1000L;
-        this.maxCompletedStatuses = Integer.parseInt(
-            AiConfig.getProperty("agent.subagent.status.max.completed", "10"));
+        this.maxConcurrent = Math.max(1, AiConfig.getSubagentMaxConcurrent());
+        this.maxIterations = AiConfig.getSubagentMaxIterations();
+        this.toolTimeoutMs = AiConfig.getToolTimeoutMs();
+        this.toolResultMaxChars = AiConfig.getToolResultMaxChars();
+        this.statusRetentionSeconds = AiConfig.getSubagentStatusRetentionSeconds();
+        this.statusMaxCompleted = Math.max(0, AiConfig.getSubagentStatusMaxCompleted());
 
         AtomicInteger threadSeq = new AtomicInteger();
         ThreadFactory factory = r -> {
@@ -212,10 +210,16 @@ public class SubagentManager {
                              TurnToken turnToken, SubagentStatus status, AtomicBoolean abortFlag,
                              RunningSubagent handle) {
         handle.started = true;
+        // 池线程直达中断：cancelBySession/shutdown 经 handle.runThread.interrupt()
+        // 命中本任务——显式方案，不依赖下方 future.cancel(true) 的隐式中断副作用
+        // （防未来 cancel(true)→cancel(false) 静默丢子代理中断）。句目随 releaseSlot
+        // 从 running 表摘除后句柄不可达，引用无需显式清空。
+        handle.runThread = Thread.currentThread();
         log.info("Subagent [{}] starting task: {}", taskId, label);
         try {
-            // Own runner per spawn: AgentRunner tracks its running thread in one
-            // field, so sharing would break Stop targeting across concurrent runs.
+            // Own runner per spawn: keeps concurrent runs isolated from any
+            // future per-run state (interrupt targeting no longer reasons about
+            // the runner — it goes through handle.runThread above).
             // Null consolidator: subagents never consolidate memory (persistSession=false
             // gates both call sites); ContextWindowManager tolerates null.
             AgentRunner runner = new AgentRunner(
@@ -227,16 +231,15 @@ public class SubagentManager {
                 maxIterations,
                 toolResultMaxChars,
                 toolTimeoutMs);
-            handle.runner = runner;
 
             List<Message> initial = List.of(
                 Message.system(buildSubagentPrompt()),
                 Message.user(task));
 
-            // Deliberately NO runExecutor: this method already runs on the subagent
-            // pool, which is what keeps subagents off the main agent's thread. Asking
-            // AgentRunner to schedule onto that same bounded pool and then joining
-            // below would starve it — with the default pool size of 1, permanently.
+            // AgentRunner.run is synchronous and executes inline on this subagent
+            // pool thread — which is what keeps subagents off the main agent's
+            // thread (the old "NO runExecutor, must not join on our own bounded
+            // pool" starvation concern is gone with the async wrapper).
             AgentRunSpec spec = AgentRunSpec.builder()
                 .sessionKey(AgentRunSpec.SUBAGENT_SESSION_PREFIX + taskId)
                 .initialMessages(initial)
@@ -254,7 +257,7 @@ public class SubagentManager {
                 .abortFlag(abortFlag)
                 .build();
 
-            AgentRunResult result = runner.run(spec).join();
+            AgentRunResult result = runner.run(spec);
 
             if (abortFlag.get()) {
                 status.markError("Cancelled");
@@ -284,7 +287,10 @@ public class SubagentManager {
                 log.warn("Subagent [{}] failed: {}", taskId, error);
                 announceResult(taskId, label, task, error, mainSessionKey, turnToken, false);
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable（含 Error）：run() 同步直调后异常不再经 .join() 包成
+            // CompletionException，Error 会裸穿——不在这里收口就静默死进无人
+            // get() 的 executor future，子代理状态永挂 running、结果无人公告。
             log.error("Subagent [" + taskId + "] failed", e);
             status.markError(String.valueOf(e.getMessage()));
             announceResult(taskId, label, task, "Error: " + e.getMessage(),
@@ -312,6 +318,63 @@ public class SubagentManager {
             ids.remove(taskId);
             if (ids.isEmpty()) {
                 sessionTasks.remove(mainSessionKey);
+            }
+        }
+        pruneTerminalStatuses();
+    }
+
+    /**
+     * Bound the terminal-status store so a long-lived instance never accumulates
+     * unbounded {@code statuses} entries (each late/undeliverable result stays
+     * queryable via {@code subagent_status}, but only for a window).
+     *
+     * <p>Two independent bounds, both evaluated on every finish (cheap relative to a
+     * run). A knob value of {@code 0} disables that bound:
+     * <ul>
+     *   <li><b>TTL</b> — a terminal status whose {@code finishedAt} is older than
+     *       {@code statusRetentionSeconds} is dropped ({@code 0} = never by TTL).</li>
+     *   <li><b>Per-session cap</b> — within one session, terminal statuses are kept
+     *       newest-first; the oldest are dropped beyond {@code statusMaxCompleted}
+     *       ({@code 0} = never by count).</li>
+     * </ul>
+     * Running (non-terminal) statuses are never touched.
+     */
+    private void pruneTerminalStatuses() {
+        Instant now = Instant.now();
+        long retentionMs = statusRetentionSeconds * 1000L;
+
+        // TTL pass + collect terminal statuses grouped by session for the cap pass.
+        Map<String, List<SubagentStatus>> terminalBySession = new java.util.HashMap<>();
+        for (SubagentStatus status : statuses.values()) {
+            if (!status.isTerminal()) {
+                continue;
+            }
+            if (statusRetentionSeconds > 0) {
+                Instant finishedAt = status.getFinishedAt();
+                if (finishedAt != null && now.toEpochMilli() - finishedAt.toEpochMilli() > retentionMs) {
+                    statuses.remove(status.getTaskId());
+                    continue;
+                }
+            }
+            if (statusMaxCompleted > 0) {
+                terminalBySession.computeIfAbsent(status.getMainSessionKey(), k -> new ArrayList<>())
+                    .add(status);
+            }
+        }
+
+        // Per-session cap pass: keep newest, drop oldest beyond the cap.
+        if (statusMaxCompleted <= 0) {
+            return;
+        }
+        for (List<SubagentStatus> sessionTerminal : terminalBySession.values()) {
+            if (sessionTerminal.size() <= statusMaxCompleted) {
+                continue;
+            }
+            sessionTerminal.sort(Comparator.comparing(
+                s -> s.getFinishedAt() != null ? s.getFinishedAt() : s.getStartedAt()));
+            int excess = sessionTerminal.size() - statusMaxCompleted;
+            for (int i = 0; i < excess; i++) {
+                statuses.remove(sessionTerminal.get(i).getTaskId());
             }
         }
     }
@@ -465,8 +528,8 @@ public class SubagentManager {
                 continue;
             }
             handle.abortFlag.set(true);
-            if (handle.runner != null) {
-                handle.runner.interrupt();
+            if (handle.runThread != null) {
+                handle.runThread.interrupt();
             }
             boolean neverStarted = handle.future != null
                 && handle.future.cancel(true)
@@ -488,34 +551,12 @@ public class SubagentManager {
         return cancelled;
     }
 
-    /** Drop finished statuses past their TTL, keeping the newest few. */
-    private void pruneStatuses() {
-        long now = System.currentTimeMillis();
-        List<SubagentStatus> completed = new ArrayList<>();
-        for (SubagentStatus status : statuses.values()) {
-            if (!status.isTerminal() || status.getFinishedAt() == null) {
-                continue;
-            }
-            if (now - status.getFinishedAt().toEpochMilli() > statusRetentionMs) {
-                statuses.remove(status.getTaskId());
-            } else {
-                completed.add(status);
-            }
-        }
-        if (completed.size() > maxCompletedStatuses) {
-            completed.sort(Comparator.comparing(SubagentStatus::getFinishedAt));
-            for (int i = 0; i < completed.size() - maxCompletedStatuses; i++) {
-                statuses.remove(completed.get(i).getTaskId());
-            }
-        }
-    }
-
     /** Cancel everything in flight and shut the pool down. */
     public void shutdown() {
         for (RunningSubagent handle : running.values()) {
             handle.abortFlag.set(true);
-            if (handle.runner != null) {
-                handle.runner.interrupt();
+            if (handle.runThread != null) {
+                handle.runThread.interrupt();
             }
         }
         executor.shutdownNow();
@@ -546,7 +587,8 @@ public class SubagentManager {
         final AtomicBoolean abortFlag;
         /** The turn that spawned this subagent; used to scope drain waits and delivery. */
         final TurnToken turnToken;
-        volatile AgentRunner runner;
+        /** 执行本任务的池线程（任务体开头赋值）：取消/shutdown 的 interrupt 直达目标（见 runSubagent 注释）。 */
+        volatile Thread runThread;
         volatile Future<?> future;
         /** Set when the task body begins; false means a cancel skipped it entirely. */
         volatile boolean started;

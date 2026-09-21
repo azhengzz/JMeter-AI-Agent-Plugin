@@ -26,8 +26,6 @@ class SubagentTurnScopeTest {
     private static class BlockingAiService implements AiService {
         final CountDownLatch entered = new CountDownLatch(1);
 
-        @Override public String generateResponse(List<String> conversation) { return "x"; }
-        @Override public String generateResponse(List<String> conversation, String model) { return "x"; }
         @Override public String getName() { return "blocking"; }
         @Override public GenerationSettings getGenerationSettings() {
             return new GenerationSettings(0.7, 1024, null);

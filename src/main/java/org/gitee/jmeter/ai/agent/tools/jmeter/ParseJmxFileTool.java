@@ -34,6 +34,11 @@ public class ParseJmxFileTool extends AbstractTool {
         return "parse_jmx_file";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: pure DOM parse, never touches GUI state. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

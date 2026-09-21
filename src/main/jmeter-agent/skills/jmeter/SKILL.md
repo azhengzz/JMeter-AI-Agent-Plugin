@@ -17,9 +17,12 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `update_jmeter_element` — Update properties of an existing element by `elementId`
   - `batch_update_jmeter_elements` — Batch update properties of multiple elements of the same type (max 50) with a single GUI refresh
   - `delete_jmeter_element` — Delete an element by `elementId` (TestPlan root cannot be deleted)
+  - `batch_delete_jmeter_elements` — Batch delete multiple elements by `elementIds` (max 50) with a single GUI refresh; all targets are validated first (nothing is deleted if any is invalid)
   - `move_jmeter_element` — Move an element to a different parent with positioning (`first`, `last`, `before:<id>`, `after:<id>`)
+  - `batch_move_jmeter_elements` — Batch move multiple elements (max 50) to a shared parent at a shared position; input order is preserved; single GUI refresh
   - `copy_paste_jmeter_element` — Deep clone an element (with children) and paste under a target parent
   - `toggle_jmeter_element` — Enable, disable, or toggle element state (`enable`, `disable`, `toggle`)
+  - `batch_toggle_jmeter_elements` — Batch enable/disable/toggle multiple elements (max 50) with a single GUI refresh
 - **Inspection Tools:**
   - `get_test_plan_tree` — View the complete test plan structure as JSON with `elementId` values, optional `maxDepth` and `includeProperties`
   - `get_selected_element` — Get detailed info about the currently selected element
@@ -27,11 +30,15 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `find_element` — Search elements by name, type, path, or elementId with pagination (`offset`, `limit`); optional `parentId` scopes the search to a subtree (inclusive)
   - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`); optional `parentId` scopes the query to a subtree (inclusive)
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
+  - `open_jmx_file` — Load an external JMX script into the JMeter GUI as the live test plan (replaces the current plan; `merge=true` merges into it); returns the loaded tree in the same format as `get_test_plan_tree`
   - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` and startup JMeter `properties`)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
   - `get_test_results` — Get test results with summary statistics and optional sample details
+- **Cross-Instance Coordination Tools** (available when `jmeter.ai.ipc.enabled=true`, default on):
+  - `list_instances` — List live JMeter AI instances on this machine with `instanceId`, pid, port, currently open `.jmx`, and start time; your own instance is marked `(self)`
+  - `delegate_to_instance` — Delegate a task to the peer instance holding a given `.jmx` (or a specific `instanceId` from `list_instances`) and block for its agent's reply; the peer sees only the `task` text, so make it self-contained
 - Properties use JMeter property names (e.g., `HTTPSampler.domain`, `ThreadGroup.num_threads`)
 - `run_test.properties` are global JMeter properties; read them with `${__P(name)}` or `props.get("name")`
 - **Parent-child compatibility is automatically validated** — the tool checks if elements can be added together

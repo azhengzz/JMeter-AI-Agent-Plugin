@@ -12,6 +12,7 @@ import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
+import org.gitee.jmeter.ai.selection.SelectionInitCommand;
 
 import java.awt.event.ActionEvent;
 import java.io.File;
@@ -136,6 +137,10 @@ public class OpenJmxFileTool extends AbstractTool {
                 boolean isTestPlan = Load.insertLoadedTree(ActionEvent.ACTION_PERFORMED, tree, fMerge);
                 if (!fMerge && isTestPlan) {
                     guiPackage.setTestPlanFile(absPath);
+                    // This tool sets testPlanFile directly, bypassing the ActionRouter OPEN
+                    // routing, so the Load/Close post-action listeners never fire; re-sync
+                    // the port-file jmxPath here (still on the EDT).
+                    SelectionInitCommand.syncJmxPathNow();
                 }
 
                 // Read back the now-loaded GUI tree (same shape as get_test_plan_tree).

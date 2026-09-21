@@ -1,6 +1,6 @@
 package org.gitee.jmeter.ai.agent.skills;
 
-import org.apache.jmeter.util.JMeterUtils;
+import org.gitee.jmeter.ai.utils.WorkspacePaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Loader for agent skills.
@@ -48,7 +49,7 @@ public class SkillsLoader {
         // Load workspace skills (highest priority)
         skills.addAll(loadWorkspaceSkills());
 
-        // Load built-in skills from JAR
+        // Load built-in skills from filesystem ({jmeter.home}/bin/jmeter-agent/skills)
         skills.addAll(loadBuiltinSkills());
 
         // Remove duplicates (workspace takes priority)
@@ -157,19 +158,15 @@ public class SkillsLoader {
 
     private Path getBuiltinSkillsDirectory() {
         try {
-            String jmeterHome = JMeterUtils.getJMeterHome();
-            if (jmeterHome != null) {
-                Path runtimeSkillsDir = Path.of(jmeterHome, "bin", "jmeter-agent", "skills");
-                if (Files.exists(runtimeSkillsDir)) {
-                    return runtimeSkillsDir;
-                }
+            Path runtimeSkillsDir = WorkspacePaths.builtinSkillsDir();
+            if (Files.exists(runtimeSkillsDir)) {
+                return runtimeSkillsDir;
             }
         } catch (Exception e) {
             log.debug("Could not determine JMeter home directory", e);
         }
 
-        log.warn("Built-in skills directory not found: {}/bin/jmeter-agent/skills",
-                JMeterUtils.getJMeterHome());
+        log.warn("Built-in skills directory not found: {}", WorkspacePaths.builtinSkillsDir());
         return null;
     }
 
@@ -207,9 +204,8 @@ public class SkillsLoader {
             return skills;
         }
 
-        try {
-            Files.list(workspaceSkillsDir)
-                    .filter(Files::isDirectory)
+        try (Stream<Path> dirs = Files.list(workspaceSkillsDir)) {
+            dirs.filter(Files::isDirectory)
                     .forEach(skillDir -> {
                         Path skillFile = skillDir.resolve("SKILL.md");
                         if (Files.exists(skillFile)) {
@@ -247,9 +243,8 @@ public class SkillsLoader {
     }
 
     private void loadBuiltinSkillsFromFilesystem(Path skillsDir, List<SkillInfo> skills) {
-        try {
-            Files.list(skillsDir)
-                    .filter(Files::isDirectory)
+        try (Stream<Path> dirs = Files.list(skillsDir)) {
+            dirs.filter(Files::isDirectory)
                     .forEach(skillDir -> {
                         Path skillFile = skillDir.resolve("SKILL.md");
                         if (Files.exists(skillFile)) {

@@ -111,11 +111,6 @@ public final class SelectionTracker {
         LISTENERS.remove(l);
     }
 
-    /** 调试用：当前订阅的 listener 数量，用于检查泄漏。 */
-    public static int getListenerCount() {
-        return LISTENERS.size();
-    }
-
     /**
      * 向指定 listener 同步派发一次当前选中状态。
      * 用于新订阅者立即获取当前选中元素（而非等下一次事件）。

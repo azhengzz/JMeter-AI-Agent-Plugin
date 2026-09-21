@@ -113,6 +113,9 @@ public class MessageProcessor {
 
     /** Append an HTML fragment to the end of the document body. */
     public void appendHtml(StyledDocument doc, String htmlFragment) throws BadLocationException {
+        // 迁移期护栏（回合事件流为唯一显示通道后）：文档变更入口只允许 EDT 调用，
+        // 非 EDT 即接线错误。生产 JMeter 默认关断言（零开销），surefire 开启使其在测试生效
+        assert EventQueue.isDispatchThread() : "MessageProcessor.appendHtml must run on the EDT";
         // Capture "pinned to bottom" BEFORE mutating the document: the viewport's current
         // position tells us whether the user is following the tail (→ reveal new content)
         // or reading history (→ leave their position untouched). Reading it post-append
@@ -204,11 +207,17 @@ public class MessageProcessor {
     }
 
     /**
-     * Remove the loading indicator by its id. Uses {@link HTMLDocument#getElement(String)} +
-     * clearing inner HTML, which is reliable regardless of the element's position in the document
-     * (unlike text-search + remove, which is fragile near the document end on HTMLDocument).
+     * Remove the loading indicator by locating its literal text and removing that range.
+     * Text-search + range remove is used because {@code setInnerHTML(elem, "")} was a visual
+     * no-op under HTMLEditorKit — {@code setOuterHTML(elem, "")} is equally inert; length is
+     * clamped to document bounds to avoid HTMLDocument's trailing-implied-char boundary error.
+     * Note: this scans the whole document (O(N)) on every call — frequent callers (progress
+     * rendering) should gate on their own armed flag and skip the call when the indicator
+     * cannot be present.
      */
     public void removeLoadingIndicator(StyledDocument doc) throws BadLocationException {
+        // 迁移期护栏：同 appendHtml——文档变更入口只允许 EDT 调用
+        assert EventQueue.isDispatchThread() : "MessageProcessor.removeLoadingIndicator must run on the EDT";
         // Locate the literal indicator text and remove that range. This mirrors the original
         // StyledDocument behaviour and works on HTMLDocument too (which extends
         // DefaultStyledDocument). setInnerHTML(elem,"") turned out to be a no-op visually under
@@ -217,13 +226,23 @@ public class MessageProcessor {
         String full = doc.getText(0, doc.getLength());
         int idx = full.lastIndexOf("AI is thinking...");
         if (idx < 0) {
-            log.info("Loading indicator text not found in document");
+            log.debug("Loading indicator text not found in document");
             return;
         }
         int end = idx + "AI is thinking...".length();
-        // Also remove trailing newline(s) left by the indicator block so no blank gap remains.
-        while (end < full.length() && (full.charAt(end) == '\n' || full.charAt(end) == '\r')) {
-            end++;
+        // Consume the PRECEDING newline(s) — the indicator paragraph's opening boundary — and
+        // deliberately KEEP the trailing terminator. The newline after the indicator text is
+        // the paragraph terminator of its own <div>; deleting it would make HTMLDocument merge
+        // paragraphs, absorbing the FOLLOWING block into the indicator's element and inheriting
+        // its attributes (a green italic "[Injected] You: ..." line appended while the turn
+        // runs turned gray italic this way). Extending forward is unsafe; extending backward is
+        // not: the indicator div is consumed whole and the orphaned terminator harmlessly ends
+        // the preceding line. The one shape backward consumption cannot clean is an indicator
+        // with nothing before it (idx stays 0), which leaves its emptied div behind as a blank
+        // line — accepted deliberately, because removing that remnant re-triggers the merge
+        // above. Unreachable in practice: the panel always shows its welcome message first.
+        while (idx > 0 && (full.charAt(idx - 1) == '\n' || full.charAt(idx - 1) == '\r')) {
+            idx--;
         }
         int len = Math.min(end - idx, doc.getLength() - idx);
         if (len <= 0) {

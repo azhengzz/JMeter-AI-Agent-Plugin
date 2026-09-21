@@ -2,7 +2,6 @@ package org.gitee.jmeter.ai.service.provider;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -26,13 +25,7 @@ import org.gitee.jmeter.ai.utils.SystemPrompt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Unified OpenAI-compatible provider for all Chinese LLM providers.
@@ -42,18 +35,51 @@ public class OpenAICompatibleProvider implements AiService {
     private static final Logger log = LoggerFactory.getLogger(OpenAICompatibleProvider.class);
 
     // Maps thinking_style -> extra_body builder (mirrors Nanobot's _THINKING_STYLE_MAP).
-    // Each builder takes a boolean (thinkingEnabled) and returns the dict to merge into extra_body.
-    private static final Map<String, java.util.function.Function<Boolean, Map<String, Object>>> THINKING_STYLE_MAP = Map.of(
-            "thinking_type", on -> Map.of("thinking", Map.of("type", on ? "enabled" : "disabled")),
-            "enable_thinking", on -> Map.of("enable_thinking", on),
-            "reasoning_split", on -> Map.of("reasoning_split", on)
+    // Each builder takes (modelName, thinkingEnabled) and returns the dict to merge into extra_body.
+    // Most styles ignore the model name; "minimax_thinking" uses it to pick M3 (adaptive) vs M2.x (enabled).
+    private static final Map<String, java.util.function.BiFunction<String, Boolean, Map<String, Object>>> THINKING_STYLE_MAP = Map.of(
+            "thinking_type", (model, on) -> Map.of("thinking", Map.of("type", on ? "enabled" : "disabled")),
+            "enable_thinking", (model, on) -> Map.of("enable_thinking", on),
+            "minimax_thinking", (model, on) -> buildMinimaxThinkingExtraBody(model, on)
     );
+
+    /**
+     * MiniMax thinking extra_body. The on/off toggle is {@code thinking.type} (NOT
+     * {@code reasoning_split}, which is only an output-format toggle). The "on" value is
+     * model-family dependent: M3 accepts only {@code adaptive} (sending {@code enabled} → HTTP 400);
+     * M2.x accepts {@code enabled} (its {@code disabled} is silently ignored by the server — a known
+     * limitation). When thinking is on, {@code reasoning_split:true} is also sent so reasoning routes
+     * to {@code reasoning_content} (consumed by the display pipeline) instead of inline {@code <think>}
+     * tags polluting {@code content}.
+     *
+     * @see <a href="https://platform.minimaxi.com/docs/api-reference/text-openai-api#thinking-控制">MiniMax thinking 控制</a>
+     */
+    static Map<String, Object> buildMinimaxThinkingExtraBody(String model, boolean on) {
+        if (on) {
+            String onType = isM3Family(model) ? "adaptive" : "enabled";
+            return Map.of(
+                    "thinking", Map.of("type", onType),
+                    "reasoning_split", true);
+        }
+        return Map.of("thinking", Map.of("type", "disabled"));
+    }
+
+    /**
+     * Whether a MiniMax model is in the M3 family, which requires {@code thinking.type=adaptive}
+     * to enable thinking (it rejects {@code enabled} with HTTP 400). Detection is by substring on
+     * the lowercased model id (e.g. "MiniMax-M3", "minimax:MiniMax-M3-Pro"). Substring (not prefix)
+     * so renamed M3 ids on third-party aggregators (e.g. "acme-minimax-m3-pro") still match, and a
+     * provider prefix does not affect the match (it cannot compose "minimax-m3" across the colon).
+     */
+    static boolean isM3Family(String model) {
+        if (model == null) return false;
+        return model.toLowerCase().contains("minimax-m3");
+    }
 
     private final String providerName;
     private final OpenAIClient client;
     private final Map<String, Map<String, Object>> modelOverrides;
     private final ProviderSpec spec;
-    private final boolean useRawHttpClientOnly;
     private final String apiKey;
     private final String baseUrl;
 
@@ -66,7 +92,6 @@ public class OpenAICompatibleProvider implements AiService {
         this.providerName = spec.getName();
         this.spec = spec;
         this.modelOverrides = spec.getModelOverrides();
-        this.useRawHttpClientOnly = spec.isRawHttpClientOnly();
 
         // Get API key from properties
         this.apiKey = AiConfig.getProperty(spec.getEnvKey(), "");
@@ -76,8 +101,8 @@ public class OpenAICompatibleProvider implements AiService {
 
         // Build the client with provider-specific base URL
         this.baseUrl = AiConfig.getProperty(spec.getName() + ".api.base.url", spec.getDefaultApiBase());
-        log.info("Creating OpenAI-compatible provider: {} with base URL: {} (raw HTTP only: {})",
-                providerName, baseUrl, useRawHttpClientOnly);
+        log.info("Creating OpenAI-compatible provider: {} with base URL: {}",
+                providerName, baseUrl);
 
         OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey.isEmpty() ? "no-key" : apiKey);
@@ -94,185 +119,6 @@ public class OpenAICompatibleProvider implements AiService {
         this.systemPrompt = SystemPrompt.get();
 
         log.info("Initialized {} provider with model: {}", providerName, currentModelId);
-    }
-
-    @Override
-    public String generateResponse(List<String> conversation) {
-        return generateResponse(conversation, null);
-    }
-
-    @Override
-    public String generateResponse(List<String> conversation, String model) {
-        String effectiveModel = model != null ? model : currentModelId;
-
-        // Check if this provider requires raw HTTP client (for API compatibility issues)
-        if (useRawHttpClientOnly) {
-            log.info("Using raw HTTP client for {} (incompatible API response format)", providerName);
-            return makeRawHttpRequest(conversation, effectiveModel);
-        }
-
-        // Use OpenAI SDK for compatible providers
-        try {
-            return makeSdkRequest(conversation, effectiveModel);
-        } catch (Exception e) {
-            log.error("Error generating response from {}", providerName, e);
-            return "Error: " + extractErrorMessage(e);
-        }
-    }
-
-    /**
-     * Make request using OpenAI SDK (for compatible providers).
-     */
-    private String makeSdkRequest(List<String> conversation, String model) {
-        String effectiveModel = model != null ? model : currentModelId;
-        String modelName = stripProviderPrefix(effectiveModel);
-        Map<String, Object> params = buildChatParams(modelName);
-
-        log.info("Generating response for {} with model: {}", providerName, modelName);
-
-        // Create parameters builder
-        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
-                .maxCompletionTokens((Long) params.getOrDefault("max_tokens", 4096L))
-                .temperature((Double) params.getOrDefault("temperature", 0.7))
-                .model(modelName);
-
-        // reasoning_effort 对不支持思考的模型无意义（被 API 忽略），跳过发送。
-        ReasoningEffort effort = toReasoningEffort(generationSettings.getReasoningEffort());
-        boolean modelSupportsThinking = spec != null && spec.supportsThinking(modelName);
-        if (effort != null && modelSupportsThinking) {
-            paramsBuilder.reasoningEffort(effort);
-        }
-
-        // Add system prompt
-        if (!systemPromptInitialized) {
-            paramsBuilder.addSystemMessage(systemPrompt);
-            systemPromptInitialized = true;
-        }
-
-        // Process conversation history
-        for (int i = 0; i < conversation.size(); i++) {
-            String msg = conversation.get(i);
-            if (msg == null || msg.isEmpty()) continue;
-
-            if (i % 2 == 0) {
-                paramsBuilder.addUserMessage(msg);
-            } else {
-                // Assistant messages (odd indices: 1, 3, 5...)
-                // Use addAssistantMessage(String) method from OpenAI SDK 4.x
-                paramsBuilder.addAssistantMessage(msg);
-            }
-        }
-
-        // Create completion
-        ChatCompletionCreateParams requestParams = paramsBuilder.build();
-        log.info("[{}] Request params: {}", providerName, summarizeParams(requestParams));
-        ChatCompletion chatCompletion = client.chat().completions().create(requestParams);
-
-        // Extract response content
-        return chatCompletion.choices().get(0).message().content().orElse("No content available");
-    }
-
-    /**
-     * Make request using raw HTTP client (for incompatible providers).
-     * This handles providers like MiniMax that return extra fields not recognized by OpenAI SDK.
-     */
-    private String makeRawHttpRequest(List<String> conversation, String model) {
-        try {
-            if (apiKey.isEmpty()) {
-                return "Error: No API key configured for " + providerName;
-            }
-
-            String modelName = stripProviderPrefix(model);
-
-            // Build the request body
-            ObjectMapper mapper = new ObjectMapper();
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", modelName);
-            requestBody.put("temperature", generationSettings.getTemperature());
-            requestBody.put("max_tokens", generationSettings.getMaxTokens());
-
-            // Build messages array
-            List<Map<String, String>> messages = new ArrayList<>();
-
-            // Add system prompt
-            if (!systemPromptInitialized) {
-                messages.add(Map.of("role", "system", "content", systemPrompt));
-                systemPromptInitialized = true;
-            }
-
-            // Add conversation
-            for (int i = 0; i < conversation.size(); i++) {
-                String msg = conversation.get(i);
-                if (msg == null || msg.isEmpty()) continue;
-
-                if (i % 2 == 0) {
-                    messages.add(Map.of("role", "user", "content", msg));
-                } else {
-                    messages.add(Map.of("role", "assistant", "content", msg));
-                }
-            }
-
-            requestBody.put("messages", messages);
-
-            String jsonBody = mapper.writeValueAsString(requestBody);
-            log.info("Raw HTTP request to {} with model: {}, body length: {}", baseUrl, modelName, jsonBody.length());
-
-            // Create HTTP client
-            HttpClient httpClient = HttpClient.newHttpClient();
-
-            // Build request
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody));
-
-            HttpRequest httpRequest = requestBuilder.build();
-
-            // Send request
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log.error("Raw HTTP request failed with status {}: {}", response.statusCode(), response.body());
-                return "Error: API returned status " + response.statusCode() + " - " + response.body();
-            }
-
-            // Parse response, ignoring unknown fields
-            return parseResponseIgnoringUnknownFields(response.body());
-
-        } catch (Exception e) {
-            log.error("Raw HTTP request failed", e);
-            return "Error: Request failed - " + e.getMessage();
-        }
-    }
-
-    /**
-     * Parse JSON response, ignoring unknown fields.
-     */
-    private String parseResponseIgnoringUnknownFields(String jsonResponse) {
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            // Configure to ignore unknown properties
-            mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-            JsonNode root = mapper.readTree(jsonResponse);
-            JsonNode choices = root.get("choices");
-            if (choices != null && choices.isArray() && choices.size() > 0) {
-                JsonNode firstChoice = choices.get(0);
-                JsonNode message = firstChoice.get("message");
-                if (message != null) {
-                    JsonNode content = message.get("content");
-                    if (content != null) {
-                        return content.asText();
-                    }
-                }
-            }
-
-            return "Error: Could not extract content from response";
-        } catch (Exception e) {
-            log.error("Failed to parse response JSON", e);
-            return "Error: Failed to parse response - " + e.getMessage();
-        }
     }
 
     @Override
@@ -371,9 +217,12 @@ public class OpenAICompatibleProvider implements AiService {
             boolean alwaysOn = spec != null && spec.isThinkingAlwaysOn(modelName);
 
             // Apply reasoning effort via the SDK enum (includes MAX). Skip for models without
-            // thinking support. Values a model doesn't accept (e.g. K3 with minimal/medium/xhigh)
-            // pass through unchanged — the provider rejects them, surfacing the misconfiguration
-            // rather than silently clamping it.
+            // thinking support. Values a model doesn't accept (e.g. K3/GLM-5.3 with
+            // minimal/medium/xhigh) pass through unchanged — the provider rejects them,
+            // surfacing the misconfiguration rather than silently clamping it. Always-on
+            // models only force thinking.type=enabled below; a configured "none" simply omits
+            // reasoning_effort and lands on the server default (deepest, e.g. GLM-5.3 max) —
+            // the README documents "none" as unsupported for these models.
             ReasoningEffort effort = toReasoningEffort(effectiveReasoningEffort);
             if (effort != null && modelSupportsThinking) {
                 paramsBuilder.reasoningEffort(effort);
@@ -395,10 +244,10 @@ public class OpenAICompatibleProvider implements AiService {
                     && effectiveReasoningEffort != null && modelSupportsThinking) {
                 // Always-on models cannot receive disabled (API rejects); force enabled.
                 boolean thinkingEnabled = alwaysOn || !"none".equalsIgnoreCase(effectiveReasoningEffort);
-                java.util.function.Function<Boolean, Map<String, Object>> styleBuilder =
+                java.util.function.BiFunction<String, Boolean, Map<String, Object>> styleBuilder =
                         THINKING_STYLE_MAP.get(effectiveStyle);
                 if (styleBuilder != null) {
-                    Map<String, Object> extra = styleBuilder.apply(thinkingEnabled);
+                    Map<String, Object> extra = styleBuilder.apply(modelName, thinkingEnabled);
                     if (extra != null && !extra.isEmpty()) {
                         for (Map.Entry<String, Object> entry : extra.entrySet()) {
                             paramsBuilder.putAdditionalBodyProperty(entry.getKey(),
@@ -688,10 +537,6 @@ public class OpenAICompatibleProvider implements AiService {
         log.info("Model set to: {}", modelId);
     }
 
-    public String getCurrentModel() {
-        return currentModelId;
-    }
-
     @Override
     public GenerationSettings getGenerationSettings() {
         return generationSettings;
@@ -718,10 +563,6 @@ public class OpenAICompatibleProvider implements AiService {
 
     public long getMaxTokens() {
         return generationSettings.getMaxTokens();
-    }
-
-    public void resetSystemPromptInitialization() {
-        this.systemPromptInitialized = false;
     }
 
     /**
@@ -775,73 +616,22 @@ public class OpenAICompatibleProvider implements AiService {
         return o.map(Object::toString).orElse("");
     }
 
-    // Private helper methods
-
-    private Map<String, Object> buildChatParams(String model) {
-        Map<String, Object> params = new HashMap<>();
-        params.put("temperature", generationSettings.getTemperature());
-        params.put("max_tokens", (long) generationSettings.getMaxTokens());
-
-        // Apply model-specific overrides
-        Map<String, Object> overrides = modelOverrides.get(model);
-        if (overrides != null) {
-            log.info("Applying model overrides for {}: {}", model, overrides);
-            params.putAll(overrides);
-        }
-
-        return params;
-    }
-
     /**
-     * Strip the provider prefix from a model ID.
-     * e.g., "minimax:MiniMax-M2.7" -> "MiniMax-M2.7"
+     * Strip the current provider's own "provider:" prefix from a model ID.
+     * e.g. for an ollama provider: "ollama:qwen3.5:2b" -> "qwen3.5:2b".
+     * A bare colon that is NOT the current provider's prefix is left intact —
+     * Ollama model tags themselves use ":" (e.g. "qwen3.5:2b"), which previously
+     * got truncated to "2b". No global prefix whitelist is needed: each instance
+     * already knows its own provider name.
      */
     private String stripProviderPrefix(String modelId) {
         if (modelId != null && modelId.contains(":")) {
             String[] parts = modelId.split(":", 2);
-            if (parts.length == 2) {
+            if (parts.length == 2 && parts[0].equals(this.providerName)) {
                 return parts[1];
             }
         }
         return modelId;
-    }
-
-    /**
-     * Convert Message list to String list for legacy API
-     */
-    private List<String> convertToStringList(List<Message> messages) {
-        return messages.stream()
-                .filter(m -> m.getRole() != Message.Role.SYSTEM && m.getRole() != Message.Role.TOOL)
-                .map(Message::getContent)
-                .filter(c -> c != null)
-                .collect(Collectors.toList());
-    }
-
-    private String extractErrorMessage(Exception e) {
-        String message = e.getMessage();
-        if (message == null) {
-            return "Unknown error from " + providerName;
-        }
-
-        // Extract user-friendly error messages
-        if (message.contains("insufficient_quota") || message.contains("balance")) {
-            return "Credit balance is too low. Please check your billing information.";
-        }
-        if (message.contains("invalid_api_key") || message.contains("authentication")) {
-            return "Invalid API key. Please check your API key.";
-        }
-        if (message.contains("rate_limit") || message.contains("too many requests")) {
-            return "Rate limit exceeded. Please try again later.";
-        }
-        if (message.contains("model_not_found")) {
-            return "The selected model was not found.";
-        }
-        if (message.contains("context_length")) {
-            return "The conversation is too long. Please start a new conversation.";
-        }
-
-        // Return a cleaned up version of the error message
-        return message.split("\\n")[0];
     }
 
     private static ReasoningEffort toReasoningEffort(String effort) {
@@ -855,7 +645,7 @@ public class OpenAICompatibleProvider implements AiService {
             case "high" -> ReasoningEffort.HIGH;
             case "xhigh" -> ReasoningEffort.XHIGH;
             case "max" -> ReasoningEffort.MAX;
-            default -> ReasoningEffort.MEDIUM;
+            default -> ReasoningEffort.HIGH;
         };
     }
 }

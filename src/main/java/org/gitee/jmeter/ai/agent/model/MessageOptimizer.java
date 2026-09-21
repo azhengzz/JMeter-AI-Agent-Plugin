@@ -1,13 +1,19 @@
 package org.gitee.jmeter.ai.agent.model;
 
-import org.gitee.jmeter.ai.agent.config.AgentConfig;
+import org.gitee.jmeter.ai.utils.AiConfig;
 
 /**
  * Utility for optimizing messages before persistence.
  * Based on Nanobot's session persistence optimizations.
+ *
+ * <p>NOTE: runtime-context stripping is deliberately NOT done here. The only correct
+ * strip is {@code ContextBuilder.stripRuntimeContext} (tag-based, handles the
+ * user-text-first layout), applied by AgentRunner right after this method for USER
+ * messages. The old prefix-layout stripper that lived here once ate the real user
+ * text whenever the runtime block contained a blank line (e.g. the @-instance
+ * mention section) — persistence then kept only the block tail.
  */
 public class MessageOptimizer {
-    private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context";
 
     /**
      * Optimize a message content for persistence.
@@ -15,6 +21,12 @@ public class MessageOptimizer {
      */
     public static String optimizeContent(Message.Role role, String content, boolean hasToolCalls) {
         if (content == null) {
+            // 带 tool_calls 的 assistant 消息 content 可为 null（OpenAI 工具调用响应恒
+            // null）：落盘为空串而非整条丢弃——丢弃会让其后的 tool 结果成孤儿，下次加载
+            // 被 findLegalStart 截肢整段回合尾（与 shouldSkip 不跳过这类消息的口径对齐）。
+            if (role == Message.Role.ASSISTANT && hasToolCalls) {
+                return "";
+            }
             return null;
         }
 
@@ -25,12 +37,7 @@ public class MessageOptimizer {
             }
         }
 
-        // Handle user messages - remove runtime context prefix
-        if (role == Message.Role.USER) {
-            content = removeRuntimeContext(content);
-        }
-
-        int maxChars = AgentConfig.getInstance().getToolResultMaxChars();
+        int maxChars = AiConfig.getToolResultMaxChars();
 
         // Handle tool result messages - truncate large results
         if (role == Message.Role.TOOL && content.length() > maxChars) {
@@ -43,50 +50,6 @@ public class MessageOptimizer {
         }
 
         return content;
-    }
-
-    /**
-     * Remove runtime context prefix from user message.
-     */
-    private static String removeRuntimeContext(String content) {
-        int runtimeIndex = content.indexOf(RUNTIME_CONTEXT_TAG);
-        if (runtimeIndex >= 0) {
-            // Find the end of the runtime context block (look for double newline)
-            int endOfRuntime = content.indexOf("\n\n", runtimeIndex);
-            if (endOfRuntime > 0) {
-                // Keep only the user message part after runtime context
-                String userPart = content.substring(endOfRuntime + 2).trim();
-                if (!userPart.isEmpty()) {
-                    return userPart;
-                } else {
-                    // If user part is empty, return null to skip this message
-                    return null;
-                }
-            }
-        }
-        return content;
-    }
-
-    /**
-     * Create an optimized message for persistence.
-     * Returns null if the message should be skipped entirely.
-     */
-    public static Message createOptimized(Message msg) {
-        String optimizedContent = optimizeContent(msg.getRole(), msg.getContent(), msg.hasToolCalls());
-
-        if (optimizedContent == null) {
-            return null;
-        }
-
-        // If content wasn't modified, return original message
-        if (optimizedContent == msg.getContent()) {
-            return msg;
-        }
-
-        // Create new message with optimized content
-        // Since Message constructor is private, we need to use reflection or modify Message class
-        // For now, return original message and let the optimization happen at a different layer
-        return msg;
     }
 
     /**

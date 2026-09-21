@@ -16,6 +16,7 @@ import com.openai.models.ReasoningEffort;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,9 +50,9 @@ class OpenAICompatibleProviderTest {
         aiConfigMock.when(() -> AiConfig.getProperty("minimax.api.base.url", "https://api.minimaxi.chat/v1"))
                 .thenReturn("https://api.minimaxi.chat/v1");
         aiConfigMock.when(() -> AiConfig.getDefaultModel()).thenReturn("minimax:MiniMax-M2.7");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.temperature", "0.7")).thenReturn("0.7");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.max.tokens", "4096")).thenReturn("4096");
-        aiConfigMock.when(() -> AiConfig.getProperty("jmeter.ai.reasoning.effort", "medium")).thenReturn("medium");
+        aiConfigMock.when(() -> AiConfig.getTemperature()).thenReturn(0.7);
+        aiConfigMock.when(() -> AiConfig.getMaxTokens()).thenReturn(4096);
+        aiConfigMock.when(() -> AiConfig.getReasoningEffort()).thenReturn("medium");
 
         systemPromptMock = mockStatic(SystemPrompt.class);
         systemPromptMock.when(SystemPrompt::get).thenReturn("Mocked system prompt");
@@ -115,6 +116,33 @@ class OpenAICompatibleProviderTest {
         assertNull(invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, (Object) null));
     }
 
+    @Test
+    void testStripProviderPrefix_OllamaTagStyle_NotStripped() throws Throwable {
+        // Ollama tags use ":" inside the model name; a non-provider prefix must not be stripped
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
+    @Test
+    void testStripProviderPrefix_OllamaProvider_PrefixedTag() throws Throwable {
+        // Prefix stripping is per-instance: an ollama provider strips only "ollama:",
+        // while a bare Ollama tag (no provider prefix) passes through untouched.
+        aiConfigMock.when(() -> AiConfig.getProperty("ollama.api.key", "")).thenReturn("");
+        aiConfigMock.when(() -> AiConfig.getProperty("ollama.api.base.url", "http://localhost:11434/v1"))
+                .thenReturn("http://localhost:11434/v1");
+        ProviderSpec ollamaSpec = new ProviderSpec.Builder()
+                .name("ollama")
+                .displayName("Ollama")
+                .defaultApiBase("http://localhost:11434/v1")
+                .envKey("ollama.api.key")
+                .build();
+        provider = new OpenAICompatibleProvider(ollamaSpec);
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "ollama:qwen3.5:2b"));
+        assertEquals("qwen3.5:2b",
+                invokeInstance("stripProviderPrefix", new Class<?>[]{String.class}, "qwen3.5:2b"));
+    }
+
     // ==================== toReasoningEffort (static) ====================
 
     @ParameterizedTest
@@ -136,8 +164,8 @@ class OpenAICompatibleProviderTest {
                 Arguments.of("none", null),
                 Arguments.of("null", null),
                 Arguments.of(null, null),
-                Arguments.of("garbage", ReasoningEffort.MEDIUM),
-                Arguments.of("", ReasoningEffort.MEDIUM)
+                Arguments.of("garbage", ReasoningEffort.HIGH),
+                Arguments.of("", ReasoningEffort.HIGH)
         );
     }
 
@@ -192,47 +220,59 @@ class OpenAICompatibleProviderTest {
         assertEquals("thinking_type", moonshot.getThinkingStyle());
     }
 
-    // ==================== parseResponseIgnoringUnknownFields ====================
+    // ==================== GLM-5.3 spec wiring ====================
 
     @Test
-    void testParseResponseIgnoringUnknownFields_NormalResponse() throws Throwable {
-        String json = "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion\",\"unknown_field\":\"ignore me\","
-                + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello world\"},"
-                + "\"finish_reason\":\"stop\"}]}";
-        assertEquals("Hello world",
-                invokeInstance("parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json));
+    void testGlm53_IsThinkingAlwaysOn() {
+        // GLM-5.3 / GLM-5.3-flash: thinking.type only supports "enabled" (disabled → API error).
+        ProviderSpec zhipu = ProviderRegistry.findByName("zhipu");
+        assertNotNull(zhipu);
+        assertTrue(zhipu.isThinkingAlwaysOn("glm-5.3"), "GLM-5.3 thinking is always on");
+        assertTrue(zhipu.isThinkingAlwaysOn("glm-5.3-flash"), "GLM-5.3-Flash thinking is always on");
+        assertTrue(zhipu.isThinkingAlwaysOn("GLM-5.3-FLASH"), "always-on check is case-insensitive");
     }
 
     @Test
-    void testParseResponseIgnoringUnknownFields_MissingChoices() throws Throwable {
-        String json = "{\"id\":\"chatcmpl-1\"}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when choices missing, got: " + result);
+    void testGlm53_OlderModels_NotAlwaysOn() {
+        // Older GLM models still accept thinking.type=disabled — must stay disableable.
+        ProviderSpec zhipu = ProviderRegistry.findByName("zhipu");
+        assertNotNull(zhipu);
+        assertFalse(zhipu.isThinkingAlwaysOn("glm-4.5"));
+        assertFalse(zhipu.isThinkingAlwaysOn("glm-4.6"));
+        assertFalse(zhipu.isThinkingAlwaysOn("glm-4.7"));
+        assertFalse(zhipu.isThinkingAlwaysOn("glm-5"));
+        assertFalse(zhipu.isThinkingAlwaysOn("glm-5.1"));
+        assertFalse(zhipu.isThinkingAlwaysOn(null));
     }
 
     @Test
-    void testParseResponseIgnoringUnknownFields_EmptyChoices() throws Throwable {
-        String json = "{\"choices\":[]}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when choices empty, got: " + result);
+    void testGlm53_SupportsThinking() {
+        // zhipu leaves thinkingModels empty => every model supports the thinking toggle.
+        ProviderSpec zhipu = ProviderRegistry.findByName("zhipu");
+        assertNotNull(zhipu);
+        assertTrue(zhipu.supportsThinking("glm-5.3"));
+        assertTrue(zhipu.supportsThinking("glm-5.3-flash"));
     }
 
     @Test
-    void testParseResponseIgnoringUnknownFields_MissingContent() throws Throwable {
-        String json = "{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}";
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, json);
-        assertTrue(result.startsWith("Error"), "expected error string when content missing, got: " + result);
+    void testGlm53_UsesThinkingTypeStyle() {
+        // GLM-5.3 keeps the provider-wide thinking_type style; the always-on flag forces
+        // its "enabled" branch and never lets "disabled" reach the API.
+        ProviderSpec zhipu = ProviderRegistry.findByName("zhipu");
+        assertNotNull(zhipu);
+        assertEquals("thinking_type", zhipu.getThinkingStyle());
     }
 
     @Test
-    void testParseResponseIgnoringUnknownFields_InvalidJson() throws Throwable {
-        String result = (String) invokeInstance(
-                "parseResponseIgnoringUnknownFields", new Class<?>[]{String.class}, "not json");
-        assertNotNull(result);
-        assertTrue(result.startsWith("Error"), "expected error string for invalid JSON, got: " + result);
+    void testGlm53_DetectedByModelAndPrefixedId() {
+        // glm-5.3 routes to zhipu via the "glm" keyword (no per-model registration needed).
+        ProviderSpec byModel = ProviderRegistry.findByModel("glm-5.3");
+        assertNotNull(byModel, "keyword 'glm' must match glm-5.3");
+        assertEquals("zhipu", byModel.getName());
+
+        ProviderSpec byPrefixedId = ProviderRegistry.detectProvider("zhipu:glm-5.3-flash");
+        assertNotNull(byPrefixedId);
+        assertEquals("zhipu", byPrefixedId.getName());
     }
 
     // ==================== isToolChoiceUnsupported(Throwable) ====================
@@ -320,62 +360,70 @@ class OpenAICompatibleProviderTest {
         assertFalse(actual);
     }
 
-    // ==================== extractErrorMessage ====================
+    // ==================== MiniMax thinking style (minimax_thinking) ====================
 
     @Test
-    void testExtractErrorMessage_InsufficientQuota() throws Throwable {
-        Exception e = new RuntimeException("Error: insufficient_quota");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Credit balance"), "got: " + result);
+    void testMinimaxThinkingExtraBody_M3_On() {
+        // thinking on/off toggle is thinking.type; M3 "on" must be adaptive (enabled → HTTP 400).
+        // reasoning_split:true routes reasoning to reasoning_content (output format).
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "adaptive"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M3", true));
     }
 
     @Test
-    void testExtractErrorMessage_InvalidApiKey() throws Throwable {
-        Exception e = new RuntimeException("Error: invalid_api_key or authentication failed");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Invalid API key"), "got: " + result);
+    void testMinimaxThinkingExtraBody_M3_On_WithProviderPrefix() {
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "adaptive"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("minimax:MiniMax-M3-Pro", true));
     }
 
     @Test
-    void testExtractErrorMessage_RateLimit() throws Throwable {
-        Exception e = new RuntimeException("rate_limit too many requests");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("Rate limit"), "got: " + result);
+    void testMinimaxThinkingExtraBody_M3_Off() {
+        Map<String, Object> body = OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M3", false);
+        assertEquals(Map.of("thinking", Map.of("type", "disabled")), body);
+        assertFalse(body.containsKey("reasoning_split"),
+                "reasoning_split must not be sent when thinking is off");
     }
 
     @Test
-    void testExtractErrorMessage_ModelNotFound() throws Throwable {
-        Exception e = new RuntimeException("Error: model_not_found");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.toLowerCase().contains("not found"), "got: " + result);
+    void testMinimaxThinkingExtraBody_M2x_On() {
+        assertEquals(Map.of(
+                        "thinking", Map.of("type", "enabled"),
+                        "reasoning_split", true),
+                OpenAICompatibleProvider.buildMinimaxThinkingExtraBody("MiniMax-M2.7", true));
     }
 
     @Test
-    void testExtractErrorMessage_ContextLength() throws Throwable {
-        Exception e = new RuntimeException("Error: context_length_exceeded");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains("too long"), "got: " + result);
+    void testIsM3Family() {
+        assertTrue(OpenAICompatibleProvider.isM3Family("MiniMax-M3"));
+        assertTrue(OpenAICompatibleProvider.isM3Family("minimax:MiniMax-M3-Pro"));
+        assertTrue(OpenAICompatibleProvider.isM3Family("minimax-m3"));
+        // Substring match: third-party aggregators may rename M3 (no "minimax-m3" prefix).
+        assertTrue(OpenAICompatibleProvider.isM3Family("acme-minimax-m3-pro"));
+        assertFalse(OpenAICompatibleProvider.isM3Family("MiniMax-M2.7"));
+        assertFalse(OpenAICompatibleProvider.isM3Family("abab6.5"));
+        assertFalse(OpenAICompatibleProvider.isM3Family(null));
     }
 
     @Test
-    void testExtractErrorMessage_NullMessage() throws Throwable {
-        Exception e = new RuntimeException();
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertTrue(result.contains(provider.getName()) || result.contains("Unknown error"),
-                "expected provider name or unknown error, got: " + result);
+    void testThinkingStyleMap_HasMinimaxThinking_RemovedReasoningSplit() throws Exception {
+        java.lang.reflect.Field f = OpenAICompatibleProvider.class.getDeclaredField("THINKING_STYLE_MAP");
+        f.setAccessible(true);
+        Map<?, ?> map = (Map<?, ?>) f.get(null);
+        assertTrue(map.containsKey("minimax_thinking"), "minimax_thinking style must be registered");
+        assertFalse(map.containsKey("reasoning_split"),
+                "semantically-wrong reasoning_split style must be removed");
+        assertTrue(map.containsKey("thinking_type"));
+        assertTrue(map.containsKey("enable_thinking"));
     }
 
     @Test
-    void testExtractErrorMessage_MultiLineTruncatedToFirstLine() throws Throwable {
-        Exception e = new RuntimeException("first line of error\nsecond line\nthird line");
-        String result = (String) invokeInstance(
-                "extractErrorMessage", new Class<?>[]{Exception.class}, e);
-        assertEquals("first line of error", result);
+    void testMiniMax_UsesMinimaxThinkingStyle() {
+        ProviderSpec minimax = ProviderRegistry.findByName("minimax");
+        assertNotNull(minimax);
+        assertEquals("minimax_thinking", minimax.getThinkingStyle());
     }
 }

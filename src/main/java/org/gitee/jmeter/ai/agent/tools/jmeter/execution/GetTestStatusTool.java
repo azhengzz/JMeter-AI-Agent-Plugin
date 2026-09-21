@@ -18,6 +18,11 @@ public class GetTestStatusTool extends AbstractTool {
         return "get_test_status";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads collector summary and thread counts. Visible to subagents. */
     @Override
     public Set<String> getScopes() {
@@ -56,6 +61,7 @@ public class GetTestStatusTool extends AbstractTool {
         StringBuilder sb = new StringBuilder();
         sb.append("## Test Status\n\n");
         sb.append("- **State**: ").append(summary.running ? "Running" : "Completed").append("\n");
+        sb.append("- **Started by**: ").append(AgentResultCollector.getLastProvenance()).append("\n");
 
         if (summary.elapsedMs > 0) {
             sb.append("- **Elapsed**: ").append(formatDuration(summary.elapsedMs)).append("\n");

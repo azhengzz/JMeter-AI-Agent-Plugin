@@ -2,10 +2,9 @@ package org.gitee.jmeter.ai.service.provider;
 
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.service.ClaudeService;
-import org.gitee.jmeter.ai.service.OpenAiService;
-import org.gitee.jmeter.ai.service.OllamaAiService;
 import org.gitee.jmeter.ai.tracing.LangSmithClient;
 import org.gitee.jmeter.ai.tracing.TracedAiService;
+import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,15 +34,19 @@ public class AiServiceFactory {
      */
     public static AiService createService(String modelId) {
         if (modelId == null || modelId.isEmpty()) {
-            log.warn("Model ID is null or empty, using default service (OpenAI)");
-            return getCachedService("openai", "default");
+            log.warn("Model ID is null or empty, using default provider '{}'", AiConfig.getDefaultProvider());
+            return getCachedService(AiConfig.getDefaultProvider(), AiConfig.getDefaultModel());
         }
 
         // Detect provider from model ID
         ProviderSpec spec = ProviderRegistry.detectProvider(modelId);
         if (spec == null) {
-            log.warn("No provider detected for model: {}, using default (OpenAI)", modelId);
-            spec = ProviderRegistry.findByName("openai");
+            log.warn("No provider detected for model: {}, using default provider '{}'",
+                    modelId, AiConfig.getDefaultProvider());
+            spec = ProviderRegistry.findByName(AiConfig.getDefaultProvider());
+            if (spec == null) {
+                return null;
+            }
         }
 
         String cacheKey = spec.getName() + ":" + modelId;
@@ -79,14 +82,19 @@ public class AiServiceFactory {
      */
     public static AiService createServiceByName(String providerName, String modelName) {
         if (providerName == null || providerName.isEmpty()) {
-            log.warn("Provider name is null or empty, using default service (OpenAI)");
-            return new OpenAiService();
+            log.warn("Provider name is null or empty, using default provider '{}'",
+                    AiConfig.getDefaultProvider());
+            providerName = AiConfig.getDefaultProvider();
         }
 
         ProviderSpec spec = ProviderRegistry.findByName(providerName);
         if (spec == null) {
-            log.warn("Provider not found: {}, using OpenAI", providerName);
-            spec = ProviderRegistry.findByName("openai");
+            log.warn("Provider not found: {}, using default provider '{}'",
+                    providerName, AiConfig.getDefaultProvider());
+            spec = ProviderRegistry.findByName(AiConfig.getDefaultProvider());
+            if (spec == null) {
+                return null;
+            }
         }
 
         String cacheKey = spec.getName() + ":" + modelName;
@@ -119,10 +127,14 @@ public class AiServiceFactory {
      * @return An AI service instance
      */
     public static AiService createServiceByProvider(String providerName) {
+        if (providerName == null || providerName.isEmpty()) {
+            providerName = AiConfig.getDefaultProvider();
+        }
         ProviderSpec spec = ProviderRegistry.findByName(providerName);
         if (spec == null) {
-            log.warn("Provider not found: {}, using OpenAI", providerName);
-            spec = ProviderRegistry.findByName("openai");
+            log.warn("Provider not found: {}, using default provider '{}'",
+                    providerName, AiConfig.getDefaultProvider());
+            spec = ProviderRegistry.findByName(AiConfig.getDefaultProvider());
         }
 
         return createServiceForSpec(spec, null);
@@ -148,17 +160,12 @@ public class AiServiceFactory {
                 // Use the existing Claude service
                 ClaudeService claudeService = new ClaudeService();
                 if (modelId != null) {
-                    claudeService.setModel(modelId);
+                    // The "anthropic:" prefix is a UI-routing tag; the Anthropic API rejects a
+                    // prefixed id, so strip it to the bare model name. supportsToolCalling()
+                    // returns true unconditionally and no longer validates the id.
+                    claudeService.setModel(bareModelName(modelId));
                 }
                 yield claudeService;
-            }
-            case "ollama" -> {
-                // Use the existing Ollama service
-                OllamaAiService ollamaService = new OllamaAiService();
-                if (modelId != null) {
-                    ollamaService.setModel(modelId);
-                }
-                yield ollamaService;
             }
             default -> {
                 log.warn("Unknown backend: {}, using OpenAI-compatible provider", backend);
@@ -180,6 +187,20 @@ public class AiServiceFactory {
     }
 
     /**
+     * Strip a leading {@code "provider:"} prefix to get the bare model id that the
+     * Anthropic/Ollama SDKs require (e.g. {@code "anthropic:claude-opus-4-8" ->
+     * "claude-opus-4-8"}). OpenAI-compatible providers keep the prefix and are not routed
+     * through here. A bare id (no colon) is returned unchanged.
+     */
+    private static String bareModelName(String modelId) {
+        if (modelId == null) {
+            return null;
+        }
+        int colon = modelId.indexOf(':');
+        return colon >= 0 ? modelId.substring(colon + 1) : modelId;
+    }
+
+    /**
      * Get or create a cached service.
      */
     private static AiService getCachedService(String providerName, String modelId) {
@@ -187,9 +208,10 @@ public class AiServiceFactory {
         return SERVICE_CACHE.computeIfAbsent(cacheKey, k -> {
             ProviderSpec spec = ProviderRegistry.findByName(providerName);
             if (spec == null) {
-                return new OpenAiService();
+                // providerName 解析不到(理论上默认 provider 恒已注册),退回全局默认 provider
+                spec = ProviderRegistry.findByName(AiConfig.getDefaultProvider());
             }
-            return createServiceForSpec(spec, modelId);
+            return spec != null ? createServiceForSpec(spec, modelId) : null;
         });
     }
 

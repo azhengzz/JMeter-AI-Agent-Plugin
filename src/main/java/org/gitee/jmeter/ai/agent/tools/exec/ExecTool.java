@@ -46,18 +46,13 @@ public class ExecTool extends AbstractTool {
     private final List<Pattern> denyPatterns;
 
     public ExecTool() {
-        this.enabled = Boolean.parseBoolean(
-            AiConfig.getProperty("agent.tools.exec.enabled", "false"));
-        this.defaultTimeout = Integer.parseInt(
-            AiConfig.getProperty("agent.tools.exec.timeout", "60"));
-        this.configuredWorkingDir = AiConfig.getProperty(
-            "agent.tools.exec.working.dir", "").isEmpty()
-            ? null : AiConfig.getProperty("agent.tools.exec.working.dir", "");
-        this.pathAppend = AiConfig.getProperty(
-            "agent.tools.exec.path.append", "");
+        this.enabled = AiConfig.isExecToolsEnabled();
+        this.defaultTimeout = AiConfig.getExecTimeout();
+        String workingDir = AiConfig.getExecWorkingDir();
+        this.configuredWorkingDir = workingDir.isEmpty() ? null : workingDir;
+        this.pathAppend = AiConfig.getExecPathAppend();
 
-        String denyConfig = AiConfig.getProperty(
-            "agent.tools.exec.deny.patterns", "");
+        String denyConfig = AiConfig.getExecDenyPatterns();
         if (denyConfig.isEmpty()) {
             this.denyPatterns = compilePatterns(DEFAULT_DENY_PATTERNS);
         } else {

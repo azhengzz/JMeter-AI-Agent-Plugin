@@ -24,6 +24,11 @@ public class GetSelectedElementTool extends AbstractTool {
         return "get_selected_element";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads the current tree selection. Visible to subagents. */
     @Override
     public Set<String> getScopes() {
