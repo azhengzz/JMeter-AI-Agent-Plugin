@@ -64,25 +64,26 @@ final class TableBlockRenderer {
 
     /**
      * Splits a table row into trimmed cell values, dropping the empty slots a
-     * leading/trailing pipe produces. Escaped pipes ({@code \|}) are kept literal.
+     * leading/trailing pipe produces. A backslash escapes only a pipe
+     * ({@code \|} stays literal); any other backslash is ordinary content, so
+     * Windows paths keep their separators.
      */
     static List<String> splitRow(String line) {
         String trimmed = line.trim();
         List<String> cells = new ArrayList<>();
         StringBuilder current = new StringBuilder();
-        boolean escaped = false;
         for (int i = 0; i < trimmed.length(); i++) {
             char c = trimmed.charAt(i);
-            if (c == '\\' && !escaped) {
-                escaped = true;
+            if (c == '\\' && i + 1 < trimmed.length() && trimmed.charAt(i + 1) == '|') {
+                current.append('|');
+                i++;
                 continue;
             }
-            if (c == '|' && !escaped) {
+            if (c == '|') {
                 cells.add(current.toString().trim());
                 current.setLength(0);
             } else {
                 current.append(c);
-                escaped = false;
             }
         }
         cells.add(current.toString().trim());

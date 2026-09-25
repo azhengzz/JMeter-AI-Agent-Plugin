@@ -181,8 +181,17 @@ class ThinkingCard extends JPanel {
             return "";
         }
         String preview = text.length() > MAX_HEADER_CHARS
-                ? text.substring(0, MAX_HEADER_CHARS) + "…"
+                ? cutWithoutSplittingSurrogate(text, MAX_HEADER_CHARS) + "…"
                 : text;
         return " — " + preview;
+    }
+
+    /** Cuts at {@code limit} chars, backing off one rather than splitting a surrogate pair. */
+    private static String cutWithoutSplittingSurrogate(String text, int limit) {
+        int end = Math.min(limit, text.length());
+        if (end > 0 && end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end);
     }
 }

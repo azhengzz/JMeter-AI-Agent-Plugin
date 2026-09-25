@@ -39,7 +39,7 @@ public final class MarkdownRenderer {
     // an embedded block always mirrors the source text instead of growing by
     // one on each side.
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
-        "(\\n?)```([\\w-]*)\\s*([\\s\\S]*?)```(\\n?)"
+        "(\\n?)```([\\w+#-]*)\\s*([\\s\\S]*?)```(\\n?)"
     );
     private static final Pattern BULLET_PATTERN = Pattern.compile("^[-*]\\s+.*");
     private static final Pattern HR_PATTERN = Pattern.compile(
@@ -64,6 +64,10 @@ public final class MarkdownRenderer {
     public static void process(StyledDocument doc, String message, Font baseFont)
         throws BadLocationException {
         log.debug("Processing markdown message");
+
+        // Windows/old-Mac line endings become \n: the line-based phase splits
+        // on \n only, so a bare \r would leak into the document as a glyph.
+        message = message.replace("\r\n", "\n").replace('\r', '\n');
 
         // Phase 1: extract fenced code blocks, replace with placeholder lines.
         // Manual assembly instead of appendReplacement: the match absorbs the
@@ -137,14 +141,24 @@ public final class MarkdownRenderer {
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            if (line.trim().startsWith("[CODE_BLOCK:") && line.trim().endsWith("]")) {
-                renderPlaceholderCodeBlock(doc, line, codeSnippets);
+            String trimmed = line.trim();
+            // A placeholder-shaped line only renders a block when it references
+            // a real, unconsumed snippet key; otherwise it falls through to the
+            // text path - literal "[CODE_BLOCK:...]" from a model must stay
+            // visible, and a spoofed key must not re-render a real block.
+            if (trimmed.startsWith("[CODE_BLOCK:") && trimmed.endsWith("]")
+                    && renderPlaceholderCodeBlock(doc, trimmed, codeSnippets)) {
                 continue;
             }
 
-            // Markdown table: header line, separator, then body rows
+            // Markdown table: header line, then a separator row with a MATCHING
+            // cell count (GFM), then body rows - without the count check a
+            // pipe-bearing sentence followed by a horizontal rule would be
+            // eaten into a grid
             if (TableBlockRenderer.isTableLine(line) && i + 1 < lines.length
-                    && TableBlockRenderer.isTableSeparator(lines[i + 1])) {
+                    && TableBlockRenderer.isTableSeparator(lines[i + 1])
+                    && TableBlockRenderer.splitRow(line).size()
+                            == TableBlockRenderer.splitRow(lines[i + 1]).size()) {
                 java.util.List<String> header = TableBlockRenderer.splitRow(line);
                 java.util.List<java.util.List<String>> rows = new java.util.ArrayList<>();
                 i += 2;
@@ -171,11 +185,20 @@ public final class MarkdownRenderer {
             } else if (BULLET_PATTERN.matcher(line).matches()) {
                 // Top-level unordered list item: normalized bullet + inline formatting
                 doc.insertString(doc.getLength(), "• ", bold);
-                processInline(doc, line.substring(2), styles, false);
+                processInline(doc, line.substring(bulletContentStart(line)), styles, false);
             } else {
                 processInline(doc, line, styles, true);
             }
         }
+    }
+
+    /** Index just past a bullet marker's whitespace run ("-\\s+" per BULLET_PATTERN). */
+    private static int bulletContentStart(String line) {
+        int idx = 1;
+        while (idx < line.length() && Character.isWhitespace(line.charAt(idx))) {
+            idx++;
+        }
+        return idx;
     }
 
     /**
@@ -219,27 +242,48 @@ public final class MarkdownRenderer {
         return heading;
     }
 
-    /** Renders a stored code block referenced by a placeholder line. */
-    private static void renderPlaceholderCodeBlock(
+    /**
+     * True when the emphasis marker at {@code i} ({@code width} chars) can
+     * plausibly open or close a span (CommonMark flanking rules): a marker
+     * surrounded by whitespace on both sides - e.g. the multiplication sign
+     * in "3 * 4" - is literal instead of an unmatched toggle that would
+     * silently drop the character and flip style for the rest of the line.
+     */
+    private static boolean emphasisMarkerAt(String line, int i, int width) {
+        boolean canOpen = i + width < line.length()
+                && !Character.isWhitespace(line.charAt(i + width));
+        boolean canClose = i > 0 && !Character.isWhitespace(line.charAt(i - 1));
+        return canOpen || canClose;
+    }
+
+    /**
+     * Renders a stored code block referenced by a placeholder line.
+     * Single-use: the snippet key is consumed on render so a duplicate
+     * placeholder-shaped line cannot render the same block twice.
+     *
+     * @return true when the line referenced a real, unconsumed placeholder
+     */
+    private static boolean renderPlaceholderCodeBlock(
         StyledDocument doc,
-        String line,
+        String trimmedLine,
         Map<String, String> codeSnippets
     ) throws BadLocationException {
-        String[] parts = line
-            .trim()
-            .substring(12, line.trim().length() - 1)
+        String[] parts = trimmedLine
+            .substring(12, trimmedLine.length() - 1)
             .split(":");
         String snippetKey = parts[0];
         String language = parts.length > 1 ? parts[1] : "";
 
-        String code = codeSnippets.get(snippetKey);
-        if (code != null) {
-            // The placeholder already occupies exactly its own lines - the
-            // spacing above and below mirrors the source text's blank lines,
-            // same as tables and rules. Adding breaks here would widen the
-            // gap beyond what the author wrote.
-            CodeBlockRenderer.render(doc, code, language);
+        String code = codeSnippets.remove(snippetKey);
+        if (code == null) {
+            return false;
         }
+        // The placeholder already occupies exactly its own lines - the
+        // spacing above and below mirrors the source text's blank lines,
+        // same as tables and rules. Adding breaks here would widen the
+        // gap beyond what the author wrote.
+        CodeBlockRenderer.render(doc, code, language);
+        return true;
     }
 
     /** Renders a horizontal rule as a thin embedded divider component. */
@@ -289,14 +333,22 @@ public final class MarkdownRenderer {
             }
 
             if (c == '*' && i + 1 < line.length() && line.charAt(i + 1) == '*') {
-                doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
-                currentText.setLength(0);
-                currentStyle = currentStyle == styles.bold ? styles.normal : styles.bold;
+                if (emphasisMarkerAt(line, i, 2)) {
+                    doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
+                    currentText.setLength(0);
+                    currentStyle = currentStyle == styles.bold ? styles.normal : styles.bold;
+                } else {
+                    currentText.append("**");
+                }
                 i += 2;
             } else if (c == '*') {
-                doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
-                currentText.setLength(0);
-                currentStyle = currentStyle == styles.italic ? styles.normal : styles.italic;
+                if (emphasisMarkerAt(line, i, 1)) {
+                    doc.insertString(doc.getLength(), currentText.toString(), currentStyle);
+                    currentText.setLength(0);
+                    currentStyle = currentStyle == styles.italic ? styles.normal : styles.italic;
+                } else {
+                    currentText.append('*');
+                }
                 i++;
             } else if (c == '`') {
                 doc.insertString(doc.getLength(), currentText.toString(), currentStyle);

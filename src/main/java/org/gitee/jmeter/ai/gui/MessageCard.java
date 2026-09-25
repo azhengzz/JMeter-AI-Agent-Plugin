@@ -161,11 +161,12 @@ class MessageCard extends JPanel {
      * so far.
      */
     void setMarkdownContent(String markdown) {
+        String content = markdown != null ? markdown : "";
         rawText.setLength(0);
-        rawText.append(markdown);
+        rawText.append(content);
         try {
             body.setText("");
-            MarkdownRenderer.process(body.getStyledDocument(), markdown, body.getFont());
+            MarkdownRenderer.process(body.getStyledDocument(), content, body.getFont());
         } catch (BadLocationException e) {
             log.error("Error rendering message markdown", e);
         }
@@ -176,12 +177,13 @@ class MessageCard extends JPanel {
 
     /** Shows plain text without markdown parsing (e.g. user messages). */
     void setPlainContent(String text) {
+        String content = text != null ? text : "";
         rawText.setLength(0);
-        rawText.append(text);
+        rawText.append(content);
         try {
             body.setText("");
             StyledDocument doc = body.getStyledDocument();
-            doc.insertString(0, text, new SimpleAttributeSet());
+            doc.insertString(0, content, new SimpleAttributeSet());
         } catch (BadLocationException e) {
             log.error("Error rendering plain message", e);
         }

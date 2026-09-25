@@ -35,11 +35,19 @@ public final class ChatScroller {
      * the bottom - i.e. new content should be auto-scrolled into view. A
      * missing scroll pane counts as pinned so content is always revealed.
      *
+     * <p>A pane that was never laid out counts as pinned too: its scrollbar
+     * model still holds the BoundedRangeModel defaults (max 100 / extent 10),
+     * which would read as "not pinned" and strand the first messages
+     * off-screen in a panel that starts hidden.
+     *
      * <p>The tolerance is the scrollbar's unit increment (about one text line)
      * so it adapts to font size / DPI instead of a brittle fixed pixel count.
      */
     public static boolean isPinnedToBottom(JScrollPane scrollPane) {
         if (scrollPane == null) {
+            return true;
+        }
+        if (scrollPane.getWidth() <= 0 || scrollPane.getHeight() <= 0) {
             return true;
         }
         JScrollBar bar = scrollPane.getVerticalScrollBar();
@@ -60,16 +68,77 @@ public final class ChatScroller {
      * after the layout pass has updated the scrollbar's maximum for the just
      * appended content; {@code setValue(max)} is clamped by the model to
      * {@code max - extent} (the true bottom).
+     *
+     * <p>When the pane was never laid out (content arrived while the panel was
+     * hidden, e.g. an IPC turn rendering off-screen), a follow is deferred to
+     * the pane's first show/resize instead - otherwise the accumulated
+     * transcript would open scrolled to the top.
      */
     public static void scrollToBottomIfPinned(JScrollPane scrollPane, boolean wasPinned) {
         if (scrollPane == null || !wasPinned) {
             return;
         }
         SwingUtilities.invokeLater(() -> {
-            JScrollBar bar = scrollPane.getVerticalScrollBar();
-            if (bar != null) {
-                bar.setValue(bar.getMaximum());
+            if (scrollPane.getWidth() > 0) {
+                jumpToBottom(scrollPane);
+            } else {
+                followOnFirstShow(scrollPane);
             }
         });
+    }
+
+    private static void jumpToBottom(JScrollPane scrollPane) {
+        JScrollBar bar = scrollPane.getVerticalScrollBar();
+        if (bar != null) {
+            bar.setValue(bar.getMaximum());
+        }
+    }
+
+    /** Installs (at most one) one-shot follower that jumps to bottom on first realization. */
+    private static void followOnFirstShow(JScrollPane scrollPane) {
+        for (java.awt.event.ComponentListener listener : scrollPane.getComponentListeners()) {
+            if (listener instanceof FirstShowFollower) {
+                return;
+            }
+        }
+        scrollPane.addComponentListener(new FirstShowFollower());
+    }
+
+    /**
+     * Jumps to the bottom once the pane gets its first real size - fired by
+     * the show/resize that realize it - then removes itself. componentResized
+     * is the reliable trigger for a never-laid-out pane (layout has run by the
+     * time width is non-zero); componentShown covers an already-realized pane
+     * being re-shown (width non-zero immediately).
+     */
+    private static final class FirstShowFollower
+            implements java.awt.event.ComponentListener {
+
+        @Override
+        public void componentResized(java.awt.event.ComponentEvent e) {
+            maybeFollow(e);
+        }
+
+        @Override
+        public void componentShown(java.awt.event.ComponentEvent e) {
+            maybeFollow(e);
+        }
+
+        private void maybeFollow(java.awt.event.ComponentEvent e) {
+            JScrollPane pane = (JScrollPane) e.getComponent();
+            if (pane.getWidth() <= 0) {
+                return;
+            }
+            pane.removeComponentListener(this);
+            SwingUtilities.invokeLater(() -> jumpToBottom(pane));
+        }
+
+        @Override
+        public void componentMoved(java.awt.event.ComponentEvent e) {
+        }
+
+        @Override
+        public void componentHidden(java.awt.event.ComponentEvent e) {
+        }
     }
 }

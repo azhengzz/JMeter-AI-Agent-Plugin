@@ -102,6 +102,10 @@ class ChatScrollerTest {
         }
         SpyScrollPane spy = new SpyScrollPane();
         spy.spyActive = true;
+        // Size the pane so it reads as realized: isPinnedToBottom treats a
+        // never-laid-out pane (BoundedRangeModel defaults) as pinned, which
+        // would bypass the model math these scenarios pin down.
+        spy.setSize(400, 300);
         return spy;
     }
 }
