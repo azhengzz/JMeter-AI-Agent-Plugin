@@ -260,7 +260,7 @@ mvn clean package -DskipTests
 
 ### GUI 层 (`org.gitee.jmeter.ai.gui`)
 - **AI** - AI 集成入口
-- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）；实现 `TurnSubscriber`——本地/IPC/委派回合的呈现统一由 AgentLoop 回合事件流驱动（唯一显示通道），自投 EDT + 通知时代数快照
+- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行；信息展示区与输入区同为圆角卡语言——展示区为 canvas 底圆角外壳（header 卡内条 + 转录），输入区为统一圆角输入卡：上下文条在输入框上方、模型/按钮行在卡内下方，固定高度无分割条）；实现 `TurnSubscriber`——本地/IPC/委派回合的呈现统一由 AgentLoop 回合事件流驱动（唯一显示通道），自投 EDT + 通知时代数快照
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
 - **ContextUsageRing** - 上下文窗口用量环形指示器（模型选择器右侧；分子 = 最近一次 LLM 调用 `prompt_tokens`，分母 = `jmeter.ai.context.window.tokens`；repaint-only 更新防 revalidate 传播，会话重置经 `advanceRenderEpoch` 一并归零）
@@ -457,7 +457,7 @@ D:\WorkHome\git\github\jmeter-5.6.3
 - **GenerationSettings** 是 LLM 默认参数的唯一来源
 - Agent 通过 SkillsLoader 从文件系统动态加载技能
 - 工具注册通过 JMeterToolRegistry 统一管理
-- 聊天输入框支持 Shift+Enter 换行、拖拽调整消息区域与输入区域高度
+- 聊天输入框支持 Shift+Enter 换行；输入区为统一圆角输入卡（上下文条在输入框上方、模型/按钮行在卡内下方），固定高度、无可拖拽分割条
 - 支持 reasoningContent 结构化思考内容展示
 
 ## 添加新 JMeter 组件 Checklist

@@ -135,12 +135,12 @@ class AiChatPanelNewConversationTest {
         await(call1.entered, "turn parked in LLM call");
 
         // 复位前先布置在跑回合留下的 UI 状态（Stop 模式）与旧聊天内容
-        JTextPane chatArea = field(p, "chatArea");
         JButton stopButton = field(p, "stopButton");
         JButton sendButton = field(p, "sendButton");
+        TranscriptView transcript = field(p, "transcript");
         SwingUtilities.invokeAndWait(() -> {
             invoke(p, "setButtonToStopMode");
-            chatArea.setText("OLD-CONTENT");
+            transcript.addSystemMessage("OLD-CONTENT", null);
         });
         assertTrue(stopButton.isVisible(), "前置：Stop 模式已就位");
 
@@ -154,9 +154,9 @@ class AiChatPanelNewConversationTest {
         assertTrue(turn.isCancelled(), "在跑回合的 future 必须被取消");
 
         // 核心回归点 2：新会话主功能不受影响——旧内容清空 + 欢迎语显示
-        assertTrue(chatArea.getText().contains("Welcome to Gitee Ai"),
+        assertTrue(transcriptText(transcript).contains("Welcome to Gitee Ai"),
                 "新会话欢迎语必须显示");
-        assertFalse(chatArea.getText().contains("OLD-CONTENT"),
+        assertFalse(transcriptText(transcript).contains("OLD-CONTENT"),
                 "旧会话聊天内容必须被清空");
 
         // 核心回归点 3：UI 复位——被取消回合不再有回调兜底（SwingWorker 静默
@@ -178,17 +178,16 @@ class AiChatPanelNewConversationTest {
     @Test
     void plusButton_whenIdle_startsFreshConversationSafely() throws Exception {
         AiChatPanel p = panel();
-
-        JTextPane chatArea = field(p, "chatArea");
-        SwingUtilities.invokeAndWait(() -> chatArea.setText("OLD-CONTENT"));
+        TranscriptView transcript = field(p, "transcript");
+        SwingUtilities.invokeAndWait(() -> transcript.addSystemMessage("OLD-CONTENT", null));
 
         JButton plus = findNewChatButton(p);
         assertNotNull(plus, "未找到标题栏 \"+\" 新会话按钮");
         SwingUtilities.invokeAndWait(plus::doClick);
 
-        assertTrue(chatArea.getText().contains("Welcome to Gitee Ai"),
+        assertTrue(transcriptText(transcript).contains("Welcome to Gitee Ai"),
                 "空闲点击 + 应正常开启新会话");
-        assertFalse(chatArea.getText().contains("OLD-CONTENT"), "旧内容必须被清空");
+        assertFalse(transcriptText(transcript).contains("OLD-CONTENT"), "旧内容必须被清空");
         assertFalse(loop.hasActiveRun(sessionKey), "空闲时点击 + 不应产生在跑回合");
     }
 
@@ -319,10 +318,9 @@ class AiChatPanelNewConversationTest {
 
         edtRelease.countDown(); // EDT 依次执行：blocker → click(重置+代数+1) → render(过期→丢弃)
         awaitEdtDrained();
-
-        JTextPane chatArea = field(p, "chatArea");
-        assertTrue(chatArea.getText().contains("Welcome to Gitee Ai"), "重置本身不受影响");
-        assertFalse(chatArea.getText().contains("R1"),
+        TranscriptView transcript = field(p, "transcript");
+        assertTrue(transcriptText(transcript).contains("Welcome to Gitee Ai"), "重置本身不受影响");
+        assertFalse(transcriptText(transcript).contains("R1"),
                 "重置后才投递的旧回合结论必须按代数丢弃，不得渲染进新会话");
     }
 
@@ -365,10 +363,9 @@ class AiChatPanelNewConversationTest {
         // 宽限等待：SwingWorker 进度经 ~33ms Timer 派发，留足时间让迟到渲染要么发生
         // （守卫丢弃后无痕）要么确定缺席——恒假条件即纯定时等待
         softWait(() -> false, 500);
-
-        JTextPane chatArea = field(p, "chatArea");
-        assertTrue(chatArea.getText().contains("Welcome to Gitee Ai"), "重置本身不受影响");
-        assertFalse(chatArea.getText().contains("noop_tool"),
+        TranscriptView transcript = field(p, "transcript");
+        assertTrue(transcriptText(transcript).contains("Welcome to Gitee Ai"), "重置本身不受影响");
+        assertFalse(transcriptText(transcript).contains("noop_tool"),
                 "重置后迟到的工具事件必须按代数丢弃，不得渲染进新会话");
 
         complete(call2);
@@ -550,6 +547,18 @@ class AiChatPanelNewConversationTest {
     /** 排空 EDT：invokeAndWait 的任务入队并执行完毕后，之前入队的事件必然已执行。 */
     private static void awaitEdtDrained() throws Exception {
         SwingUtilities.invokeAndWait(() -> { });
+    }
+
+    /** 在 EDT 上读转录可见文本（组件树读取须在 EDT；拷贝后离线断言）。 */
+    private static String transcriptText(TranscriptView transcript) {
+        try {
+            java.util.concurrent.atomic.AtomicReference<String> ref =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> ref.set(transcript.visibleTextForTests()));
+            return ref.get();
+        } catch (Exception e) {
+            throw new IllegalStateException("cannot read transcript on EDT", e);
+        }
     }
 
     /** 软等待：cond 在 ms 内变真返回 true，否则到时返回 false（用于等待"不发生"的反证宽限）。 */
