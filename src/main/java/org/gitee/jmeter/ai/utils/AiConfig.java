@@ -358,7 +358,7 @@ public class AiConfig {
         return getBoolean("agent.memory.enabled", true);
     }
 
-    // ---- Anthropic / OpenAI 服务键 ----
+    // ---- Anthropic 服务键 ----
 
     /** Anthropic API key。默认空串(未配置)。 */
     public static String getAnthropicApiKey() {
@@ -373,11 +373,6 @@ public class AiConfig {
     /** Anthropic API base URL。默认空串(走 SDK 默认端点)。 */
     public static String getAnthropicApiBaseUrl() {
         return getProperty("anthropic.api.base.url", "");
-    }
-
-    /** OpenAI API key。默认空串。 */
-    public static String getOpenAiApiKey() {
-        return getProperty("openai.api.key", "");
     }
 
     // ---- LangSmith 链路追踪 ----

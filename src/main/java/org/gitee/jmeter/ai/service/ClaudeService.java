@@ -176,8 +176,8 @@ public class ClaudeService implements AiService {
     public boolean supportsToolCalling() {
         // Tool calling is a backend capability, not a property of the model id. Every
         // Claude model since Claude 3 supports it, so this is unconditional — matching
-        // OpenAiService / OpenAICompatibleProvider, which all return
-        // true and trust the API to reject an unsupported model. A model/prefix check
+        // OpenAICompatibleProvider, which also returns
+        // true and trusts the API to reject an unsupported model. A model/prefix check
         // here has repeatedly broken the agent (provider-prefix bug ×2, the
         // claude-fable-* family-list gap), because AgentRunner's pre-flight guard treats
         // a false return as fatal. Prefix stripping is AiServiceFactory.bareModelName's

@@ -45,7 +45,6 @@ import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.TextUtils;
 import org.gitee.jmeter.ai.utils.VersionUtils;
-import org.gitee.jmeter.ai.service.OpenAiService;
 import org.gitee.jmeter.ai.service.provider.ProviderRegistry;
 import org.gitee.jmeter.ai.service.provider.AiServiceFactory;
 import org.gitee.jmeter.ai.tracing.TracedAiService;
@@ -87,7 +86,6 @@ public class AiChatPanel extends JPanel
     // Agent components
     private AgentLoop agentLoop;
     private ClaudeService claudeService; // Keep for model loading
-    private OpenAiService openAiService; // Keep for model loading
     private AiService currentAiService; // Track current service
 
     // Store the base font sizes for scaling
@@ -143,7 +141,6 @@ public class AiChatPanel extends JPanel
         INSTANCE = this; // 单实例注册,供关闭整合提炼成功后清空消息区
         // Initialize services (keep for model loading)
         claudeService = new ClaudeService();
-        openAiService = new OpenAiService();
 
         // 回合事件订阅挂工厂级表（早于首个 getAgentLoop——见 AgentLoopFactory 注释）：
         // 模型切换换血 loop 后订阅不丢，懒创建面板对在跑回合的后续事件照常可达
@@ -237,10 +234,8 @@ public class AiChatPanel extends JPanel
                     modelName = parts[1];
 
                     // Set the model in the appropriate service
-                    // Note: We pass the FULL model ID (with prefix) so OpenAiService can detect the provider
                     switch (provider) {
                         case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat", "ollama" -> {
-                            openAiService.setModel(selectedModel);  // Pass full ID with prefix
                             log.info("Using {} provider for model: {}", provider, modelName);
                         }
                         default -> {
@@ -1003,8 +998,8 @@ public class AiChatPanel extends JPanel
 
     /**
      * Update the raw service instance for model loading purposes.
-     * This ensures the cached service instances (claudeService, openAiService, etc.)
-     * have the correct model set for model loading operations.
+     * This ensures the cached service instance (claudeService) has the correct
+     * model set for model loading operations.
      */
     private void updateRawServiceForModel(String modelId) {
         if (modelId == null) return;
@@ -1015,8 +1010,9 @@ public class AiChatPanel extends JPanel
             String modelName = parts[1];
 
             switch (provider) {
+                // OpenAI 兼容前缀：路由经 AiServiceFactory 按调用解析模型，无需本地簿记。
+                // case 标签须保留——落入 default 会把 openai 系模型名误簿记到 claudeService。
                 case "openai", "deepseek", "zhipu", "moonshot", "minimax", "langcat", "ollama" -> {
-                    openAiService.setModel(modelId);  // Pass full ID with prefix
                     log.info("Set {} provider model: {}", provider, modelName);
                 }
                 default -> {

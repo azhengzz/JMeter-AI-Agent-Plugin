@@ -29,7 +29,7 @@ import static org.mockito.Mockito.mockStatic;
 /**
  * Unit tests for the pure-logic methods of {@link OpenAICompatibleProvider}.
  * <p>
- * Same scope discipline as {@code OpenAiServiceTest}: no real SDK calls,
+ * Scope discipline: no real SDK calls,
  * no SDK-field construction — those are covered by the manual end-to-end test
  * in the upgrade plan. Tests cover provider-prefix stripping, reasoning-effort
  * conversion, thinking-style normalization, raw JSON response parsing,

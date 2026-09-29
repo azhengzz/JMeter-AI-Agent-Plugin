@@ -227,7 +227,6 @@ mvn clean package -DskipTests
 ### 服务层 (`org.gitee.jmeter.ai.service`)
 - **AiService** 接口定义了 AI 提供者的契约
 - **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Claude
-- **OpenAiService** - 使用 openai-java SDK 集成 OpenAI GPT
 
 #### 服务提供者 (`service/provider`)
 - **AiServiceFactory** - AI 服务工厂
@@ -275,7 +274,6 @@ mvn clean package -DskipTests
 
 ### 使用统计 (`org.gitee.jmeter.ai.usage`)
 - **AnthropicUsage** - Anthropic 用量统计
-- **OpenAiUsage** - OpenAI 用量统计
 
 ### 工具类 (`org.gitee.jmeter.ai.utils`)
 - **AiConfig** - AI 配置工具类
