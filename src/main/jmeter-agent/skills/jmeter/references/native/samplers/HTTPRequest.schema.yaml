@@ -42,6 +42,13 @@ properties:
     required: false
     description: Content encoding for POST/PUT/PATCH
 
+  - name: HTTPSampler.implementation
+    type: String
+    required: false
+    enum: ["HttpClient4", "Java"]
+    default: "HttpClient4"
+    description: HTTP client implementation - "HttpClient4" (Apache HttpComponents HttpClient 4.x) or "Java" (JVM built-in HttpURLConnection). Empty falls back to jmeter.httpsampler property or HTTP Request Defaults.
+
   - name: HTTPSampler.connect_timeout
     type: Integer
     required: false
@@ -53,6 +60,75 @@ properties:
     required: false
     min: 0
     description: Response timeout in milliseconds
+
+  - name: HTTPSampler.image_parser
+    type: Boolean
+    required: false
+    default: false
+    description: Retrieve all embedded resources from HTML files (images, stylesheets, scripts, frames, etc.)
+
+  - name: HTTPSampler.concurrentDwn
+    type: Boolean
+    required: false
+    default: false
+    description: Download embedded resources concurrently (only effective when image_parser is true)
+
+  - name: HTTPSampler.concurrentPool
+    type: Integer
+    required: false
+    min: 1
+    default: 6
+    description: Pool size for concurrent embedded resource downloads
+
+  - name: HTTPSampler.embedded_url_re
+    type: String
+    required: false
+    description: Regex - only embedded URLs matching this expression are downloaded. Empty means all embedded resources are downloaded
+
+  - name: HTTPSampler.embedded_url_exclude_re
+    type: String
+    required: false
+    description: Regex - embedded URLs matching this expression are NOT downloaded. Takes precedence over embedded_url_re
+
+  - name: HTTPSampler.ipSourceType
+    type: Integer
+    required: false
+    min: 0
+    max: 3
+    default: 0
+    description: Source address type - 0 (Hostname), 1 (Device), 2 (Device IPv4), 3 (Device IPv6). Determines how ipSource is interpreted
+
+  - name: HTTPSampler.ipSource
+    type: String
+    required: false
+    description: Source IP address, device name or interface name to bind the request to (interpretation depends on ipSourceType)
+
+  - name: HTTPSampler.proxyScheme
+    type: String
+    required: false
+    description: Proxy server scheme (e.g. "http", "https"). Empty uses default http
+
+  - name: HTTPSampler.proxyHost
+    type: String
+    required: false
+    description: Proxy server hostname
+
+  - name: HTTPSampler.proxyPort
+    type: Integer
+    required: false
+    min: 1
+    max: 65535
+    description: Proxy server port
+
+  - name: HTTPSampler.proxyUser
+    type: String
+    required: false
+    description: Proxy server login username
+
+  - name: HTTPSampler.proxyPass
+    type: String
+    required: false
+    description: Proxy server login password
 
   - name: HTTPSampler.follow_redirects
     type: Boolean
@@ -77,11 +153,23 @@ properties:
     # default: false
     description: Use multipart/form-data for POST
 
+  - name: HTTPSampler.BROWSER_COMPATIBLE_MULTIPART
+    type: Boolean
+    required: false
+    default: false
+    description: Browser-compatible multipart mode - omits Content-Transfer-Encoding and Charset headers on parts. Enable when the server rejects standard multipart headers
+
   - name: HTTPSampler.postBodyRaw
     type: Boolean
     required: false
     default: false
     description: Send raw body content
+
+  - name: HTTPSampler.md5
+    type: Boolean
+    required: false
+    default: false
+    description: Save response as MD5 hash instead of storing the full response body
 
   - name: HTTPsampler.Arguments
     type: Array
