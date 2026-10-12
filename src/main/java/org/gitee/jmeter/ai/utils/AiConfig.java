@@ -331,6 +331,24 @@ public class AiConfig {
         return getInt("agent.subagent.max.concurrent", 1);
     }
 
+    /**
+     * 单个 goal 的跨回合自动续跑次数上限（迭代预算耗尽且 goal 仍活跃时自动投放
+     * 续跑消息开新回合；计数以 goal 为单位，replace 时重置）。默认 5。
+     * Nanobot 硬编码 12 不可配，此处参数化是本插件的有意偏离。
+     */
+    public static int getGoalMaxContinuations() {
+        return getInt("agent.goal.max.continuations", 5);
+    }
+
+    /**
+     * 单个 goal 的冒烟修复轮次上限（run_test smoke 尝试次数，按 goal 累计）。默认 3。
+     * 下界钳 1：0/负值会让完成门禁（smokeAttempts >= limit）恒真——零证据即可
+     * complete，并把首个普通终答切成结构化交回。
+     */
+    public static int getGoalSmokeLimit() {
+        return Math.max(1, getInt("agent.goal.smoke.limit", 3));
+    }
+
     /** 单次子代理工具迭代上限。默认 50。 */
     public static int getSubagentMaxIterations() {
         return getInt("agent.subagent.max.iterations", 50);

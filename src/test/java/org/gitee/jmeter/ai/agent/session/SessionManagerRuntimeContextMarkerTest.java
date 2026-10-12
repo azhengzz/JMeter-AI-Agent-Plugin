@@ -78,4 +78,69 @@ class SessionManagerRuntimeContextMarkerTest {
                 || !loaded.getMetadata().containsKey(ContextBuilder.RUNTIME_CONTEXT_META_KEY));
         assertEquals("旧格式的纯文本", ContextBuilder.stripRuntimeContext(loaded));
     }
+
+    // --- goal 对齐后的尾随复合块（环境 RC 块 + guidance 包裹 + 状态 RC 块） ---
+
+    private static final String GOAL_GUIDANCE =
+            ContextBuilder.GOAL_GUIDANCE_TAG + "\n\n## Active Sustained Goal\n...\n"
+                    + ContextBuilder.GOAL_GUIDANCE_END;
+    private static final String GOAL_STATE =
+            ContextBuilder.RUNTIME_CONTEXT_TAG + "\nGoal (active): objective\n[/Runtime Context]";
+
+    @Test
+    void markerCoversTrailingGoalComposite() {
+        // goal 活跃回合的完整形态：正文 + 环境 metadata 块 + guidance 包裹 + 状态 metadata 块
+        String content = "正文\n\n" + BLOCK + "\n\n" + GOAL_GUIDANCE + "\n\n" + GOAL_STATE;
+        Map<String, Object> marker = ContextBuilder.runtimeContextMarker(content);
+        assertNotNull(marker);
+        // 标记 suffix 必须覆盖整个复合块（含 guidance），否则持久化会漏剥指令性文本
+        assertEquals(BLOCK + "\n\n" + GOAL_GUIDANCE + "\n\n" + GOAL_STATE, marker.get("suffix"));
+        assertEquals("正文", ContextBuilder.stripRuntimeContext(content));
+
+        Message marked = Message.builder()
+                .role(Message.Role.USER)
+                .content(content)
+                .metadata(new LinkedHashMap<>(Map.of(ContextBuilder.RUNTIME_CONTEXT_META_KEY, marker)))
+                .build();
+        assertEquals("正文", ContextBuilder.stripRuntimeContext(marked));
+    }
+
+    @Test
+    void guidanceOnlyTrailingCompositeStrips() {
+        // /goal 请求态（goal 未建成）：正文 + 环境块 + guidance 包裹（无状态块）
+        String content = "正文\n\n" + BLOCK + "\n\n" + GOAL_GUIDANCE;
+        Map<String, Object> marker = ContextBuilder.runtimeContextMarker(content);
+        assertNotNull(marker);
+        assertEquals(BLOCK + "\n\n" + GOAL_GUIDANCE, marker.get("suffix"));
+        assertEquals("正文", ContextBuilder.stripRuntimeContext(content));
+    }
+
+    @Test
+    void midTextGuidanceTagIsNotStripped() {
+        // 正文中粘贴的 guidance 字面标签不构成尾随块,只剥离真正的尾随 RC 块
+        String content = "看 " + GOAL_GUIDANCE + " 中间\n\n" + BLOCK;
+        assertEquals("看 " + GOAL_GUIDANCE + " 中间", ContextBuilder.stripRuntimeContext(content));
+    }
+
+    @Test
+    void hostSyntheticMarkerSurvivesRoundTrip() throws Exception {
+        // 宿主合成 USER 消息（goal nudge/续跑触发）：标记随 jsonl 往返还原，
+        // 记忆/归档的公共视图据此整条跳过，不作为用户话语呈现
+        SessionManager saver = new SessionManager(tempDir, "default");
+        Session session = saver.getOrCreate("syn");
+        session.addMessage(Message.builder()
+                .role(Message.Role.USER)
+                .content("You have an active sustained goal: ...")
+                .metadata(new LinkedHashMap<>(Map.of(ContextBuilder.HOST_SYNTHETIC_META_KEY, "goal")))
+                .build());
+        saver.saveSession(session);
+
+        String jsonl = Files.readString(tempDir.resolve("sessions").resolve("syn.jsonl"));
+        assertTrue(jsonl.contains("\"_host_synthetic\""));
+
+        SessionManager loader = new SessionManager(tempDir, "syn");
+        Message raw = loader.getOrCreate("syn").getMessagesInRange(0, 1).get(0);
+        assertTrue(raw.getMetadata().containsKey(ContextBuilder.HOST_SYNTHETIC_META_KEY),
+                "the host-synthetic marker must round-trip through the jsonl");
+    }
 }

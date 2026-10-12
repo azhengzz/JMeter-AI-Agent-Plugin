@@ -322,6 +322,8 @@ Each provider also supports `*.temperature`, `*.max.history.size`, etc. to overr
 | `jmeter.ai.injection.queue.size` | Max queued injection messages per session | `20` |
 | `jmeter.ai.injection.max.per.turn` | Max injection messages processed per agent turn | `3` |
 | `agent.runcapture.enabled` | Capture GUI-initiated test runs (auto-injects a result collector so `get_test_status`/`get_test_results` see live data; when off, only runs started via `run_test` are captured) | `true` |
+| `agent.goal.max.continuations` | Max cross-turn auto-continuation slices per goal (exhaustion forces a structured handback) | `5` |
+| `agent.goal.smoke.limit` | Max smoke-repair rounds per goal (after exhaustion complete needs no evidence but the recap must carry residual risks) | `3` |
 | `agent.session.per-instance` | Each JMeter instance uses its own session file (`false` reverts to the legacy global shared session) | `true` |
 | `agent.session.reap.ttl.days` | Orphan session reap TTL (days; files are deleted only when the owning instance is confirmed dead and past this age) | `7` |
 | `agent.workspace.path` | Workspace path (stores MEMORY.md, HISTORY.md, sessions, skills, templates) | Three-tier fallback: `agent.workspace.path` → `{jmeter.home}/bin/jmeter-agent` (default) → `{user.home}/.jmeter-ai/agent` (when JMeter home is unavailable) |

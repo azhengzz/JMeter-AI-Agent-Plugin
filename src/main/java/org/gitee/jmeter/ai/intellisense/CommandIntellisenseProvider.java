@@ -14,6 +14,7 @@ public class CommandIntellisenseProvider {
         // Slash commands
         commands.add("/new");
         commands.add("/status");
+        commands.add("/goal");
         commands.add("/help");
     }
 

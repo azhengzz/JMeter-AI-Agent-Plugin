@@ -250,7 +250,7 @@ class WebFetchToolTest {
         @DisplayName("getTimeoutMs returns 0 (use registry default)")
         void defaultTimeout() {
             WebFetchTool tool = createTool(true);
-            assertEquals(0, tool.getTimeoutMs());
+            assertEquals(0, tool.getTimeoutMs(java.util.Map.of()));
         }
 
         @Test

@@ -318,6 +318,8 @@ Agent 通过文件系统动态加载技能模块，每个技能包含 `SKILL.md`
 | `jmeter.ai.injection.queue.size` | 单个会话最大排队注入消息数 | `20` |
 | `jmeter.ai.injection.max.per.turn` | 每个 Agent 回合处理的注入消息上限 | `3` |
 | `agent.runcapture.enabled` | 捕获 GUI 手动启动的测试运行（自动注入结果收集器，供 `get_test_status`/`get_test_results` 读取；关闭后仅 `run_test` 发起的运行被捕获） | `true` |
+| `agent.goal.max.continuations` | 单个 goal 的跨回合自动续跑次数上限（耗尽后强制结构化交回） | `5` |
+| `agent.goal.smoke.limit` | 单个 goal 的冒烟修复轮次上限（耗尽后 complete 免证据但 recap 须含遗留风险） | `3` |
 | `agent.session.per-instance` | 每个 JMeter 实例使用独立会话文件（`false` 回退到全局共享会话） | `true` |
 | `agent.session.reap.ttl.days` | 孤儿会话文件回收 TTL（天；仅当归属实例已确认死亡且超过该时限才删除） | `7` |
 | `agent.workspace.path` | 工作空间路径（保存 MEMORY.md、HISTORY.md、会话、技能、模板） | 三档回退：`agent.workspace.path` → `{jmeter.home}/bin/jmeter-agent`（默认）→ `{user.home}/.jmeter-ai/agent`（JMeter home 不可用时） |

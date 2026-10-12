@@ -4,28 +4,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 回合身份句柄：进程唯一 {@code id} + 来源 + 显示域元数据 + 终态原子去重位。
+ * 回合身份句柄：进程唯一 id + 来源 + 显示域元数据 + 终态去重位。
  *
- * <p>{@code id} 由进程级 {@link AtomicLong} 序列分配，跨 {@code switchAiService} 的
- * AgentLoop 重建不回绕——陈旧 loop 的迟到事件不可能撞上新回合 id，订阅者按 id
- * 过滤即天然免疫模型切换期的陈旧终态。
+ * <p>id 取进程级递增序列，跨 AgentLoop 重建不回绕——陈旧 loop 的迟到事件
+ * 不会撞上新回合 id，订阅者按 id 过滤即可。
  *
- * <p>{@link #tryClaimTerminal()} 是终态"恰好一次"的执法点：取消路径
- * （signalCancel）与回合体收尾路径（try 尾/catch）双发射点竞态时，先 claim 者
- * 发射、后到者静默放弃，订阅者无需自行去重终态。
- *
- * <p>本类是未来 turn-centric 重构（{@code refactor-agent-loop-turn-centric}）中
- * {@code Turn} 聚合体的身份字段子集（id/sessionKey/origin/echoText），
- * 前向兼容：Turn 落地时升格或由 Turn 携带本句柄，订阅者零感知。
+ * <p>{@link #tryClaimTerminal()} 保证终态恰好发射一次：取消路径与回合收尾
+ * 路径竞态时，先认领者发射、后到者放弃，订阅者无需自行去重。
  */
 public final class TurnHandle {
-    /** 进程级序列：跨 AgentLoop 实例重建持续递增（见类注释的防撞语义）。 */
+    /** 进程级序列：每个回合拿到一个进程内唯一且单调递增的 id。 */
     private static final AtomicLong SEQ = new AtomicLong();
 
     private final long id;
     private final String sessionKey;
     private final TurnOrigin origin;
-    /** 含来源前缀的消息文本；REPUBLISH 为 null（You 回显已由 INJECTED 事件给过）。 */
+    /** 触发本回合的消息文本：面板据此画 You 回显行；
+     * IPC 源已带 "[from cli] "/"[delegated-from …]" 来源前缀；REPUBLISH 为 null
+     * （You 回显已由 INJECTED 事件给过）。 */
     private final String echoText;
     /** 命令回合（isPriority||isDispatchable，判据内建于 loop）：IPC 命令回合无显示契约。 */
     private final boolean commandTurn;

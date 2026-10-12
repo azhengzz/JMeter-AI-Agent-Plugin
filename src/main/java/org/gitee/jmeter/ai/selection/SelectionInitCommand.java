@@ -71,10 +71,9 @@ public class SelectionInitCommand implements Command {
             // 保证进程启动只执行一次,不随 provider 切换 / 关闭整合 / 每次 IPC 解析重复触发。
             org.gitee.jmeter.ai.utils.AiConfig.logConfiguration();
             java.nio.file.Path workspacePath = org.gitee.jmeter.ai.utils.AiConfig.getWorkspacePath();
-            if (!org.gitee.jmeter.ai.utils.WorkspaceInitializer.isInitialized(workspacePath)) {
-                log.info("Initializing workspace: {}", workspacePath);
-                org.gitee.jmeter.ai.utils.WorkspaceInitializer.initialize(workspacePath);
-            }
+            // 逐文件同步 workspace 模板：initialize 内部按文件存在性补充（缺哪个拷哪个，
+            // 绝不覆盖已有内容），每次启动幂等执行，升级新增的模板由此落进存量 workspace
+            org.gitee.jmeter.ai.utils.WorkspaceInitializer.initialize(workspacePath);
             SelectionTracker.install();
             registerRunCaptureListeners();
             registerCloseConsolidationHooks();

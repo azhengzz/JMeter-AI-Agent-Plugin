@@ -168,15 +168,13 @@ public class SystemPrompt {
     }
 
     /**
-     * Initialize workspace with template files if not already initialized.
+     * Sync workspace template files (per-file: only missing files are created,
+     * existing content is never overwritten).
      *
      * @param workspace The workspace path
      */
     private static void initializeWorkspace(Path workspace) {
-        if (!WorkspaceInitializer.isInitialized(workspace)) {
-            log.info("Initializing workspace: {}", workspace);
-            WorkspaceInitializer.initialize(workspace, true);
-        }
+        WorkspaceInitializer.initialize(workspace, true);
     }
 
     /**

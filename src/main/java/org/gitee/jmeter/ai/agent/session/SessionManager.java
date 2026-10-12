@@ -72,13 +72,31 @@ public class SessionManager {
     }
 
     /**
-     * Get or create a session for the given key
+     * Get or create a session for the given key. Cache miss loads the persisted jsonl
+     * when one exists (honoring {@link #invalidate}'s reload contract — header metadata
+     * like {@code goal_state} must survive a reset+invalidate cycle); only a truly new
+     * key creates a fresh session. An existing-but-unreadable file throws
+     * {@link java.io.UncheckedIOException} instead of being overwritten by a fresh
+     * session (fail loud, never destroy).
      */
     public Session getOrCreate(String sessionKey) {
         return sessions.computeIfAbsent(sessionKey, key -> {
-            Session session = new Session(key);
-            saveSession(session);
-            log.info("Created new session: {}", key);
+            Session session = null;
+            Path file = getSessionFile(key);
+            if (Files.exists(file)) {
+                Session loaded = readSessionFile(file);
+                // header key mismatch (hand-renamed file): fall through to fresh create
+                if (loaded != null && loaded.getKey().equals(key)) {
+                    session = loaded;
+                }
+            }
+            if (session == null) {
+                session = new Session(key);
+                saveSession(session);
+                log.info("Created new session: {}", key);
+            } else {
+                log.info("Reloaded session from disk: {}", key);
+            }
             return session;
         });
     }
@@ -141,13 +159,14 @@ public class SessionManager {
             try {
                 tmp = Files.createTempFile(sessionStorage, "session-", ".tmp");
                 try (BufferedWriter writer = Files.newBufferedWriter(tmp)) {
-                    // Line 1: metadata
+                    // Line 1: metadata（metadata 子对象承载会话级状态,如 goal_state——
+                    // clear() 只清消息不动它,Nanobot 语义:持续目标跨会话重置存活）
                     ObjectNode metadata = mapper.createObjectNode();
                     metadata.put("_type", "metadata");
                     metadata.put("key", session.getKey());
                     metadata.put("created_at", session.getCreatedAt().toString());
                     metadata.put("updated_at", session.getUpdatedAt().toString());
-                    metadata.putObject("metadata");
+                    metadata.set("metadata", mapper.valueToTree(session.getMetadataSnapshot()));
                     metadata.put("last_consolidated", session.getLastConsolidatedIndex());
                     writer.write(mapper.writeValueAsString(metadata));
                     writer.newLine();
@@ -205,15 +224,35 @@ public class SessionManager {
     }
 
     /**
-     * Load a single session file in JSONL format.
+     * Load a single session file into the cache (startup scan path).
      */
     private void loadSessionFile(Path sessionFile) {
+        try {
+            Session loaded = readSessionFile(sessionFile);
+            if (loaded != null) {
+                sessions.put(loaded.getKey(), loaded);
+            }
+        } catch (java.io.UncheckedIOException e) {
+            // 启动扫描容忍不可读文件（跳过、不杀构造器）；后续 getOrCreate 重读仍失败
+            // 则响亮失败，绝不覆写
+            log.warn("Skipping unreadable session file at startup: {}", sessionFile, e);
+        }
+    }
+
+    /**
+     * Read one session jsonl (header metadata + tolerant per-line messages); null
+     * when the file has no parsable metadata header. An existing-but-unreadable file
+     * throws {@link java.io.UncheckedIOException} — callers must never treat that as
+     * "no header" and overwrite it with a fresh session.
+     */
+    private Session readSessionFile(Path sessionFile) {
         try (BufferedReader reader = Files.newBufferedReader(sessionFile)) {
             String line;
             String sessionKey = null;
             LocalDateTime createdAt = null;
             LocalDateTime updatedAt = null;
             int lastConsolidated = 0;
+            Map<String, Object> loadedMetadata = null;
             java.util.List<Message> messages = new java.util.ArrayList<>();
 
             while ((line = reader.readLine()) != null) {
@@ -234,9 +273,13 @@ public class SessionManager {
 
                 if (node.has("_type") && "metadata".equals(node.get("_type").asText())) {
                     sessionKey = node.has("key") ? node.get("key").asText() : null;
-                    createdAt = node.has("created_at") ? LocalDateTime.parse(node.get("created_at").asText()) : null;
-                    updatedAt = node.has("updated_at") ? LocalDateTime.parse(node.get("updated_at").asText()) : null;
+                    createdAt = parseHeaderTimestamp(node, "created_at");
+                    updatedAt = parseHeaderTimestamp(node, "updated_at");
                     lastConsolidated = node.has("last_consolidated") ? node.get("last_consolidated").asInt() : 0;
+                    if (node.has("metadata") && node.get("metadata").isObject()) {
+                        loadedMetadata = mapper.convertValue(node.get("metadata"),
+                                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+                    }
                 } else {
                     Message msg = jsonToMessage(node);
                     if (msg != null) {
@@ -245,23 +288,49 @@ public class SessionManager {
                 }
             }
 
-            if (sessionKey != null && !sessionKey.isEmpty()) {
-                Session session = new Session(sessionKey);
-                if (createdAt != null) {
-                    session.setCreatedAt(createdAt);
-                }
-                if (updatedAt != null) {
-                    session.setUpdatedAt(updatedAt);
-                }
-                session.setLastConsolidatedIndex(lastConsolidated);
-                for (Message msg : messages) {
-                    session.addMessage(msg);
-                }
-                sessions.put(sessionKey, session);
+            if (sessionKey == null || sessionKey.isEmpty()) {
+                return null;
             }
+            Session session = new Session(sessionKey);
+            if (createdAt != null) {
+                session.setCreatedAt(createdAt);
+            }
+            if (updatedAt != null) {
+                session.setUpdatedAt(updatedAt);
+            }
+            session.setLastConsolidatedIndex(lastConsolidated);
+            if (loadedMetadata != null) {
+                session.setMetadata(loadedMetadata);
+            }
+            for (Message msg : messages) {
+                session.addMessage(msg);
+            }
+            return session;
 
         } catch (IOException e) {
-            log.warn("Failed to load session file: {}", sessionFile, e);
+            // 读失败 ≠ 无头行：抛出而非静默返 null——getOrCreate 会把 null 当「无可解析
+            // 头行」走全新建并覆写，瞬时读失败（杀软/索引器短暂锁文件）会把完好 jsonl
+            // 连同 goal_state 不可逆销毁。启动扫描（loadSessionFile）捕获后跳过本文件
+            throw new java.io.UncheckedIOException(
+                    "Session file exists but could not be read: " + sessionFile, e);
+        }
+    }
+
+    /**
+     * 头行时间戳容错解析：外部写入（手工编辑、同步/备份工具写回带 Z 的偏移格式）的
+     * 非法值不抛 DateTimeParseException——该 RuntimeException 会沿 getOrCreate 重载
+     * 路径逃逸，把会话永久楔死（每次访问都炸，新键自愈分支不可达）。null 与字段缺失
+     * 同义，回落加载期默认值（对齐消息时间戳的既有守卫）。
+     */
+    private static LocalDateTime parseHeaderTimestamp(JsonNode node, String field) {
+        if (!node.has(field) || node.get(field).isNull()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(node.get(field).asText());
+        } catch (DateTimeParseException e) {
+            log.warn("Skipping unparseable header '{}' in session file: {}", field, e.getMessage());
+            return null;
         }
     }
 
@@ -340,6 +409,13 @@ public class SessionManager {
             node.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, true);
         }
 
+        // 宿主合成消息标记(goal nudge/续跑触发等 host 合成文本):记忆/归档的公共视图
+        // 据此整条跳过,不作为用户话语呈现;LLM 回放不受影响
+        if (message.getMetadata() != null
+                && message.getMetadata().containsKey(ContextBuilder.HOST_SYNTHETIC_META_KEY)) {
+            node.put(ContextBuilder.HOST_SYNTHETIC_META_KEY, true);
+        }
+
         return node;
     }
 
@@ -400,10 +476,11 @@ public class SessionManager {
                 }
             }
 
-            // metadata 合并语义(三键可共存):toolName(TOOL 角色经顶层 name 字段)、
-            // _runtime_context(USER 角色)、_recovery_interrupted(任意角色,合成消息)。
-            // 原实现按键序整替换(「与 toolName 互斥」只对前两键成立)——第三键加入后
-            // 会静默互相覆盖,故统一收集进同一 LinkedHashMap 一次挂载
+            // metadata 合并语义(四键可共存):toolName(TOOL 角色经顶层 name 字段)、
+            // _runtime_context(USER 角色)、_recovery_interrupted(任意角色,合成消息)、
+            // _host_synthetic(宿主合成 USER 消息)。原实现按键序整替换(「与 toolName
+            // 互斥」只对前两键成立)——第三键加入后会静默互相覆盖,故统一收集进同一
+            // LinkedHashMap 一次挂载
             java.util.Map<String, Object> metadata = null;
             if (role == Message.Role.TOOL && node.has("name")) {
                 metadata = new java.util.LinkedHashMap<>();
@@ -426,6 +503,12 @@ public class SessionManager {
                     metadata = new java.util.LinkedHashMap<>();
                 }
                 metadata.put(ContextBuilder.RECOVERY_INTERRUPTED_META_KEY, Boolean.TRUE);
+            }
+            if (node.has(ContextBuilder.HOST_SYNTHETIC_META_KEY)) {
+                if (metadata == null) {
+                    metadata = new java.util.LinkedHashMap<>();
+                }
+                metadata.put(ContextBuilder.HOST_SYNTHETIC_META_KEY, Boolean.TRUE);
             }
             if (metadata != null) {
                 builder.metadata(metadata);

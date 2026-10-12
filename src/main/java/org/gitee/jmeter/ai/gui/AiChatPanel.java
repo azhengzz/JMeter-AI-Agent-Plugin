@@ -1071,6 +1071,7 @@ public class AiChatPanel extends JPanel
                 "**Slash commands:**\n" +
                 "- `/new` — Start a new conversation\n" +
                 "- `/status` — Show agent status\n" +
+                "- `/goal <objective>` — Start an autonomous goal: modify, verify, and fix the test plan until the hard standard passes\n" +
                 "- `/help` — Show available commands\n\n" +
                 "How can I assist you today?";
 
@@ -1109,7 +1110,15 @@ public class AiChatPanel extends JPanel
         // 退役 loop 上该会话的在跑回合，重置核心在 self（面板持有的 loop，直构亦可）
         // 上执行
         if (agentLoop != null) {
-            AgentLoopFactory.resetConversationAny(agentLoop, InstanceContext.currentSessionKey());
+            try {
+                AgentLoopFactory.resetConversationAny(agentLoop, InstanceContext.currentSessionKey());
+            } catch (RuntimeException e) {
+                // getOrCreate 读失败（瞬时锁文件）会以 UncheckedIOException 响亮失败——
+                // 这里在 EDT 上：吞掉并放弃本次重置（不清屏、不伪造新会话），绝不
+                // 让未捕获异常砸 EDT
+                log.error("New-conversation reset aborted (session file unreadable?)", e);
+                return;
+            }
         }
 
         // Clear the chat area

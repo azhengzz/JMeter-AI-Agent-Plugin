@@ -13,6 +13,14 @@ public class CommandContext {
     private final Session session;
     private final String sessionKey;
     private final AgentLoop loop;
+    /** /goal 附件：命令处理器置位，Phase 3 回合体读取后透传进 AgentRunSpec。 */
+    private boolean goalRequested;
+    /**
+     * 本命令派发发生在「本回合自己的回合体内」（Phase 3 executor 路径）而非忙期
+     * 直派（Phase 2）。/goal 借此区分「闲时触发」（放行进 agent 回合）与「忙期
+     * 到达」（拒绝并提示先 Stop）——Phase 3 派发时注册表里只有自己的回合。
+     */
+    private boolean turnOwner;
 
     public CommandContext(String raw, String args, Session session, String sessionKey, AgentLoop loop) {
         this.raw = raw;
@@ -52,5 +60,21 @@ public class CommandContext {
 
     public AgentLoop getLoop() {
         return loop;
+    }
+
+    public boolean isGoalRequested() {
+        return goalRequested;
+    }
+
+    public void setGoalRequested(boolean goalRequested) {
+        this.goalRequested = goalRequested;
+    }
+
+    public boolean isTurnOwner() {
+        return turnOwner;
+    }
+
+    public void markTurnOwner() {
+        this.turnOwner = true;
     }
 }

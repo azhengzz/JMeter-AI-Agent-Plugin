@@ -75,7 +75,7 @@ public interface Tool {
      *
      * @return Timeout in milliseconds, or 0 for default
      */
-    default long getTimeoutMs() {
+    default long getTimeoutMs(Map<String, Object> parameters) {
         return 0;
     }
 

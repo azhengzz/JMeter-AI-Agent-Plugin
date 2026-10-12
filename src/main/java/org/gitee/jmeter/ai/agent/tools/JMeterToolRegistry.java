@@ -25,6 +25,19 @@ public class JMeterToolRegistry {
      * @param registry The tool registry to register tools with
      */
     public static void registerDefaultTools(ToolRegistry registry) {
+        registerDefaultTools(registry, null);
+    }
+
+    /**
+     * Register all default JMeter tools with the given registry.
+     *
+     * @param registry        The tool registry to register tools with
+     * @param sessionManager  goal 工具与验证工具的 goal 状态通道；null 时 goal 类
+     *                        工具不注册、验证工具的 goal 接线旁路（IpcServer 的
+     *                        探活注册等无会话语境场景）
+     */
+    public static void registerDefaultTools(ToolRegistry registry,
+                                            org.gitee.jmeter.ai.agent.session.SessionManager sessionManager) {
         // Register core JMeter tools
         registry.register(new GetScriptInfoTool());
         registry.register(new GetSelectedElementTool());
@@ -46,9 +59,16 @@ public class JMeterToolRegistry {
         registry.register(new GetLogPanelContentTool());
 
         // Register test execution tools
-        registry.register(new RunTestTool());
+        registry.register(new RunTestTool(sessionManager));
         registry.register(new GetTestStatusTool());
         registry.register(new GetTestResultsTool());
+        registry.register(new ValidateTestPlanTool(sessionManager));
+
+        // Register goal metadata tools (need the session channel)
+        if (sessionManager != null) {
+            registry.register(new org.gitee.jmeter.ai.agent.tools.goal.CreateGoalTool(sessionManager));
+            registry.register(new org.gitee.jmeter.ai.agent.tools.goal.UpdateGoalTool(sessionManager));
+        }
 
         // Register filesystem tools if enabled
         registerFilesystemTools(registry);

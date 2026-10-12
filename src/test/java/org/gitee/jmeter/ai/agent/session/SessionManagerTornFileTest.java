@@ -81,8 +81,9 @@ class SessionManagerTornFileTest {
         }
         manager.saveSession(session);
 
-        manager.invalidate(key);                       // 模拟重置后的干净缓存
-        Session shorter = manager.getOrCreate(key);    // 新会话（无消息）
+        manager.invalidate(key);                       // 重置核心的缓存失效步
+        Session shorter = manager.getOrCreate(key);    // 契约：从盘重载（头行 metadata 随行）
+        shorter.clear();                               // 重置核心的清空步：消息清空、metadata 保留
         shorter.addMessage(Message.builder()
                 .role(Message.Role.USER).content("only-one").build());
         manager.saveSession(shorter);

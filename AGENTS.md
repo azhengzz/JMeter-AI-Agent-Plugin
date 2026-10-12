@@ -127,6 +127,15 @@ mvn clean package -DskipTests
 - **BuiltinCommands** - 内置命令定义
 - **CommandContext** - 命令执行上下文
 
+#### Goal 自主闭环 (`/goal`，见 `openspec/specs/goal-autonomous-loop/` 与 `test-plan-verification/`)
+`/goal <需求>` 触发的目标驱动脚本开发闭环（完整移植 Nanobot /goal 骨架 + 本插件特有的确定性验证层）：
+- **命令层**：`/goal` 必须内联需求（无参 usage、busy 拒绝先 Stop）；命令只打 goal 标记（`CommandContext` 附件）+ 返回 null 放行进普通回合，`AgentRunSpec.goalRequested` 透传 = goal 变更权限
+- **状态**：`GoalState`（active/completed/cancelled/blocked 状态机 + smokeAttempts/continuationRounds/验证证据）持久于 session jsonl 头行 `metadata.goal_state`——`/new` 清消息不清 goal、Stop 只停回合、终结仅经 update_goal（含必填 recap）
+- **工具**：`create_goal`/`update_goal`（tools/goal；权限门 = 仅 /goal 回合可 create/replace；complete 需证据：静态 PASS + 最近冒烟零 error，或冒烟 3 轮耗尽）
+- **验证层**：`validate_test_plan` 静态校验（结构/逻辑 lint 两族，结构化 PASS/FAIL；schema 回扫族已移除——不透明序列化产物如监听器 saveConfig 与未收录但合法的属性在导入计划上系统性误报，存量元素参数改由写路径（create/update）的 schema 校验把关；变量定义源与 HTTP Defaults 合并不可静态枚举，故不查未定义 `${var}` 引用与采样器目标——冒烟运行是这两类的仲裁者）+ `run_test mode:"smoke"`（VALIDATE_TG：全 TG 1×1、断言保留定时器剔除、计划不动、阻塞至完成给判定；每次 smoke 计入 goal 预算并回写证据）
+- **护栏**：`GoalRuntime` 提示词/合成消息单一来源（workspace `goal.md` 模板，两态渲染）；防收工 nudge（无工具终答且 goal 活跃 → 注入顶回，连续两次放行）；冒烟上限 → 结构化交回；迭代耗尽 → 跨回合自动续跑（REPUBLISH 回合、不渲染 You 行、每片全额预算）
+- **注入门控**：goal 提示只进本地/CLI 回合，IPC 委派回合不注入。注入形态对齐 Nanobot 的指令/数据分离：纪律文本（guidance）进独立 `[Goal Runtime Guidance — host instructions]` 包裹，状态数据（objective/冒烟计数/证据）进标准 Runtime Context metadata 包裹；复合块尾随环境块之后，持久化时随 `_runtime_context` 标记整体剥离
+
 #### 上下文管理 (`agent/context`)
 - **ContextBuilder** - 构建发送给 LLM 的消息上下文
 - **ContextWindowManager** - 管理上下文窗口大小，控制 token 用量
@@ -134,6 +143,7 @@ mvn clean package -DskipTests
 #### 会话管理 (`agent/session`)
 - **Session** - 单次 Agent 会话
 - **SessionManager** - 管理多个会话的生命周期（每实例会话模式只加载当前 instanceId 的 jsonl，不解析历史遗留/其他实例文件）
+- **GoalState** / **GoalRuntime** - goal 状态机与会话 metadata 持久化（jsonl 头行 `metadata.goal_state`，`clear()` 保留）；GoalRuntime 为 goal 提示词/合成消息（nudge/交回/续跑）的单一来源
 
 #### Agent 运行 (`agent/run`)
 - **AgentRunner** - 执行 Agent 运行（同步方法，跑在调用方线程：主链路 = agent-loop 专用执行器线程，子代理 = subagent 池线程；`runAgentLoop` 经 `LoopState` + 分支函数分解）。持久化三阶段（对齐 Nanobot persist-early，详见 `openspec/specs/` 的 `early-user-message-persist` 能力）：① 触发 user 消息**回合开始即早落盘**（含 Runtime Context 块 + `_runtime_context` 标记，终局 skipCount 去重）；② 回合没跑完（非重置取消或内部异常中止）时**中止落盘**——真实已完成消息 + 合成中断标记（`"Error: Task interrupted before this tool finished."` 悬空 tool_call 配对 / `"Error: Task interrupted before a response was generated."` 收尾，jsonl 顶层 `_recovery_interrupted: true`，LLM 上下文不可见）；③ 回合开始时**悬空 user 尾懒收尾**（任何 USER 尾——崩溃/Error 逃逸/LLM 错误回合/drain6 遗留——补合成收尾，防 Anthropic 连续同角色 400）。RESET 判别用 session epoch 活引用（`AgentRunSpec.resetEpochSupplier`，`resetConversationAny` 路由腿同步翻退役 loop 代数），中止落盘 compose-then-commit + 异常隔离
@@ -218,6 +228,10 @@ mvn clean package -DskipTests
 
 #### 执行工具 (`tools/exec`)
 - **ExecTool** - 执行 shell 命令
+
+#### Goal 工具 (`tools/goal`)
+- **CreateGoalTool** - 录制持续目标（仅 /goal 回合可用，权限门走 AgentRunContext）
+- **UpdateGoalTool** - 终结/替换 goal（complete 需验证证据或冒烟预算耗尽；终结必带 recap）
 
 #### 跨实例协作工具 (`tools/ipc`)
 仅当 `jmeter.ai.ipc.enabled=true` 时注册（IPC 提供传输通道；关闭则不注册）。
@@ -420,6 +434,11 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 **GUI 运行结果采集（默认开启）：** 一个全局 JMeter `Start.class` 预监听器在用户点击 GUI Run 按钮（或 Run Thread Group）发起的本地运行前注入结果收集器，使 `get_test_status` / `get_test_results` 对用户发起的运行也返回实时数据（并在 `get_test_status` 显示运行来源 USER/AGENT）。`run_test` 的采集不受影响、开关关闭时仍工作；`Save.class` 预监听器始终剥离收集器节点以防泄漏进 `.jmx`。详见 `openspec/changes/capture-gui-run-results/`。
 
 - `agent.runcapture.enabled` - 仅门控 `Start.class` 预监听器注册（默认 `true`）；关闭时 GUI 运行不采集，但 `run_test` 仍采集
+
+**Goal 自主闭环（`/goal` 命令，始终开启）：** `/goal <需求>` 触发目标驱动的「改脚本 → 静态校验（validate_test_plan）→ 冒烟运行（run_test smoke：全线程组 1×1）→ 读反馈 → 迭代修复」闭环。goal 状态持久于会话 jsonl 头行 metadata（`/new` 不清 goal），冒烟修复上限 3 轮后结构化交回，迭代耗尽自动跨回合续跑；断言失败消息经结果采集暴露给 Agent。Agent 自主决定冒烟目标端点（写操作端点会真实发一次请求）。详见 `openspec/specs/goal-autonomous-loop/` 与 `openspec/specs/test-plan-verification/`。
+
+- `agent.goal.max.continuations` - 单个 goal 的跨回合自动续跑次数上限（默认 `5`；以 goal 为单位，replace 重置；Nanobot 硬编码 12 不可配，此处参数化为有意偏离）
+- `agent.goal.smoke.limit` - 单个 goal 的冒烟修复轮次上限（默认 `3`；`run_test` smoke 尝试按 goal 累计，耗尽后 complete 免证据但 recap 须含遗留风险）
 
 ## 开发参考
 

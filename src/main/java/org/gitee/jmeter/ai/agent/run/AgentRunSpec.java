@@ -39,6 +39,8 @@ public class AgentRunSpec {
     private final boolean delegated;
     private final List<InstanceInfo> instanceMentions;
     private final Supplier<Long> resetEpochSupplier;
+    private final boolean goalRequested;
+    private final boolean hostSyntheticTrigger;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -57,6 +59,8 @@ public class AgentRunSpec {
         this.delegated = builder.delegated;
         this.instanceMentions = builder.instanceMentions;
         this.resetEpochSupplier = builder.resetEpochSupplier;
+        this.goalRequested = builder.goalRequested;
+        this.hostSyntheticTrigger = builder.hostSyntheticTrigger;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -102,6 +106,19 @@ public class AgentRunSpec {
      */
     public Supplier<Long> getResetEpochSupplier() { return resetEpochSupplier; }
 
+    /**
+     * 本回合由 {@code /goal <objective>} 触发（命令处理器打标）。开启 goal 变更
+     * 权限（create_goal / update_goal replace 仅此类回合可用），并把 goal 请求态
+     * 注入 Runtime Context。委派回合恒为 false。
+     */
+    public boolean isGoalRequested() { return goalRequested; }
+
+    /**
+     * 本回合的触发消息是宿主合成的（goal 续跑/交回投放的切片，非真实用户输入）。
+     * 早落盘据此挂宿主合成标记，记忆/归档的公共视图不将其呈现为用户话语。
+     */
+    public boolean isHostSyntheticTrigger() { return hostSyntheticTrigger; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -123,6 +140,8 @@ public class AgentRunSpec {
         private boolean delegated = false;
         private List<InstanceInfo> instanceMentions = List.of();
         private Supplier<Long> resetEpochSupplier;
+        private boolean goalRequested = false;
+        private boolean hostSyntheticTrigger = false;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -211,6 +230,18 @@ public class AgentRunSpec {
          */
         public Builder resetEpochSupplier(Supplier<Long> supplier) {
             this.resetEpochSupplier = supplier;
+            return this;
+        }
+
+        /** 本回合由 /goal 触发（goal 变更权限 + Runtime Context 请求态）。 */
+        public Builder goalRequested(boolean goalRequested) {
+            this.goalRequested = goalRequested;
+            return this;
+        }
+
+        /** 触发消息为宿主合成（goal 续跑/交回切片直投）。 */
+        public Builder hostSyntheticTrigger(boolean hostSyntheticTrigger) {
+            this.hostSyntheticTrigger = hostSyntheticTrigger;
             return this;
         }
 

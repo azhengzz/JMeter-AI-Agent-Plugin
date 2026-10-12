@@ -19,15 +19,27 @@ public final class AgentRunContext {
 
     private final String sessionKey;
     private final String runId;
+    private final boolean goalRequested;
 
     public AgentRunContext(String sessionKey, String runId) {
+        this(sessionKey, runId, false);
+    }
+
+    public AgentRunContext(String sessionKey, String runId, boolean goalRequested) {
         this.sessionKey = sessionKey;
         this.runId = runId;
+        this.goalRequested = goalRequested;
     }
 
     public String getSessionKey() { return sessionKey; }
 
     public String getRunId() { return runId; }
+
+    /**
+     * 本回合由 /goal 触发。GoalTools 的权限门（create_goal / update_goal replace）
+     * 读它判定本回合是否持有 goal 变更权限。
+     */
+    public boolean isGoalRequested() { return goalRequested; }
 
     /** Bind the context for the current thread. */
     public static void set(AgentRunContext context) {

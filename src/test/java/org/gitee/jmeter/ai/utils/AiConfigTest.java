@@ -54,6 +54,23 @@ class AiConfigTest {
     }
 
     @Test
+    void goalSmokeLimit_clampedToOne() {
+        // 0/负值会让完成门禁（smokeAttempts >= limit）恒真——零证据即可 complete，
+        // 并把首个普通终答切成结构化交回；读取点下界钳 1
+        String key = "agent.goal.smoke.limit";
+        try {
+            JMeterUtils.setProperty(key, "0");
+            assertEquals(1, AiConfig.getGoalSmokeLimit());
+            JMeterUtils.setProperty(key, "-2");
+            assertEquals(1, AiConfig.getGoalSmokeLimit());
+            JMeterUtils.setProperty(key, "4");
+            assertEquals(4, AiConfig.getGoalSmokeLimit());
+        } finally {
+            JMeterUtils.setProperty(key, ""); // 空值回落默认 3，防跨测试类污染
+        }
+    }
+
+    @Test
     void getDouble_nonNumericValue_fallsBackToDefault() {
         JMeterUtils.setProperty("test.ai.config.double", "not-a-double");
         assertDoesNotThrow(() -> {

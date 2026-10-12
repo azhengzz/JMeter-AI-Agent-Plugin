@@ -54,7 +54,7 @@ public class TurnRegistry extends ConcurrentHashMap<String, Turn> {
      * offer 的三态结果，调用方据此分流（区别两类失败是 2026-09-09 审计 P0 修复）：
      * <ul>
      *   <li>{@link #OFFERED} 已入队（ack 语义成立）；</li>
-     *   <li>{@link #NO_SLOT} 槽缺失（无条目/已 closed/队列未武装——垂死或交接窗口）：
+     *   <li>{@link #NO_SLOT} 槽缺失（无条目/已 closed/队列未就位——垂死或交接窗口）：
      *       调用方落穿开新回合是正确归宿；</li>
      *   <li>{@link #FULL} 槽存活但队列满（健康回合仍在跑）：调用方<b>必须</b>拒绝为
      *       busy、不得落穿开新回合——register 的 latest-wins put 会把仍在跑的健康
@@ -140,7 +140,7 @@ public class TurnRegistry extends ConcurrentHashMap<String, Turn> {
     }
 
     /**
-     * 会话当前是否有可注入的活跃回合：条目存在 && 未 closed && 队列已武装。
+     * 会话当前是否有可注入的活跃回合：条目存在 && 未 closed && 队列已就位。
      * AgentLoop 忙期路由（注入 vs 开新回合）的唯一事实来源。
      */
     public boolean hasActiveRun(String sessionKey) {
