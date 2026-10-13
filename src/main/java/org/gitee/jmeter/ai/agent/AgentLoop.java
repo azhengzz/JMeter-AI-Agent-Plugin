@@ -507,6 +507,8 @@ public class AgentLoop {
                                 .goalRequested(ctx.isGoalRequested())
                                 // 宿主合成触发（goal 续跑/交回切片）：记忆/归档视图跳过标记
                                 .hostSyntheticTrigger(syntheticTrigger)
+                                // 回合身份（句柄 id + 来源）：回合快照的参与门与文件名段
+                                .turnIdentity(handle.id(), origin)
                                 .build();
 
                             // 末迭代终结判定的基线：回合起点 goal 是否活跃（结束后对比，

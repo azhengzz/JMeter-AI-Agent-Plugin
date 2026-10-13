@@ -508,10 +508,15 @@ public class RunTestTool extends AbstractTool {
         try {
             java.nio.file.Path autosaveDir =
                     org.gitee.jmeter.ai.utils.WorkspacePaths.resolveWorkspace()
-                            .resolve("autosave");
+                            .resolve(org.gitee.jmeter.ai.agent.snapshot.SnapshotNames.AUTOSAVE_DIR);
             java.nio.file.Files.createDirectories(autosaveDir);
+            // 文件名经 SnapshotNames 纯函数生成（含 instanceId）：双实例共享 workspace
+            // 目录时同毫秒不撞名
             gui.setTestPlanFile(autosaveDir.resolve(
-                    filePrefix + System.currentTimeMillis() + ".jmx").toString());
+                    org.gitee.jmeter.ai.agent.snapshot.SnapshotNames.runAutosaveFileName(
+                            filePrefix,
+                            org.gitee.jmeter.ai.instance.InstanceContext.instanceId(),
+                            System.currentTimeMillis())).toString());
             applied.set(true);
             log.info("Test start: unsaved plan pointed at autosave path {}",
                     gui.getTestPlanFile());

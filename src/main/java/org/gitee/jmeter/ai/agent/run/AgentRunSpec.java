@@ -41,6 +41,8 @@ public class AgentRunSpec {
     private final Supplier<Long> resetEpochSupplier;
     private final boolean goalRequested;
     private final boolean hostSyntheticTrigger;
+    private final Long turnId;
+    private final org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin;
 
     private AgentRunSpec(Builder builder) {
         this.userMessage = builder.userMessage;
@@ -61,6 +63,8 @@ public class AgentRunSpec {
         this.resetEpochSupplier = builder.resetEpochSupplier;
         this.goalRequested = builder.goalRequested;
         this.hostSyntheticTrigger = builder.hostSyntheticTrigger;
+        this.turnId = builder.turnId;
+        this.origin = builder.origin;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -119,6 +123,18 @@ public class AgentRunSpec {
      */
     public boolean isHostSyntheticTrigger() { return hostSyntheticTrigger; }
 
+    /**
+     * 回合身份（进程唯一句柄 id），由 {@code AgentLoop.startTurn} 从 {@code TurnHandle}
+     * 填入。null（子代理 / 直构测试运行）= 无回合身份，回合快照据此整体旁路。
+     */
+    public Long getTurnId() { return turnId; }
+
+    /**
+     * 回合来源（local/cli/delegated/republish），快照文件名的来源段。
+     * null 与 {@link #getTurnId()} 同义：不参与回合快照。
+     */
+    public org.gitee.jmeter.ai.agent.presenter.TurnOrigin getOrigin() { return origin; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -142,6 +158,8 @@ public class AgentRunSpec {
         private Supplier<Long> resetEpochSupplier;
         private boolean goalRequested = false;
         private boolean hostSyntheticTrigger = false;
+        private Long turnId;
+        private org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -242,6 +260,17 @@ public class AgentRunSpec {
         /** 触发消息为宿主合成（goal 续跑/交回切片直投）。 */
         public Builder hostSyntheticTrigger(boolean hostSyntheticTrigger) {
             this.hostSyntheticTrigger = hostSyntheticTrigger;
+            return this;
+        }
+
+        /**
+         * 回合身份（进程唯一句柄 id）+ 来源。null（默认）= 无回合身份：
+         * 子代理与直构测试运行，回合快照旁路。
+         */
+        public Builder turnIdentity(Long turnId,
+                                    org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin) {
+            this.turnId = turnId;
+            this.origin = origin;
             return this;
         }
 

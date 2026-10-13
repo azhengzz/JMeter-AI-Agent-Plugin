@@ -12,6 +12,7 @@ import org.gitee.jmeter.ai.agent.session.GoalRuntime;
 import org.gitee.jmeter.ai.agent.session.GoalState;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.agent.snapshot.TurnPlanSnapshotService;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
@@ -112,6 +113,14 @@ public class AgentRunner {
         // 迭代 1 就因 isInterrupted() 直接 break 返回空回复。取消语义不受影响:
         // signalCancel 先置 abort flag 再 interrupt,flag 才是取消的唯一事实来源。
         Thread.interrupted();
+
+        // 回合快照·起点：同步克隆计划树为内存基线（EDT 克隆 + 异步序列化），必须先于
+        // 本回合任何工具对树的修改。turnId 缺席（子代理/直构测试运行）或无 GUI 时
+        // 返回 null，终态侧对 null 安全 no-op。克隆经「清位执行、结束回置」保护：入口
+        // 清扫与 EDT 等待之间落进的上一回合 Stop 迟到中断不会击穿克隆，中断位事后
+        // 原样回置，isAborted 语义不变。
+        TurnPlanSnapshotService.TurnSnapshotScope snapshotScope = TurnPlanSnapshotService.get()
+                .beginTurn(spec.getTurnId(), spec.getOrigin());
 
         // Bind the run identity so tools (e.g. spawn) can learn their session. The
         // goal-requested flag rides the same channel: GoalTools read it as their
@@ -263,6 +272,12 @@ public class AgentRunner {
                 .endTime(Instant.now())
                 .build();
         } finally {
+            // 回合快照·终态：完成/Stop 取消/异常中止/会话重置四条终态路径都流经本
+            // finally——在调用线程上同步采样终点克隆（Stop 回合此际仍带中断位，克隆
+            // 内部清位执行、结束回置，下方 Thread.interrupted() 清扫的次序不变量保持），
+            // 随后提交 EDT-free 异步任务做比对与条件落盘（EDT-free 是关闭冲刷可达的
+            // 前提：System.exit 期间 EDT 不泵事件）。
+            TurnPlanSnapshotService.get().completeTurn(snapshotScope);
             // The run thread is reused (agent-loop dedicated thread across turns /
             // pooled subagent thread): clear the guard so a later run on this
             // thread is not wrongly blocked from delegating.

@@ -413,6 +413,13 @@ JSR223 PostProcessor: ${__setProperty(token, ${token},)}
 HTTP Header Manager: Authorization: Bearer ${__P(token,)}
 ```
 
+## Plan Snapshots (Turn Rollback Baselines)
+
+Every agent turn that changes the test plan leaves a pre-turn baseline `.jmx` in the
+workspace `autosave/` directory — to undo a bad turn, open the newest snapshot that
+precedes it with `open_jmx_file`. Naming, directory resolution and the restore procedure:
+[references/plan-snapshots.md](references/plan-snapshots.md).
+
 ## JMeter Functions
 
 For the complete functions reference, see [references/functions/Functions.md](references/functions/Functions.md).

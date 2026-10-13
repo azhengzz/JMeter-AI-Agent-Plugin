@@ -150,6 +150,11 @@ mvn clean package -DskipTests
 - **AgentRunSpec** - 运行规格定义（含 `resetEpochSupplier` 会话重置代数活引用）
 - **AgentRunResult** - 运行结果
 
+#### 回合计划快照 (`agent.snapshot`)
+- **TurnPlanSnapshotService** - 回合级测试计划快照：回合起点（`AgentRunner.run` 入口、先于任何工具）在 EDT 克隆计划树为内存基线并异步序列化；回合终态（`run()` 收尾 finally——完成/Stop/异常/重置四路全覆盖）在 runner 线程同步采样终点克隆后，把**序列化/比对/条件落盘**提交给专用单线程执行器——异步任务体不依赖 EDT（标准退出路径 System.exit 期间 EDT 不泵事件，EDT 依赖任务在关闭冲刷窗口内结构性无法完成），树变化才把**起点基线**原子写盘（临时文件+ATOMIC_MOVE）到 workspace `autosave/`。两端克隆均「清中断位执行、结束回置」：迟到中断/Stop 残留中断不击穿克隆且 `isAborted` 语义不变。参与门 = `AgentRunSpec.turnId` 非空（子代理/直构测试/纯命令回合不参与，缺席即旁路不落盘）；全链路 best-effort 记日志不影响回合；不修改计划文件关联与 IPC 注册；JVM 关闭时有界冲刷（~2s，挂 SelectionInitCommand 的 shutdown hook）
+- **SnapshotTreeCapture** - EDT 上「getTestPlan → 节点键换 TestElement → TreeCloner 深克隆」取脱离副本（与 JMeter Save/Start 同源管线），序列化前**只在克隆副本上**按类型（instanceof）剥 `AgentResultCollector`（绝不摘活树）
+- **SnapshotNames** - 快照文件名唯一来源：回合快照 `{yyyyMMddHHmmssSSS}-{instanceId}-{turnId}-{origin}-{计划文件名}.jmx`（紧凑定宽时间戳字典序=时间序、跨实例隔离、计划文件名段=起点关联文件基名去扩展/未保存占位 unsaved；turnId 为进程内簿记，聊天转录不显示，挑文件靠时间序）；run_test autosave 沿用 `{agent-run|goal-smoke}-{instanceId}-{ts}.jmx`（双实例共享 workspace 目录不撞名）。可发现性只走技能文档（`skills/jmeter/references/plan-snapshots.md`：最新=撤销最近改树回合、第k新=回退k回合，恢复后须 Save As 另存勿 Ctrl+S 写回），恢复 = `open_jmx_file` 手动打开，无专用工具；无清理机制（接受累积）、无配置开关
+
 #### 回合对象 (`agent.turn`)
 - **Turn** - 单回合全部生命周期状态的聚合（原散落 AgentLoop 6 张 per-turn map + 3 ThreadLocal + InjectionManager 路由槽的状态收敛为一对象；sessionKey/handle/callback/delegated/abortFlag/completionLatch 构造时定，queue/future/epoch/ownResetEpoch/runnerThread/closed 为保序武装的 volatile 后写字段；含 drain/drainBlocking 注入队列消费）
 - **TurnRegistry** - 会话 → 在跑回合注册表（extends ConcurrentHashMap）；路由槽 = 条目 + `closed` 标志双生命周期：offer/closeRouting/cleanup/hasActiveRun 在 CHM bin 锁下原子，条目真正 remove 只在两处且均按值条件（`removeIfCurrent`，防误摘同 key 后继）：latch 释放点与 signalCancel 自我豁免步
@@ -351,7 +356,7 @@ references/
 ### 技能系统 (`src/main/jmeter-agent/skills/`)
 Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` 和可选的 `references/` 目录：
 
-- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 133 个参考文档（含 58 个 JMeter 函数文档）
+- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 134 个参考文档（含 58 个 JMeter 函数文档与快照恢复指南 plan-snapshots.md）
   - `SKILL.md` - 主技能定义
   - `references/functions/` - 58 个 JMeter 函数参考文档（覆盖全部内置函数和自定义扩展函数）
   - `references/standards.md` - JMeter 编写规范
@@ -376,6 +381,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
   - `ContextWindowManagerTest`
 - **agent/testsupport/** - 回合事件流测试公共脚手架（跨测试文件共享）
   - `GatedScriptAiService`（脚本化/门控 fake，Stop/Reset 钉子经 `InterruptStrategy.HANG_UNTIL_RELEASED`）/ `RecordingSubscriber` / `NoopTool` / `AwaitUtil`
+- **agent/snapshot/** - 回合快照测试（`TurnPlanSnapshotServiceTest` 命名/no-op/冲刷、`SnapshotTreeCloneTest` 克隆剥离与序列化——需 JMETER_HOME 定位 saveservice.properties、`TurnSnapshotTerminalStatesTest` 四终态配对验收）
 - **intellisense/** - 智能提示测试
   - `CommandIntellisenseProviderTest` / `InputBoxIntellisenseTest` / `IntellisensePopupTest`
 - **utils/** - 工具类测试

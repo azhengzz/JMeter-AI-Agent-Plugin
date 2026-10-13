@@ -43,6 +43,8 @@ public class SelectionInitCommand implements Command {
 
     private static final Logger log = LoggerFactory.getLogger(SelectionInitCommand.class);
     private static final AtomicBoolean INSTALLED = new AtomicBoolean(false);
+    /** 回合快照关闭冲刷的有界等待上限（毫秒）。 */
+    private static final long SNAPSHOT_FLUSH_TIMEOUT_MS = 2_000L;
 
     public SelectionInitCommand() {
         // 构造时打日志，证明 ServiceLoader 已经发现并实例化本类
@@ -166,6 +168,12 @@ public class SelectionInitCommand implements Command {
             Runtime.getRuntime().addShutdownHook(new Thread(
                     org.gitee.jmeter.ai.agent.memory.CloseConsolidationCoordinator::archiveSilently,
                     "ai-close-consolidation"));
+            // 回合快照关闭冲刷：有界排空未落盘的快照任务（约 2s），防「回合刚结束就
+            // 关 JMeter」丢最后一份基线；超窗放弃不阻断退出
+            Runtime.getRuntime().addShutdownHook(new Thread(
+                    () -> org.gitee.jmeter.ai.agent.snapshot.TurnPlanSnapshotService.get()
+                            .flushPending(SNAPSHOT_FLUSH_TIMEOUT_MS),
+                    "ai-turn-snapshot-flush"));
             log.info("Close-consolidation hooks registered (ExitCommand pre-listener + shutdown hook)");
         } catch (Throwable t) {
             log.error("Failed to register close-consolidation hooks", t);
