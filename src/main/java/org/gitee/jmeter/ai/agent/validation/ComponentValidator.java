@@ -41,6 +41,10 @@ public class ComponentValidator {
 
         log.debug("Validating component type: {} with schema", elementType);
 
+        // Normalize JMeter historical property-name quirks before any schema lookup,
+        // so callers may use the natural spelling (e.g. Assertion.test_strings)
+        properties = normalizePropertyNames(properties);
+
         ValidationResult.Builder builder = ValidationResult.builder();
 
         // Validate unknown parameters (parameters not defined in schema)
@@ -82,6 +86,10 @@ public class ComponentValidator {
 
         log.debug("Validating component type: {} with schema (update mode - skipping required checks)", elementType);
 
+        // Same normalization as validate(): unknown/type/value lookups must all see
+        // the canonical spelling the schema registers
+        properties = normalizePropertyNames(properties);
+
         ValidationResult.Builder builder = ValidationResult.builder();
 
         // Validate unknown parameters (parameters not defined in schema)
@@ -97,6 +105,18 @@ public class ComponentValidator {
         validateParameterValues(schema, properties, builder);
 
         return builder.build();
+    }
+
+    /**
+     * Return a copy of the properties map with keys mapped through
+     * {@link ComponentSchema#normalizePropertyName(String)}, preserving order.
+     */
+    private static Map<String, Object> normalizePropertyNames(Map<String, Object> properties) {
+        Map<String, Object> normalized = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            normalized.put(ComponentSchema.normalizePropertyName(entry.getKey()), entry.getValue());
+        }
+        return normalized;
     }
 
     /**

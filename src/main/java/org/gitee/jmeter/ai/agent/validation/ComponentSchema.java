@@ -90,6 +90,26 @@ public class ComponentSchema {
     }
 
     /**
+     * Map a caller-supplied property name to the key JMeter actually stores it
+     * under. JMeter keeps some historically misspelled keys for jmx backward
+     * compatibility (e.g. ResponseAssertion's "Asserion.test_strings"), while
+     * callers naturally send the correct spelling. Every schema-facing boundary
+     * (validation and property writing) normalizes through this single mapping.
+     *
+     * @param propName The property name as supplied by the caller
+     * @return The name under which JMeter stores the property
+     */
+    public static String normalizePropertyName(String propName) {
+        if (propName == null) {
+            return null;
+        }
+        if ("Assertion.test_strings".equals(propName)) {
+            return "Asserion.test_strings";
+        }
+        return propName;
+    }
+
+    /**
      * Get all required properties.
      *
      * @return List of required property definitions

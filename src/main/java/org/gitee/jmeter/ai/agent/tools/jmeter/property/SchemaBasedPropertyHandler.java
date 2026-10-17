@@ -57,7 +57,7 @@ public class SchemaBasedPropertyHandler {
             String propName = entry.getKey();
             Object propValue = entry.getValue();
 
-            propName = mapPropertyName(propName);
+            propName = ComponentSchema.normalizePropertyName(propName);
 
             if (propValue == null) {
                 log.warn("Skipping null property: {}", propName);
@@ -100,7 +100,7 @@ public class SchemaBasedPropertyHandler {
             if (entry.getValue() == null) {
                 continue;
             }
-            String propName = mapPropertyName(entry.getKey());
+            String propName = ComponentSchema.normalizePropertyName(entry.getKey());
             ComponentSchema.PropertyDefinition propDef = schema != null ? schema.getProperty(propName) : null;
             if (propDef != null) {
                 continue;
@@ -964,19 +964,6 @@ public class SchemaBasedPropertyHandler {
             }
             return null;
         }
-    }
-
-    /**
-     * Map property names for JMeter historical naming quirks.
-     */
-    private String mapPropertyName(String propName) {
-        if (propName == null) {
-            return null;
-        }
-        if ("Assertion.test_strings".equals(propName)) {
-            return "Asserion.test_strings";
-        }
-        return propName;
     }
 
     private String getStringValue(Map<String, Object> map, String key) {
