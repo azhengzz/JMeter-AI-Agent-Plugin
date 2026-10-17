@@ -167,9 +167,13 @@ class SchemaBasedPropertyHandlerTest {
         assertEquals("Authorization", hm.get(1).getName());
     }
 
-    // ===== Case 4: CookieManager.cookies with long expires =====
+    // ===== Case 4: CookieManager.cookies — expires not settable, stays 0 (GUI parity) =====
+    // Cookie.expires was removed from the schema: the tool layer rejects it as an
+    // unknown item property, and the handler assembly ignores any stray key.
+    // JMeter's GUI offers no expires entry either (CookiePanel hardcodes 0),
+    // so cookies are always created non-expiring.
     @Test
-    void case4_cookieManager_longExpiresTypeConversion() {
+    void case4_cookieManager_expiresNotSettable_staysZero() {
         ComponentSchema schema = schemaLoader.loadSchema("cookiemanager");
         CookieManager cm = new CookieManager();
 
@@ -184,17 +188,23 @@ class SchemaBasedPropertyHandlerTest {
         c.put("Cookie.path_specified", true);
         c.put("Cookie.domain_specified", true);
         cookies.add(c);
+        Map<String, Object> c2 = new HashMap<>();
+        c2.put("Cookie.name", "session2");
+        c2.put("Cookie.value", "v2");
+        c2.put("Cookie.expires", "${expiry}");
+        cookies.add(c2);
 
         Map<String, Object> properties = new HashMap<>();
         properties.put("CookieManager.cookies", cookies);
 
         handler.setProperties(cm, properties, schema);
 
-        assertEquals(1, cm.getCookieCount(), "one cookie added");
+        assertEquals(2, cm.getCookieCount(), "both cookies added");
         Cookie cookie = cm.get(0);
         assertEquals("session", cookie.getName());
-        assertEquals(1700000000L, cookie.getExpires(), "long expires must round-trip");
         assertTrue(cookie.getSecure(), "secure=true");
+        assertEquals(0L, cookie.getExpires(), "expires not in schema — constructor default 0 (non-expiring) retained");
+        assertEquals(0L, cm.get(1).getExpires(), "string form equally ignored");
     }
 
     // ===== Case 5: ThreadGroup.main_controller → setSamplerController =====

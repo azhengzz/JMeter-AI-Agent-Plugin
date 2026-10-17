@@ -67,12 +67,6 @@ properties:
         default: false
         description: Whether cookie is secure (HTTPS only)
 
-      - name: Cookie.expires
-        type: Integer
-        required: false
-        default: 0
-        description: Cookie expiration time (timestamp, 0 = session cookie)
-
       - name: Cookie.path_specified
         type: Boolean
         required: false
