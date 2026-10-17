@@ -376,12 +376,14 @@ public class ComponentValidator {
                 continue; // Unknown property or no type specified - allow for flexibility
             }
 
-            if (!isValidType(value, propDef.getType())) {
+            if (!isValidType(value, propDef.getType())
+                    && !(isVariableExpression(value) && acceptsVariableExpressions(propDef))) {
                 String error = String.format(
-                    "Parameter '%s' has invalid type. Expected %s but got %s",
+                    "Parameter '%s' has invalid type. Expected %s but got %s%s",
                     propName,
                     propDef.getType(),
-                    value != null ? value.getClass().getSimpleName() : "null"
+                    value != null ? value.getClass().getSimpleName() : "null",
+                    typeMismatchHint(propDef, value)
                 );
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
@@ -475,11 +477,13 @@ public class ComponentValidator {
             }
 
             // Validate type
-            if (!isValidType(nestedPropValue, nestedDef.getType())) {
+            if (!isValidType(nestedPropValue, nestedDef.getType())
+                    && !(isVariableExpression(nestedPropValue) && acceptsVariableExpressions(nestedDef))) {
                 builder.addError(String.format(
-                    "Nested property '%s.%s' has invalid type. Expected %s but got %s",
+                    "Nested property '%s.%s' has invalid type. Expected %s but got %s%s",
                     propDef.getName(), nestedPropName, nestedDef.getType(),
-                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null"
+                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null",
+                    typeMismatchHint(nestedDef, nestedPropValue)
                 ));
                 log.debug("Validation failed: nested property {}.{} type mismatch",
                     propDef.getName(), nestedPropName);
@@ -548,7 +552,9 @@ public class ComponentValidator {
         // Enum validation
         if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
             String strValue = value.toString();
-            if (!propDef.getEnumValues().contains(strValue)) {
+            // ${...} references resolve at runtime — skip enum check on fields that accept them
+            if (!propDef.getEnumValues().contains(strValue)
+                    && !(isVariableExpression(value) && acceptsVariableExpressions(propDef))) {
                 builder.addError(String.format(
                     "Property '%s' has invalid value '%s'. Allowed values: %s",
                     propDef.getName(), value, propDef.getEnumValues()
@@ -973,6 +979,61 @@ public class ComponentValidator {
         }
 
         return result;
+    }
+
+    /**
+     * Check if a value looks like a JMeter variable/function reference
+     * (e.g. ${threadNum}, ${__P(threads,10)}).
+     * <p>
+     * This is a deliberately loose pre-check, matching JMeter's own GUI-side gate
+     * (WrapperEditor.isExpression: {@code text.contains("${")}) rather than the
+     * engine's strict parser (FunctionParser.compileString, a char-by-char state
+     * machine that also honours backslash escapes and treats a malformed "${" as
+     * a literal). Aligning with the GUI gate keeps the tool's acceptance a superset
+     * of what a human can type in the GUI; being stricter here would reject inputs
+     * the engine happily accepts. Malformed or unresolved references degrade to 0
+     * for numeric fields at run time via AbstractProperty.getIntValue() — JMeter's
+     * existing lenient semantics, not a risk introduced here.
+     */
+    private static boolean isVariableExpression(Object value) {
+        return value instanceof String s && s.contains("${");
+    }
+
+    /**
+     * Whether a ${...} variable-reference string is accepted in place of the declared type.
+     * Purely type-driven: numeric fields accept it, everything else does not.
+     * <p>
+     * Rationale (verified against JMeter 5.6.3 sources): the engine replaces variable
+     * references on the whole tree before running (StandardJMeterEngine precompiles via
+     * PreCompiler/ValueReplacer), turning any "${...}" string into a FunctionProperty
+     * whose getIntValue() parses the resolved value. This applies uniformly to every
+     * numeric property of every component, so no per-field opt-in is needed. Non-numeric
+     * fields (Boolean, enum, Object, Array) have no such guarantee and stay strict.
+     */
+    private static boolean acceptsVariableExpressions(ComponentSchema.PropertyDefinition propDef) {
+        return switch (propDef.getType()) {
+            case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Guidance appended to type-mismatch errors, telling the caller which
+     * literal forms are accepted for this field.
+     */
+    private static String typeMismatchHint(ComponentSchema.PropertyDefinition propDef, Object value) {
+        String literal = switch (propDef.getType()) {
+            case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> "a JSON number (e.g. 50)";
+            case BOOLEAN -> "a JSON boolean (true/false)";
+            case ARRAY, ARRAY_2D -> "an array";
+            case OBJECT -> "an object";
+            case STRING -> "a string";
+        };
+        if (acceptsVariableExpressions(propDef)) {
+            return ". Only " + literal + " or a ${...} variable reference (e.g. ${varName}) is accepted"
+                    + (value instanceof String ? "; plain strings are not" : "");
+        }
+        return ". Only " + literal + " is accepted";
     }
 
     /**

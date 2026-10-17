@@ -314,12 +314,13 @@ mvn clean package -DskipTests
 - 组件描述（`description`）
 - 属性列表（`properties`），包括：
   - 属性名（`name`）
-  - 数据类型（`type`）：String, Integer, Boolean, Number, Object, Array
+  - 数据类型（`type`）：String, Integer, Long, Float, Double, Boolean, Number, Object, Array, Array_2D
   - 是否必填（`required`）
   - 默认值（`default`）
   - 枚举值限制（`enum`）
   - 数值范围（`min`/`max`）
   - 正则表达式模式（`pattern`）
+  - 类型驱动的 `${...}` 变量引用（数值类型 Integer/Long/Float/Double/Number 接受 `${...}` 引用字符串、Boolean/枚举拒绝；无需字段级开关——JMeter 引擎在运行前统一把整棵树的 `${...}` 编译为 FunctionProperty 再求值，对所有组件的数值属性一致适用）
   - 嵌套属性（`properties`）和集合项属性（`itemProperties`）
 
 **部署位置：** 构建时复制到 `{JMETER_HOME}/bin/jmeter-agent/skills/jmeter/references/`
