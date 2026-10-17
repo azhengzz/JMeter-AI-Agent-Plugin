@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.tools.jmeter.property;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.MapProperty;
 import org.apache.jmeter.testelement.property.ObjectProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.gitee.jmeter.ai.agent.validation.ComponentSchema;
@@ -26,14 +27,30 @@ public class SchemaBasedPropertyHandler {
 
     /**
      * Set properties on a TestElement based on schema definitions.
+     * <p>
+     * Non-scalar guard (fail-fast): before any write, every schema-unknown property is
+     * checked against the element's current value for that name; if any slot holds a
+     * structured property (collection / map / nested test element / configuration object),
+     * the whole call is refused and nothing is written — a plain scalar overwrite would
+     * corrupt the element and break its GUI panel.
      *
      * @param element    The element to set properties on
      * @param properties The properties to set
-     * @param schema      The component schema
+     * @param schema     The component schema
+     * @return guard violations (empty = all writes applied); non-empty means nothing was written
      */
-    public void setProperties(TestElement element, Map<String, Object> properties, ComponentSchema schema) {
+    public List<PropertyGuardViolation> setProperties(TestElement element, Map<String, Object> properties, ComponentSchema schema) {
         if (properties == null || properties.isEmpty()) {
-            return;
+            return List.of();
+        }
+
+        List<PropertyGuardViolation> violations = scanGuardViolations(element, properties, schema);
+        if (!violations.isEmpty()) {
+            for (PropertyGuardViolation violation : violations) {
+                log.warn("Refusing to overwrite non-scalar property '{}' ({}) with a plain scalar on {}",
+                        violation.getPropertyName(), violation.getStructuredKind(), violation.getElementDescription());
+            }
+            return violations;
         }
 
         for (Map.Entry<String, Object> entry : properties.entrySet()) {
@@ -61,6 +78,136 @@ public class SchemaBasedPropertyHandler {
             } catch (Exception e) {
                 log.error("Failed to set property: {} = {}", propName, propValue, e);
             }
+        }
+        return List.of();
+    }
+
+    /**
+     * Pre-scan for the non-scalar guard: returns the subset of schema-unknown properties
+     * whose target slot on {@code element} currently holds a structured value. Shared by
+     * {@link #setProperties} (fail-fast refusal) and the batch update tool (cross-element
+     * pre-scan before any write). Schema-known properties are skipped: they route through
+     * the structured/scalar handlers and cannot collide with themselves.
+     */
+    public List<PropertyGuardViolation> scanGuardViolations(TestElement element,
+                                                            Map<String, Object> properties,
+                                                            ComponentSchema schema) {
+        if (properties == null || properties.isEmpty()) {
+            return List.of();
+        }
+        List<PropertyGuardViolation> violations = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            String propName = mapPropertyName(entry.getKey());
+            ComponentSchema.PropertyDefinition propDef = schema != null ? schema.getProperty(propName) : null;
+            if (propDef != null) {
+                continue;
+            }
+            JMeterProperty existing = element.getProperty(propName);
+            if (isStructuredProperty(existing)) {
+                violations.add(new PropertyGuardViolation(propName,
+                        element.getName() + " (" + element.getClass().getSimpleName() + ")",
+                        structuredKindOf(existing),
+                        schema != null));
+            }
+        }
+        return violations;
+    }
+
+    /**
+     * True when the slot holds a structured (non-scalar) property that a plain scalar
+     * write would overwrite destructively. ObjectProperty is included deliberately —
+     * e.g. ResultCollector's saveConfig — even though the reference implementation
+     * (jmeter-ai JMeterTreeMutator.isNonScalar) only checks the other three.
+     */
+    private static boolean isStructuredProperty(JMeterProperty property) {
+        return property instanceof CollectionProperty
+                || property instanceof MapProperty
+                || property instanceof TestElementProperty
+                || property instanceof ObjectProperty;
+    }
+
+    private static String structuredKindOf(JMeterProperty property) {
+        if (property instanceof CollectionProperty) {
+            return "a collection";
+        }
+        if (property instanceof MapProperty) {
+            return "a map";
+        }
+        if (property instanceof TestElementProperty) {
+            return "a nested test element";
+        }
+        if (property instanceof ObjectProperty) {
+            return "a configuration object";
+        }
+        return "a structured value";
+    }
+
+    /**
+     * Teaching-style error message for guard violations: names each refused property and
+     * its current structured kind, then tells the agent how to proceed. Guidance branches
+     * on whether the component has a parameter schema — the guard only fires for
+     * schema-unknown properties, so "pass a structured value instead" is never actionable
+     * and must not be suggested (it sends the caller into a retry loop).
+     */
+    public static String buildGuardErrorMessage(List<PropertyGuardViolation> violations) {
+        StringBuilder names = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
+        for (PropertyGuardViolation violation : violations) {
+            if (names.length() > 0) {
+                names.append(", ");
+            }
+            names.append(violation.getPropertyName());
+            sb.append("Property '").append(violation.getPropertyName()).append("' on '")
+                    .append(violation.getElementDescription()).append("' currently holds ")
+                    .append(violation.getStructuredKind())
+                    .append(" and cannot be overwritten with a plain scalar — this would corrupt the element and break its GUI panel.\n");
+        }
+        if (violations.get(0).isComponentSchemaKnown()) {
+            sb.append("This property is not defined in the component's schema, so there is no structured form the tools can apply.\n");
+            sb.append("  - Check the exact property name in the component reference — a similarly named schema-defined property may exist.\n");
+            sb.append("  - Or edit this property manually in the JMeter GUI.\n");
+        } else {
+            sb.append("This component has no parameter schema, so this property cannot be set via tools.\n");
+            sb.append("  - Edit this property manually in the JMeter GUI.\n");
+        }
+        sb.append("Refused properties: [").append(names).append("]. No properties were modified in this call.");
+        return sb.toString();
+    }
+
+    /**
+     * A property write refused by the non-scalar guard.
+     */
+    public static final class PropertyGuardViolation {
+        private final String propertyName;
+        private final String elementDescription;
+        private final String structuredKind;
+        private final boolean componentSchemaKnown;
+
+        PropertyGuardViolation(String propertyName, String elementDescription, String structuredKind,
+                               boolean componentSchemaKnown) {
+            this.propertyName = propertyName;
+            this.elementDescription = elementDescription;
+            this.structuredKind = structuredKind;
+            this.componentSchemaKnown = componentSchemaKnown;
+        }
+
+        public String getPropertyName() {
+            return propertyName;
+        }
+
+        public String getElementDescription() {
+            return elementDescription;
+        }
+
+        public String getStructuredKind() {
+            return structuredKind;
+        }
+
+        public boolean isComponentSchemaKnown() {
+            return componentSchemaKnown;
         }
     }
 

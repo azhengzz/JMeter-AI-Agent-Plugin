@@ -13,6 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.tree.TreePath;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -137,8 +139,12 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Create element with properties
-            TestElement newElement = createElementWithProperties(elementType, elementName, properties);
+            List<SchemaBasedPropertyHandler.PropertyGuardViolation> guardViolations = new ArrayList<>();
+            TestElement newElement = createElementWithProperties(elementType, elementName, properties, guardViolations);
             if (newElement == null) {
+                if (!guardViolations.isEmpty()) {
+                    return ToolResult.error(SchemaBasedPropertyHandler.buildGuardErrorMessage(guardViolations));
+                }
                 return ToolResult.error("Failed to create element of type: " + elementType);
             }
 
@@ -282,10 +288,13 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
      * @param elementType The type of element to create
      * @param elementName The name for the element
      * @param properties  Optional properties to set on the element
+     * @param guardViolations Out-collector: non-scalar guard violations that refused the
+     *                        property writes (caller turns these into a tool error)
      * @return The created TestElement, or null if creation failed
      */
     private TestElement createElementWithProperties(String elementType, String elementName,
-                                                     Map<String, Object> properties) {
+                                                     Map<String, Object> properties,
+                                                     List<SchemaBasedPropertyHandler.PropertyGuardViolation> guardViolations) {
         log.info("Creating element of type: {} with name: {}", elementType, elementName);
 
         // Get the class info for the element type
@@ -320,7 +329,14 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
             // Set properties if provided (including HTTPsampler.Arguments if needed)
             if (properties != null && !properties.isEmpty()) {
                 try {
-                    setElementProperties(element, properties, normalizedType);
+                    List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations =
+                            setElementProperties(element, properties, normalizedType);
+                    if (!violations.isEmpty()) {
+                        // Non-scalar guard refused the writes — abort creation; the fresh
+                        // element never enters the tree, so nothing is left behind
+                        guardViolations.addAll(violations);
+                        return null;
+                    }
                 } catch (Exception e) {
                     log.error("Failed to set properties on element, returning null", e);
                     return null;
@@ -344,9 +360,9 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
      * @param properties    The properties to set
      * @param elementType   The component type for schema lookup
      */
-    private void setElementProperties(TestElement element, Map<String, Object> properties, String elementType) {
+    private List<SchemaBasedPropertyHandler.PropertyGuardViolation> setElementProperties(TestElement element, Map<String, Object> properties, String elementType) {
         if (properties == null || properties.isEmpty()) {
-            return;
+            return List.of();
         }
 
         // Load schema for this element type
@@ -356,7 +372,7 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
         }
 
         // Use schema-based property handler to set all properties
-        propertyHandler.setProperties(element, properties, schema);
+        return propertyHandler.setProperties(element, properties, schema);
     }
 
     /**

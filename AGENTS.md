@@ -214,7 +214,7 @@ mvn clean package -DskipTests
 - **AgentResultCollector** - 测试结果收集器
 
 #### JMeter 属性处理 (`tools/jmeter/property`)
-- **SchemaBasedPropertyHandler** - 基于 schema 将参数应用到 JMeter 元素
+- **SchemaBasedPropertyHandler** - 基于 schema 将参数应用到 JMeter 元素；含非标量覆盖护栏——未知属性兜底分支预扫描（fail-fast），拒绝以标量覆盖既有结构化属性（Collection/Map/TestElement/ObjectProperty，任一命中整批拒绝不改写），违规经工具层转教学式错误（指明属性名/结构化类别；指引按 schema 有无分支——无 schema 明示不可经工具设置并指引 GUI 手工编辑、有 schema 指引核对属性名，均不建议结构化重试），create/update/batch_update 共用同一路径全量生效
 
 #### JMeter 工具类 (`tools/jmeter/utils`)
 - **JMeterTreeUtils** - JMeter 树操作工具

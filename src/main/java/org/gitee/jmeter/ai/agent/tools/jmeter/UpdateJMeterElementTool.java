@@ -5,11 +5,13 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.ValidationResult;
+import org.gitee.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -234,7 +236,12 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Use schema-based property handler to update properties
-            propertyHandler.setProperties(element, properties, schema);
+            List<SchemaBasedPropertyHandler.PropertyGuardViolation> guardViolations =
+                    propertyHandler.setProperties(element, properties, schema);
+            if (!guardViolations.isEmpty()) {
+                // Non-scalar guard refused the whole call (fail-fast) — element untouched
+                return ToolResult.error(SchemaBasedPropertyHandler.buildGuardErrorMessage(guardViolations));
+            }
 
             log.info("Successfully updated {} properties on element: {}",
                     properties.size(), element.getName());
