@@ -12,7 +12,6 @@ import org.gitee.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.tree.TreePath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -126,10 +125,9 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
                     return ToolResult.error("Could not find parent node with elementId: " + parentId +
                             ". The node may have been removed. Use get_test_plan_tree to get current elementIds.");
                 }
-                // Select the parent node for visual feedback
-                guiPackage.getTreeListener().getJTree()
-                        .setSelectionPath(new TreePath(parentNode.getPath()));
-                log.info("Selected parent node by elementId: {}, name: {}", parentId, parentNode.getName());
+                // Visual feedback (expand parent + select new node) happens on EDT in
+                // addElementToTestPlan; selecting here would touch the JTree off-EDT.
+                log.info("Resolved parent node by elementId: {}, name: {}", parentId, parentNode.getName());
             } else {
                 // Use the currently selected node
                 parentNode = guiPackage.getTreeListener().getCurrentNode();
