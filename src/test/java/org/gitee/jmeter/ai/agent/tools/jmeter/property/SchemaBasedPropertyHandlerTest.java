@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.tools.jmeter.property;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.protocol.http.control.Cookie;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
@@ -205,6 +206,43 @@ class SchemaBasedPropertyHandlerTest {
         assertTrue(cookie.getSecure(), "secure=true");
         assertEquals(0L, cookie.getExpires(), "expires not in schema — constructor default 0 (non-expiring) retained");
         assertEquals(0L, cm.get(1).getExpires(), "string form equally ignored");
+    }
+
+    // ===== itemType defense: object items are not stringified (real modulecontroller schema) =====
+    @Test
+    void genericCollection_objectItemsNotStringified() {
+        ComponentSchema schema = schemaLoader.loadSchema("modulecontroller");
+        ModuleController mc = new ModuleController();
+
+        Map<String, Object> bad = new HashMap<>();
+        bad.put("ModuleController.node_path", List.of(Map.of("TestElement.name", "x")));
+        handler.setProperties(mc, bad, schema);
+        JMeterProperty afterBad = mc.getProperty("ModuleController.node_path");
+        assertTrue(!(afterBad instanceof CollectionProperty) || ((CollectionProperty) afterBad).size() == 0,
+                "object items must not be stringified into node path entries");
+
+        Map<String, Object> good = new HashMap<>();
+        good.put("ModuleController.node_path", List.of("Test Plan", "Thread Group"));
+        handler.setProperties(mc, good, schema);
+        JMeterProperty afterGood = mc.getProperty("ModuleController.node_path");
+        assertTrue(afterGood instanceof CollectionProperty);
+        assertEquals(2, ((CollectionProperty) afterGood).size(), "flat strings write as before");
+    }
+
+    // ===== schema default "[]" is injected as a plain string by applyDefaultValues;
+    // non-iterable input yields zero items — anchor current behavior (empty collection) =====
+    @Test
+    void genericCollection_stringDefaultWritesEmptyCollection() {
+        ComponentSchema schema = schemaLoader.loadSchema("modulecontroller");
+        ModuleController mc = new ModuleController();
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("ModuleController.node_path", "[]");
+        handler.setProperties(mc, props, schema);
+
+        JMeterProperty p = mc.getProperty("ModuleController.node_path");
+        assertTrue(p instanceof CollectionProperty);
+        assertEquals(0, ((CollectionProperty) p).size(), "string default lands as an empty collection");
     }
 
     // ===== Case 5: ThreadGroup.main_controller → setSamplerController =====

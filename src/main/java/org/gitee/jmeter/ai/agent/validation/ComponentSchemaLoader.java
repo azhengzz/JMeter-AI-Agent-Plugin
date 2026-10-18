@@ -214,6 +214,25 @@ public class ComponentSchemaLoader {
             // Parse item class for TestBean table collections
             propDef.setItemClass(getStringValue(propData, "itemClass"));
 
+            // Parse scalar element type for Array string-collections. Strict raw-value check:
+            // PropertyType.fromString silently falls back to STRING for unrecognized input,
+            // so typos and non-scalar values must be caught here to stay distinguishable.
+            String itemTypeName = getStringValue(propData, "itemType");
+            if (itemTypeName != null && !itemTypeName.isEmpty()) {
+                ComponentSchema.PropertyType parsedItemType = tryParseScalarPropertyType(itemTypeName);
+                if (parsedItemType == null) {
+                    log.warn("Property '{}' declares itemType='{}' which is not a scalar property type "
+                            + "(allowed: String/Integer/Long/Float/Double/Boolean/Number) — ignored",
+                            propDef.getName(), itemTypeName);
+                } else if (propDef.getType() != ComponentSchema.PropertyType.ARRAY) {
+                    log.warn("Property '{}' declares itemType='{}' but its type is {} — itemType applies "
+                            + "to Array properties only, ignored",
+                            propDef.getName(), itemTypeName, propDef.getType());
+                } else {
+                    propDef.setItemType(parsedItemType);
+                }
+            }
+
             // Parse inner item type for ARRAY_2D properties
             propDef.setInnerItemType(getStringValue(propData, "innerItemType"));
 
@@ -259,6 +278,28 @@ public class ComponentSchemaLoader {
             if (propData.containsKey("default")) {
                 Object defaultValue = propData.get("default");
                 propDef.setDefaultValue(defaultValue);
+            }
+
+            // Item-shape consistency lints for Array properties. Legal shapes mirror the
+            // write-path dispatch exactly: itemType (flat scalars) | className (container) |
+            // itemClass+itemProperties (structured rows).
+            if (propDef.getType() == ComponentSchema.PropertyType.ARRAY) {
+                boolean hasContainer = propDef.getClassName() != null;
+                boolean hasTable = propDef.hasItemClass() && propDef.hasItemProperties();
+                if (propDef.hasItemType() && (hasContainer || hasTable)) {
+                    log.warn("Property '{}' declares itemType together with {} — itemType is ignored when "
+                            + "a container class or itemClass+itemProperties already declares the item shape",
+                            propDef.getName(), hasContainer ? "a container class" : "itemClass+itemProperties");
+                    propDef.setItemType((ComponentSchema.PropertyType) null);
+                } else if (propDef.hasItemProperties() && !propDef.hasItemClass() && !hasContainer) {
+                    log.warn("Property '{}' declares itemProperties without itemClass — the table branch needs "
+                            + "both, so values fall to the generic string-collection path", propDef.getName());
+                } else if (!propDef.hasItemType() && !hasContainer && !hasTable
+                        && propDef.getDefaultValue() != null) {
+                    log.warn("Property '{}' is an Array without any item-shape declaration (itemType / "
+                            + "className / itemClass+itemProperties) but declares a default — the default is "
+                            + "applied without item validation", propDef.getName());
+                }
             }
 
             // Parse enum values
@@ -310,6 +351,31 @@ public class ComponentSchemaLoader {
             log.warn("Failed to parse property definition: {}", propData, e);
             return null;
         }
+    }
+
+    /**
+     * Strict scalar-type parse for itemType: unlike {@link ComponentSchema.PropertyType#fromString}
+     * (which falls back to STRING for unrecognized input), this returns null for typos and
+     * non-scalar values so the loader can warn instead of silently accepting.
+     */
+    private static ComponentSchema.PropertyType tryParseScalarPropertyType(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        ComponentSchema.PropertyType parsed;
+        try {
+            parsed = ComponentSchema.PropertyType.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        return isScalarPropertyType(parsed) ? parsed : null;
+    }
+
+    private static boolean isScalarPropertyType(ComponentSchema.PropertyType type) {
+        return switch (type) {
+            case STRING, INTEGER, LONG, FLOAT, DOUBLE, BOOLEAN, NUMBER -> true;
+            default -> false;
+        };
     }
 
     private String getStringValue(Map<String, Object> map, String key) {

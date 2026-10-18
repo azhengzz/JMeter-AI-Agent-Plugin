@@ -419,6 +419,26 @@ public class ComponentValidator {
             if (propDef.hasItemProperties() && value instanceof Map) {
                 validateItemProperties(propDef, (Map<String, Object>) value, builder);
             }
+
+            // Array with declared itemType: each element is validated as a scalar of that
+            // type, mirroring the scalar path above (numeric item types keep ${...} exemption)
+            if (propDef.getType() == ComponentSchema.PropertyType.ARRAY && propDef.hasItemType()) {
+                validateArrayItemTypes(propName, value, propDef.getItemType(), builder);
+            }
+
+            // Array without any item-shape declaration: refuse supplied values instead of
+            // letting the write path stringify unknown shapes (schema gap invariant)
+            if (propDef.getType() == ComponentSchema.PropertyType.ARRAY && value != null
+                    && !propDef.hasItemType() && propDef.getClassName() == null
+                    && !(propDef.hasItemClass() && propDef.hasItemProperties())) {
+                String error = String.format(
+                    "Parameter '%s' is an Array property whose item shape is not declared in the component "
+                    + "schema (expected itemType for flat scalar lists, or itemClass+itemProperties for "
+                    + "structured rows). This looks like a schema gap — the property cannot be set via tools "
+                    + "until its schema declares the item shape.", propName);
+                builder.addError(error);
+                log.debug("Validation failed: {}", error);
+            }
         }
     }
 
@@ -427,6 +447,37 @@ public class ComponentValidator {
      * Used for properties like HTTPsampler.Arguments where each item should conform to itemProperties.
      */
     @SuppressWarnings("unchecked")
+    /**
+     * Per-item type validation for Array properties with a declared itemType. Mirrors the
+     * scalar path: strict type match, numeric item types accept ${...} references.
+     */
+    private void validateArrayItemTypes(String propName, Object value,
+                                        ComponentSchema.PropertyType itemType,
+                                        ValidationResult.Builder builder) {
+        List<Object> items = convertToSimpleList(value);
+        if (items == null) {
+            return; // non-list shape — the outer isValidType check already flagged it
+        }
+        String example = itemType == ComponentSchema.PropertyType.STRING
+                ? "[\"200\", \"201\"]" : "[1, 2]";
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            if (item == null) {
+                continue; // null items are dropped by the write path
+            }
+            if (!isValidType(item, itemType)
+                    && !(isVariableExpression(item) && acceptsVariableExpressions(itemType))) {
+                String error = String.format(
+                    "Parameter '%s' expects a flat list of %s items (e.g. %s), but item #%d is %s — "
+                    + "nested objects/arrays and mismatched scalar types are not accepted",
+                    propName, itemType.name().toLowerCase(), example, i + 1,
+                    item.getClass().getSimpleName());
+                builder.addError(error);
+                log.debug("Validation failed: {}", error);
+            }
+        }
+    }
+
     private void validateItemProperties(ComponentSchema.PropertyDefinition propDef,
                                        Map<String, Object> itemValues,
                                        ValidationResult.Builder builder) {
@@ -1031,7 +1082,15 @@ public class ComponentValidator {
      * fields (Boolean, enum, Object, Array) have no such guarantee and stay strict.
      */
     private static boolean acceptsVariableExpressions(ComponentSchema.PropertyDefinition propDef) {
-        return switch (propDef.getType()) {
+        return acceptsVariableExpressions(propDef.getType());
+    }
+
+    /**
+     * Type-level variant used by array-item validation, where the governing type is the
+     * declared itemType rather than the (always ARRAY) property type.
+     */
+    private static boolean acceptsVariableExpressions(ComponentSchema.PropertyType type) {
+        return switch (type) {
             case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> true;
             default -> false;
         };

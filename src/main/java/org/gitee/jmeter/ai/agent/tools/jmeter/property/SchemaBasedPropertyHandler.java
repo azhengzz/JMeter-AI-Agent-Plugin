@@ -232,7 +232,7 @@ public class SchemaBasedPropertyHandler {
                 } else if (propDef.hasItemClass() && propDef.hasItemProperties()) {
                     handleTestBeanTableProperty(element, propName, propValue, propDef);
                 } else {
-                    handleGenericCollectionProperty(element, propName, propValue);
+                    handleGenericCollectionProperty(element, propName, propValue, propDef);
                 }
                 break;
 
@@ -277,7 +277,7 @@ public class SchemaBasedPropertyHandler {
         String itemClassName = propDef.getItemClass();
         if (containerClassName == null || itemClassName == null) {
             log.warn("Property {} missing class or itemClass, fallback to generic", propName);
-            handleGenericCollectionProperty(element, propName, propValue);
+            handleGenericCollectionProperty(element, propName, propValue, propDef);
             return;
         }
 
@@ -697,7 +697,7 @@ public class SchemaBasedPropertyHandler {
         String itemClassName = propDef.getItemClass();
         if (itemClassName == null || itemClassName.isEmpty()) {
             log.warn("itemClass not defined for property: {}, falling back to generic handler", propName);
-            handleGenericCollectionProperty(element, propName, propValue);
+            handleGenericCollectionProperty(element, propName, propValue, propDef);
             return;
         }
 
@@ -740,7 +740,7 @@ public class SchemaBasedPropertyHandler {
 
         } catch (Exception e) {
             log.warn("Failed to handle TestBean table property: {}, falling back to generic handler", propName, e);
-            handleGenericCollectionProperty(element, propName, propValue);
+            handleGenericCollectionProperty(element, propName, propValue, propDef);
         }
     }
 
@@ -748,7 +748,20 @@ public class SchemaBasedPropertyHandler {
      * Handle generic collection properties (e.g., Assertion.test_strings).
      */
     @SuppressWarnings("unchecked")
-    private void handleGenericCollectionProperty(TestElement element, String propName, Object propValue) {
+    private void handleGenericCollectionProperty(TestElement element, String propName, Object propValue,
+                                                 ComponentSchema.PropertyDefinition propDef) {
+        // Defense in depth for schemas declaring a scalar itemType: refuse to stringify
+        // object/collection items into garbage literal values — skip the whole property.
+        // Validation rejects these first; this covers callers that bypass validation.
+        if (propDef != null && propDef.hasItemType()) {
+            for (Object item : convertToList(propValue)) {
+                if (item instanceof Map || item instanceof java.util.Collection) {
+                    log.warn("Skipping property '{}': item is a {} but itemType={} declares scalar items",
+                            propName, item.getClass().getSimpleName(), propDef.getItemType());
+                    return;
+                }
+            }
+        }
         try {
             Class<?> collectionPropClass = Class.forName("org.apache.jmeter.testelement.property.CollectionProperty");
             Class<?> stringPropClass = Class.forName("org.apache.jmeter.testelement.property.StringProperty");

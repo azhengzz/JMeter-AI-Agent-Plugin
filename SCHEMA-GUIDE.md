@@ -274,6 +274,7 @@ Array 类型会根据以下字段自动路由到 **3 个子模板** 之一([决�
 | `containerAddMethod` | String | container-items | 容器的 add 方法名(如 `addArgument`、`add`、`addHTTPFileArg`) |
 | `itemClass` | String | container-items / testbean-table | item 元素类全限定名(如 `org.apache.jmeter.config.Argument`) |
 | `itemProperties` | List | container-items / testbean-table / nested-array | item 字段定义列表,见 [§7](#7-子字段itemproperties--properties-内) |
+| `itemType` | String | string-collection | 数组元素标量类型(`String/Integer/Long/Float/Double/Boolean/Number`)。**string-collection 模板必填**——逐项类型校验与写入防御都由它驱动;与 `testClass`/`itemClass`+`itemProperties` 互斥,共存时 itemType 被忽略并告警。校验严格性与同类型标量属性一致(如 `itemType: String` 拒绝 JSON 裸数字,数值类型接受 `${...}` 引用) |
 | `innerItemType` | String | nested-array(ARRAY_2D) | 内层元素类型(目前仅 `String`) |
 
 ### 6.3 Object 类型专用字段
@@ -422,10 +423,12 @@ itemProperties:
 │   └─→ 默认(TestElementProperty) ──→ handleNestedObjectProperty(TestElement 嵌套,如 LoopController)
 │
 ├── ARRAY
-│   │   读取 propDef.className(testClass/class) / itemClass / itemProperties
+│   │   读取 propDef.className(testClass/class) / itemClass / itemProperties / itemType
 │   ├─→ className != null        ──→  handleContainerItemsProperty(container-items 模板)
 │   ├─→ itemClass + itemProperties 都有    ──→  handleTestBeanTableProperty(testbean-table 模板)
-│   └─→ 都没有                             ──→  handleGenericCollectionProperty(string-collection 模板)
+│   ├─→ itemType 有(前两者皆无)           ──→  handleGenericCollectionProperty(string-collection 模板,
+│   │                                          逐项按 itemType 校验,写入防御拒绝对象元素)
+│   └─→ 都没有                             ──→  校验期硬拒(「item shape not declared」schema 缺口)
 │
 └── ARRAY_2D
     └─→ handleNestedArrayProperty(nested-array 模板)
@@ -438,7 +441,7 @@ itemProperties:
 | 单个输入框/勾选框 | 简单属性 | `type: String/Integer/Boolean` |
 | 表格,每行一组字段 | container-items / testbean-table | `type: Array`,看父是否容器选 `mountMode` |
 | 嵌套面板(独立子组件配置区) | nested-object | `type: Object`,TestElement 嵌套要填 `guiClass` |
-| 字符串列表(没有字段名) | string-collection | `type: Array`,不填 `testClass`/`itemClass` |
+| 字符串列表(没有字段名) | string-collection | `type: Array` + `itemType: String`,不填 `testClass`/`itemClass` |
 | 二维表格(行/列都是值) | nested-array | `type: ARRAY_2D` |
 
 ---
