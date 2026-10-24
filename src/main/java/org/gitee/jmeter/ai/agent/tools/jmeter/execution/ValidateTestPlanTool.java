@@ -86,7 +86,7 @@ public class ValidateTestPlanTool extends AbstractJMeterElementTool {
             }
             org.gitee.jmeter.ai.agent.session.GoalState goal =
                     org.gitee.jmeter.ai.agent.session.GoalState.load(session);
-            if (goal != null && goal.isActive()) {
+            if (goal != null && goal.isOngoing()) {
                 if (pass) {
                     goal.recordStaticPass();
                 } else {

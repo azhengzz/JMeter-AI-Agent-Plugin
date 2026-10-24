@@ -21,7 +21,17 @@ public class GoalState {
 
     private static final Logger log = LoggerFactory.getLogger(GoalState.class);
 
-    public enum Status { ACTIVE, COMPLETED, CANCELLED, BLOCKED }
+    /** PAUSED 为非终态：仅可自 ACTIVE 迁入（GUI 暂停入口或用户 Stop 打断收敛），经恢复入口迁回 ACTIVE。 */
+    public enum Status { ACTIVE, PAUSED, COMPLETED, CANCELLED, BLOCKED }
+
+    /**
+     * 目标验证模式：{@code TEST_PLAN}（默认——目标涉及构建/修复 JMeter 测试计划，
+     * complete 需 validate_test_plan PASS + 冒烟零 error 硬标准）或
+     * {@code NON_TEST_PLAN}（目标不以测试计划为对象——系统查询/分析/写报告等，
+     * 任务仍可修改脚本、文件等非测试计划产物，只是 validate/smoke 对其无意义；
+     * complete 免测试计划证据，以 objective 自身声明的完成证据为准）。
+     */
+    public enum Verification { TEST_PLAN, NON_TEST_PLAN }
 
     public static final String SESSION_METADATA_KEY = "goal_state";
     public static final int MAX_OBJECTIVE_CHARS = 4000;
@@ -29,6 +39,7 @@ public class GoalState {
     public static final int MAX_UI_SUMMARY_CHARS = 120;
 
     private Status status = Status.ACTIVE;
+    private Verification verification = Verification.TEST_PLAN;
     private String objective;
     private String uiSummary;
     private String startedAt;
@@ -70,6 +81,15 @@ public class GoalState {
         return status == Status.ACTIVE;
     }
 
+    /**
+     * 目标仍在推进生命周期内（ACTIVE 或 PAUSED）：验证证据与冒烟计数的簿记适用
+     * （暂停不丢弃已做的验证工作——暂停期间落地的 validate/smoke 照样记入本 goal）；
+     * 终态（COMPLETED/CANCELLED/BLOCKED）不再记录。
+     */
+    public boolean isOngoing() {
+        return status == Status.ACTIVE || status == Status.PAUSED;
+    }
+
     public String getObjective() {
         return objective;
     }
@@ -78,8 +98,27 @@ public class GoalState {
         return uiSummary;
     }
 
+    public Verification getVerification() {
+        return verification;
+    }
+
+    /** 非测试计划目标（verification=non_test_plan）：complete 免测试计划验证证据。 */
+    public boolean isNonTestPlan() {
+        return verification == Verification.NON_TEST_PLAN;
+    }
+
+    /** 建 goal 时声明非测试计划验证模式（create_goal verification='non_test_plan'）。 */
+    public void markNonTestPlan() {
+        this.verification = Verification.NON_TEST_PLAN;
+    }
+
     public String getStartedAt() {
         return startedAt;
+    }
+
+    /** 终态时间戳；非终态（ACTIVE/PAUSED）为 null。 */
+    public String getEndedAt() {
+        return endedAt;
     }
 
     public String getRecap() {
@@ -101,12 +140,40 @@ public class GoalState {
         if (terminal == Status.ACTIVE) {
             throw new IllegalArgumentException("terminal status required");
         }
+        // 终态是汇点：COMPLETED/CANCELLED 定稿后判定与 recap 不可再迁移（结案观点
+        // 要改让用户开新 goal）；BLOCKED 是「数据层终态、故事未完」的特殊态，允许
+        // BLOCKED→COMPLETED/CANCELLED（受阻后完成/放弃的合法叙事，对齐 dsh）
+        if (status == Status.COMPLETED || status == Status.CANCELLED) {
+            throw new IllegalArgumentException(
+                    "goal already terminal (" + status + "); the verdict and recap are final");
+        }
         if (recap == null || recap.isBlank()) {
             throw new IllegalArgumentException("recap is required for goal termination");
         }
         this.recap = truncateUtf16Safe(recap, MAX_RECAP_CHARS);
         this.status = terminal;
         this.endedAt = LocalDateTime.now().toString();
+    }
+
+    /**
+     * 暂停（GUI ⏸ 入口或用户 Stop 打断收敛）。仅 ACTIVE→PAUSED；非终态迁移：
+     * 不写 endedAt/recap，startedAt 与计数保持不变（同一 goal，恢复后续算）。
+     */
+    public void pauseFromActive() {
+        transitionFrom(Status.ACTIVE, Status.PAUSED);
+    }
+
+    /** 恢复（GUI ▶ 入口）。仅 PAUSED→ACTIVE。 */
+    public void resumeFromPaused() {
+        transitionFrom(Status.PAUSED, Status.ACTIVE);
+    }
+
+    private void transitionFrom(Status expected, Status target) {
+        if (this.status != expected) {
+            throw new IllegalArgumentException(
+                    "illegal goal transition " + this.status + " -> " + target + " (requires " + expected + ")");
+        }
+        this.status = target;
     }
 
     /**
@@ -209,6 +276,16 @@ public class GoalState {
 
     // --- persistence (session metadata blob) ---
 
+    /**
+     * UI 通知用的不可变快照：{@link GoalStateEvents} 扇出与懒创建 hydrate 的载荷。
+     * 只含呈现所需字段（状态条文本、tooltip 计数与开始时间、展开正文），不含验证
+     * 证据时间戳等内部细节。
+     */
+    public record GoalSnapshot(Status status, String uiSummary, String objective, String recap,
+                               int smokeAttempts, int continuationRounds, String startedAt,
+                               String sessionKey) {
+    }
+
     /** Load the goal state from a session; null when no goal is recorded. */
     public static GoalState load(Session session) {
         if (session == null) {
@@ -224,6 +301,10 @@ public class GoalState {
         try {
             GoalState g = new GoalState();
             g.status = Status.valueOf(string(map.get("status"), Status.ACTIVE.name()));
+            // 容错：verification 缺失（旧 blob）或未知值一律回落 TEST_PLAN
+            g.verification = Verification.NON_TEST_PLAN.name().toLowerCase(java.util.Locale.ROOT)
+                    .equals(string(map.get("verification"), "")) ? Verification.NON_TEST_PLAN
+                            : Verification.TEST_PLAN;
             g.objective = string(map.get("objective"), null);
             g.uiSummary = string(map.get("ui_summary"), null);
             g.startedAt = string(map.get("started_at"), null);
@@ -237,26 +318,44 @@ public class GoalState {
             return g;
         } catch (IllegalArgumentException e) {
             // 容错契约：坏 blob 按无 goal 处理（钉定于 SessionGoalMetadataTest），但必须
-            // 留痕——静默 null 会让活跃 goal 的全部效应无声蒸发且盘上 blob 还在
+            // 留痕——静默 null 会让活跃 goal 的全部效应无声蒸发且盘上 blob 还在。
+            // 旧版本读到 PAUSED 枚举也走此路径（可接受的回滚降级，warn 留痕）。
             log.warn("Corrupt goal_state blob in session {} ({}); treating as no goal — "
                     + "the recorded goal's effects are dropped", session.getKey(), e.toString());
             return null;
         }
     }
 
-    /** Store the goal state into the session (pass null to clear). */
+    /**
+     * Store the goal state into the session (pass null to clear). Every persisted
+     * change fans out an immutable {@link GoalSnapshot} via {@link GoalStateEvents}
+     * — the snapshot is built inside the session monitor, the publish happens after
+     * it (listener callbacks must never run under the monitor).
+     */
     public static void store(Session session, GoalState goal) {
         if (session == null) {
             return;
         }
+        String sessionKey = session.getKey();
+        GoalSnapshot snapshot;
         synchronized (session) {
             session.putMetadataValue(SESSION_METADATA_KEY, goal == null ? null : goal.toMap());
+            snapshot = goal == null ? null : goal.snapshot(sessionKey);
         }
+        GoalStateEvents.publish(sessionKey, snapshot);
+    }
+
+    /** 当前状态的不可变快照（GUI hydrate 的磁盘腿与测试共用）。 */
+    public GoalSnapshot snapshot(String sessionKey) {
+        return new GoalSnapshot(status, uiSummary, objective, recap,
+                smokeAttempts, continuationRounds, startedAt, sessionKey);
     }
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("status", status.name());
+        map.put("verification",
+                verification == Verification.NON_TEST_PLAN ? "non_test_plan" : "test_plan");
         map.put("objective", objective);
         if (uiSummary != null) {
             map.put("ui_summary", uiSummary);

@@ -41,7 +41,9 @@ public class UpdateGoalTool extends AbstractTool {
     public String getDescription() {
         return "Update or terminate the sustained goal. action='complete' only after the objective "
                 + "is actually achieved and verified (static validation PASS + smoke run with zero errors), "
-                + "or after the smoke budget is exhausted; 'cancel' when the user cancels; 'block' when "
+                + "or after the smoke budget is exhausted — except goals created with "
+                + "verification='non_test_plan' (no test-plan involvement), which complete once their own "
+                + "stated completion evidence is met; 'cancel' when the user cancels; 'block' when "
                 + "progress is genuinely blocked; 'replace' only when the objective changes (/goal turns "
                 + "only). Terminal actions require a recap: objective, verification results, smoke rounds "
                 + "used, residual risks.";
@@ -103,18 +105,26 @@ public class UpdateGoalTool extends AbstractTool {
         switch (action) {
             case "complete" -> {
                 int smokeLimit = AiConfig.getGoalSmokeLimit();
-                if (!goal.canComplete(smokeLimit)) {
+                // 非测试计划目标（create_goal verification='non_test_plan'）免测试计划验证证据：
+                // validate/smoke 与其目标边界冲突，以 objective 自身声明的完成证据为准
+                if (!goal.isNonTestPlan() && !goal.canComplete(smokeLimit)) {
                     arbitrateTimedOutSmokePass(session, goal);
                     if (!goal.canComplete(smokeLimit)) {
                         return ToolResult.error(String.format(
                                 "Goal not complete: missing verification evidence (static %s, smoke %s; "
                                         + "smoke attempts %d/%d). Run validate_test_plan and a smoke run "
-                                        + "(run_test mode=smoke) and fix the reported errors first%s.",
+                                        + "(run_test mode=smoke) and fix the reported errors first%s%s.",
                                 goal.hasStaticPass() ? "PASS" : "missing",
                                 goal.hasSmokePass() ? "PASS" : "missing",
                                 goal.getSmokeAttempts(), smokeLimit,
                                 goal.getSmokeAttempts() >= smokeLimit
-                                        ? "" : ", or use action='block' if genuinely stuck"));
+                                        ? "" : ", or use action='block' if genuinely stuck",
+                                goal.getSmokeAttempts() <= 0
+                                        ? ". If this objective involves no JMeter test-plan change "
+                                        + "at all, it should have been created with "
+                                        + "verification='non_test_plan' — ask the user to resubmit it as "
+                                        + "`/goal <objective>` so it can complete on its own evidence"
+                                        : ""));
                     }
                 }
                 return terminate(session, goal, GoalState.Status.COMPLETED, recap);
@@ -129,6 +139,17 @@ public class UpdateGoalTool extends AbstractTool {
                 if (!runContext.isGoalRequested()) {
                     return ToolResult.error("update_goal action='replace' is unavailable for this turn. "
                             + "Ask the user to resubmit the changed objective as `/goal <objective>`.");
+                }
+                if (goal.getStatus() == GoalState.Status.PAUSED) {
+                    // 侧门封堵：create_goal 的 PAUSED 门只挡正门——replace 同样能达成
+                    // 「objective 被静默替换 + 暂停态被复活 + 计数清空」的复合效果。
+                    // 暂停目标的去留必须由用户显式选择（cancel 后重提 / ▶ 恢复）
+                    return ToolResult.error("A sustained goal is currently paused for this "
+                            + "session. Do NOT use action='replace' to swap a paused goal — "
+                            + "its objective must not be discarded silently. Ask the user "
+                            + "either to cancel it first (update_goal action='cancel', then "
+                            + "resubmit the new request as `/goal <objective>`), or to resume "
+                            + "it from the chat panel (the ▶ button) to continue it.");
                 }
                 String objective = getStringParameter(parameters, "objective", "");
                 String uiSummary = GoalState.truncateUtf16Safe(

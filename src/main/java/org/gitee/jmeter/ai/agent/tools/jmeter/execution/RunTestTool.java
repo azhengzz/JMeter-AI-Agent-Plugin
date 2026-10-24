@@ -561,7 +561,7 @@ public class RunTestTool extends AbstractTool {
             }
             org.gitee.jmeter.ai.agent.session.GoalState goal =
                     org.gitee.jmeter.ai.agent.session.GoalState.load(session);
-            if (goal != null && goal.isActive()) {
+            if (goal != null && goal.isOngoing()) {
                 goal.recordSmokeAttempt();
                 org.gitee.jmeter.ai.agent.session.GoalState.store(session, goal);
                 sessionManager.saveSession(session);
@@ -595,7 +595,7 @@ public class RunTestTool extends AbstractTool {
             }
             org.gitee.jmeter.ai.agent.session.GoalState goal =
                     org.gitee.jmeter.ai.agent.session.GoalState.load(session);
-            if (goal != null && goal.isActive()) {
+            if (goal != null && goal.isOngoing()) {
                 if (pass) {
                     goal.recordSmokePass();
                 } else {

@@ -441,8 +441,13 @@ class AiChatPanelNewConversationTest {
 
         assertFalse(orphanCall.entered.await(2, TimeUnit.SECONDS),
                 "Stop 作废的残留不得被重发布跑进任何回合");
-        assertNull(loop.getSessionManager().get(sessionKey),
-                "新会话不得包含旧会话残留的问答（重置后缓存应保持失效）");
+        // 缓存允许被重火磁盘重载回填（回填的是已清空会话）——契约是不含旧问答，
+        // 不是缓存恒空
+        org.gitee.jmeter.ai.agent.session.Session session = loop.getSessionManager().get(sessionKey);
+        if (session != null) {
+            assertTrue(session.getMessages().isEmpty(),
+                    "新会话不得包含旧会话残留的问答（缓存可被重火重载回填，内容必须为空）");
+        }
     }
 
     /**

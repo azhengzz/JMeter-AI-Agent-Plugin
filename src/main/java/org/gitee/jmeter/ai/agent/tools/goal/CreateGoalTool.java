@@ -51,6 +51,11 @@ public class CreateGoalTool extends AbstractTool {
                             "type": "string",
                             "description": "One-line summary for UI display (max 120 chars)",
                             "maxLength": 120
+                        },
+                        "verification": {
+                            "type": "string",
+                            "enum": ["test_plan", "non_test_plan"],
+                            "description": "Verification mode. 'test_plan' (default): the objective is about building or fixing the JMeter test plan — completing later requires validate_test_plan PASS plus a smoke run with zero errors. 'non_test_plan': the objective is NOT about the JMeter test plan (system queries, analysis, report writing, etc. — the task may still create or modify OTHER artifacts such as scripts and report files); test-plan validation/smoke are meaningless for it — complete once the objective's own stated completion evidence is met instead."
                         }
                     },
                     "required": ["objective"]
@@ -80,6 +85,15 @@ public class CreateGoalTool extends AbstractTool {
         } catch (IllegalArgumentException e) {
             return ToolResult.error(e.getMessage());
         }
+        String verification = getStringParameter(parameters, "verification", "test_plan")
+                .toLowerCase(java.util.Locale.ROOT);
+        if ("non_test_plan".equals(verification)) {
+            // 非测试计划目标：validate/smoke 对其无意义，complete 免测试计划证据
+            goal.markNonTestPlan();
+        } else if (!"test_plan".equals(verification)) {
+            return ToolResult.error("Unknown verification mode '" + verification
+                    + "'. Use 'test_plan' (default) or 'non_test_plan'.");
+        }
 
         var session = sessionManager.getOrCreate(runContext.getSessionKey());
         GoalState existing = GoalState.load(session);
@@ -87,6 +101,15 @@ public class CreateGoalTool extends AbstractTool {
             return ToolResult.error("A sustained goal is already active for this session. "
                     + "Use update_goal with action='replace' if the requested outcome actually changed, "
                     + "or finish/cancel the current goal first.");
+        }
+        if (existing != null && existing.getStatus() == GoalState.Status.PAUSED) {
+            // 暂停中的 goal 不被静默覆盖：新目标会丢弃被暂停的 objective，先恢复或终结。
+            // 显式封侧门：replace 同样能达成静默替换，错误口径与工具门互指 cancel
+            return ToolResult.error("A sustained goal is currently paused for this session. "
+                    + "Ask the user to resume it from the chat panel (the ▶ button) to continue it, "
+                    + "or to terminate it via update_goal(action='cancel') before submitting "
+                    + "a new /goal request. Do NOT use update_goal(action='replace') to swap "
+                    + "a paused goal — cancel it first.");
         }
 
         GoalState.store(session, goal);

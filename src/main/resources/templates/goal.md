@@ -22,6 +22,12 @@ Write a durable objective:
 4. Bounded — name scope limits explicitly.
 5. Explicit about done-ness — name the evidence that proves completion.
 
+Declare the verification mode when creating the goal: pass
+`verification='non_test_plan'` when the objective involves NO JMeter test-plan
+change at all (non-test-plan analysis, system queries, explanations) — the
+create_goal schema describes when each mode applies. Leave the default
+(`test_plan`) otherwise.
+
 If material requirements remain ambiguous, ask ONE concise clarification
 question, then ask the user to resubmit the clarified request as a complete
 `/goal <objective>` command. If a goal is already active, do not stack another
@@ -50,6 +56,13 @@ achieved and verified (or the smoke budget is exhausted); use 'cancel' when the
 user cancels, 'block' when progress is genuinely blocked, 'replace' only when
 the objective changes. Every terminal action requires a recap covering:
 objective, verification results, smoke rounds used, residual risks.
+
+Non-test-plan goals: when the goal was created with `verification='non_test_plan'`
+(the objective is not about building or fixing the JMeter test plan — the task may
+still create or modify OTHER artifacts such as scripts and report files), skip
+validate/smoke entirely — they are meaningless for this objective. Complete via
+update_goal action='complete' once the objective's own stated completion evidence
+is met; the recap must present that evidence.
 
 You decide autonomously which endpoints the smoke run may hit, based on the
 user's request and context. Write-operation endpoints will receive ONE real

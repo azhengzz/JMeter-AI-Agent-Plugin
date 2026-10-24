@@ -49,6 +49,21 @@ public final class GoalRuntime {
      * @param goal          当前 goal 状态（可 null）
      */
     public static String buildGoalContext(boolean goalRequested, GoalState goal) {
+        if (goal != null && goal.getStatus() == GoalState.Status.PAUSED) {
+            // 暂停指令：纯静默抑制不足以对抗会话历史里的 goal 势能——模型会从上下文
+            // 「自发续推进」（2026-10-20 实测）。改为显式注入宿主指令：暂停期间只回应
+            // 用户消息、不做任何 goal 推进；goal 状态数据（objective/计数）仍不注入，
+            // 恢复 ACTIVE 后照常注入完整块。
+            return ContextBuilder.GOAL_GUIDANCE_TAG + "\n\n"
+                    + "The sustained goal is PAUSED by the user. In this reply, do NOT "
+                    + "continue, advance, or resume any work toward the goal — no test-plan "
+                    + "edits, no validate/smoke runs, no other goal-related tool calls "
+                    + "(update_goal is allowed only if the user's message explicitly asks "
+                    + "to cancel or finish the goal). Answer only the user's message. The "
+                    + "goal resumes when the user clicks Resume in the chat panel; do not "
+                    + "explain the pause mechanics unprompted.\n\n"
+                    + ContextBuilder.GOAL_GUIDANCE_END;
+        }
         if (!goalRequested && (goal == null || !goal.isActive())) {
             return "";
         }
@@ -119,12 +134,24 @@ public final class GoalRuntime {
         if (goal.getUiSummary() != null && !goal.getUiSummary().isBlank()) {
             sb.append("\nSummary: ").append(goal.getUiSummary());
         }
-        sb.append("\nSmoke attempts: ").append(goal.getSmokeAttempts()).append("/").append(smokeLimit);
-        sb.append("\nVerification evidence: ")
-                .append(goal.hasVerificationEvidence()
-                        ? "static PASS + smoke PASS (hard standard met)"
-                        : "incomplete (static " + (goal.hasStaticPass() ? "PASS" : "missing")
-                        + ", smoke " + (goal.hasSmokePass() ? "PASS" : "missing") + ")");
+        if (goal.isNonTestPlan()) {
+            // 非测试计划目标：validate/smoke 对其无意义（workspace 模板可能陈旧，此行是
+            // 每回合实时渲染的权威口径——勿跑验证，按 objective 自证完成；目标仍可改
+            // 脚本/报告等非测试计划产物）
+            sb.append("\nVerification: non-test-plan goal — JMeter test-plan validation/smoke "
+                    + "do NOT apply (the objective is not about the test plan; you may still "
+                    + "create or modify other artifacts such as scripts and report files). "
+                    + "Do not run validate_test_plan or smoke. Complete via update_goal "
+                    + "action='complete' once the objective's own stated completion "
+                    + "evidence is met; present that evidence in the recap.");
+        } else {
+            sb.append("\nSmoke attempts: ").append(goal.getSmokeAttempts()).append("/").append(smokeLimit);
+            sb.append("\nVerification evidence: ")
+                    .append(goal.hasVerificationEvidence()
+                            ? "static PASS + smoke PASS (hard standard met)"
+                            : "incomplete (static " + (goal.hasStaticPass() ? "PASS" : "missing")
+                            + ", smoke " + (goal.hasSmokePass() ? "PASS" : "missing") + ")");
+        }
         sb.append("\nStarted at: ").append(goal.getStartedAt());
         return sb.toString();
     }
@@ -216,6 +243,12 @@ public final class GoalRuntime {
                 4. Bounded — name scope limits explicitly.
                 5. Explicit about done-ness — name the evidence that proves completion.
 
+                Declare the verification mode when creating the goal: pass
+                `verification='non_test_plan'` when the objective involves NO JMeter test-plan
+                change at all (non-test-plan analysis, system queries, explanations) — the
+                create_goal schema describes when each mode applies. Leave the default
+                (`test_plan`) otherwise.
+
                 If material requirements remain ambiguous, ask ONE concise clarification
                 question, then ask the user to resubmit the clarified request as a complete
                 `/goal <objective>` command. If a goal is already active, do not stack another
@@ -243,6 +276,13 @@ public final class GoalRuntime {
                 user cancels, 'block' when progress is genuinely blocked, 'replace' only when
                 the objective changes. Every terminal action requires a recap covering:
                 objective, verification results, smoke rounds used, residual risks.
+
+                Non-test-plan goals: when the goal was created with `verification='non_test_plan'`
+                (the objective is not about building or fixing the JMeter test plan — the task
+                may still create or modify OTHER artifacts such as scripts and report files),
+                skip validate/smoke entirely — they are meaningless for this objective.
+                Complete via update_goal action='complete' once the objective's own stated
+                completion evidence is met; the recap must present that evidence.
 
                 You decide autonomously which endpoints the smoke run may hit, based on the
                 user's request and context. Write-operation endpoints will receive ONE real

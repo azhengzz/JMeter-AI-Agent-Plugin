@@ -27,6 +27,9 @@ import org.gitee.jmeter.ai.agent.presenter.TurnEvent;
 import org.gitee.jmeter.ai.agent.presenter.TurnHandle;
 import org.gitee.jmeter.ai.agent.presenter.TurnOrigin;
 import org.gitee.jmeter.ai.agent.presenter.TurnSubscriber;
+import org.gitee.jmeter.ai.agent.session.GoalState;
+import org.gitee.jmeter.ai.agent.session.GoalStateEvents;
+import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.gui.render.UiThemeUtil;
 import org.gitee.jmeter.ai.gui.theme.SlimComboBoxUI;
 import org.gitee.jmeter.ai.gui.theme.SlimScrollBarUI;
@@ -128,6 +131,30 @@ public class AiChatPanel extends JPanel
     private JCheckBox injectContextCheckBox;
     private SelectionListener selectionTrackerListener;
 
+    // Goal 状态三件套（goal-status-ui）：输入卡内状态条（含 ⏸/▶/展开）+ 输入卡呼吸
+    // 光晕。goal 状态经 GoalStateEvents（GoalState.store 咽喉点广播）驱动，不经回合
+    // 事件流。goalStateListener 持字段引用——方法引用每次 this::x 生成新对象，
+    // cleanup 摘除必须按同一实例。
+    private GoalStrip goalStrip;
+    private GoalGlowAnimator goalGlow;
+    /** 输入卡圆角壳：光晕带以它的矩形为锚画进面板既有静区（见 {@link GoalGlowPainter}）。 */
+    private RoundedBorderPanel inputCard;
+    /**
+     * 上一次<b>绘制</b>过的卡片矩形（面板坐标，仅 paintComponent 读写的 EDT 私有态）：
+     * 布局变化的自动脏区域只盖住组件自身界内，光晕带落在组件界外的旧环像素（页边距
+     * 与输入坞上方空隙）不会被任何自动重绘覆盖。绘制时发现矩形已变 → 对旧带补一次
+     * repaint 清残留（展开/收起/终态收起后转录区两侧的竖向光晕残影）。不挂
+     * ComponentListener——组件事件异步投递，到达时矩形早已易主，时序上不可靠。
+     */
+    private Rectangle lastPaintedGlowCardRect;
+    private final GoalStateEvents.Listener goalStateListener = this::onGoalStateChanged;
+    /**
+     * 最近一份 goal 快照（volatile）：构造早期（订阅先于 UI 字段就位）到达的快照
+     * 暂存于此，由构造末尾的 {@link #flushGoalStrip}（EDT）重放——hydrate 与实时
+     * 事件在「面板半构造」窗口内都不丢。
+     */
+    private volatile GoalState.GoalSnapshot lastGoalSnapshot;
+
     /**
      * IME 组合态标志（volatile：InputMethod 事件与按键事件可能在 EDT 之外交错）：
      * 输入法组合进行中为 true——Enter 键按下时若组合未提交，Enter 只结束组合不发送。
@@ -146,11 +173,21 @@ public class AiChatPanel extends JPanel
         // 模型切换换血 loop 后订阅不丢，懒创建面板对在跑回合的后续事件照常可达
         AgentLoopFactory.addTurnSubscriber(this);
 
+        // goal 状态订阅（先订阅后 hydrate——此后变更不丢）：回调线程不保证（工具池
+        // 线程/loop 线程/EDT/可能在 resetFenceLock 内），onGoalStateChanged 恰一次
+        // invokeLater 编组（契约见 GoalStateEvents.Listener）
+        GoalStateEvents.addListener(goalStateListener);
+
         // Initialize AgentLoop with ClaudeService as the default AI service
         initializeAgentLoop();
         // 面板懒创建：委派/CLI 回合可能先于面板存在——构造完成时领养在跑回合
         //（invokeLater 排队，等 UI 字段全部就绪后执行，见方法注释）
         adoptRunningIpcTurnIfNeeded();
+
+        // goal 状态恢复：进程内缓存优先，否则从 session 持久化读（覆盖 JMeter 重启
+        // 后磁盘仍有 ACTIVE/PAUSED goal 的场景）；初始呈现只认 ACTIVE/BLOCKED/PAUSED
+        // ——终态历史不回放（recap 已按既有契约渲染在聊天流）
+        hydrateGoalState();
 
         // Register for UI refresh events (for zoom functionality)
         UIManager.addPropertyChangeListener(this);
@@ -534,11 +571,26 @@ public class AiChatPanel extends JPanel
         buttonRow.add(sendButton);
         controlsRow.add(buttonRow, BorderLayout.EAST);
 
-        // Unify the three rows into one rounded input card (the reference
-        // plugin's unified composer): context row on top, message field in the
-        // middle, model selector + buttons at the bottom — positions unchanged.
-        // Rows stay non-opaque so the card's rounded elevated fill shows
-        // through; the wrapper's padding keeps every row clear of the corners.
+        // Unify the rows into one rounded input card (the reference plugin's
+        // unified composer): goal strip slot on top (hidden without a goal —
+        // BorderLayout skips invisible children, so the no-goal layout is
+        // byte-identical to before), context row next, message field in the
+        // middle, model selector + buttons at the bottom. Rows stay
+        // non-opaque so the card's rounded elevated fill shows through; the
+        // wrapper's padding keeps every row clear of the corners.
+        goalStrip = new GoalStrip(new GoalStrip.GoalActions() {
+            @Override
+            public void onPauseRequested() {
+                requestGoalPause();
+            }
+
+            @Override
+            public void onResumeRequested() {
+                requestGoalResume();
+            }
+        }, GoalStrip.swingTimerFactory(), this::getHeight);
+        goalStrip.setVisible(false);
+
         JPanel inputArea = new JPanel(new BorderLayout(0, UiTokens.SPACE_1));
         inputArea.setOpaque(false);
         inputArea.setBorder(BorderFactory.createEmptyBorder(
@@ -549,19 +601,49 @@ public class AiChatPanel extends JPanel
 
         // The card's focus ring follows the message field's focus, so typing
         // lights up the whole composer like the reference plugin's input card.
-        RoundedBorderPanel inputBorderPanel = new RoundedBorderPanel(inputArea);
+        RoundedBorderPanel inputBorderPanel = inputCard = new RoundedBorderPanel(inputArea);
+        // goal 状态条贴卡片顶（卡壳 NORTH，藏在输入区内边距之外）：全宽色带直接铺到
+        // 卡边，圆角外形由 RoundedBorderPanel 的 paintChildren 裁剪统一负责，与卡身
+        // 连成一体；无 goal 时 NORTH 隐零高度，布局与无 goal 状态完全一致
+        inputCard.add(goalStrip, BorderLayout.NORTH);
+        // goal 呼吸光晕（零布局）：光环由面板 paintComponent 画进输入卡外侧的既有
+        // 静区（页边距 + 输入坞上方空隙），点亮/熄灭不改任何布局尺寸。ACTIVE 呼吸 /
+        // BLOCKED 静态琥珀 / PAUSED 与终态熄灭；面板隐藏时暂停（SHOWING_CHANGED），
+        // 恢复可见且 goal 仍活跃时续跑——防 JMeter 会话全程后台空转
+        goalGlow = new GoalGlowAnimator(this::repaintGlowBand);
+        goalGlow.onModeChange(this::repaintGlowBand);
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                if (isShowing()) {
+                    // 恢复可见时按当前 goal 状态重点火：ACTIVE 呼吸 + BLOCKED 静态
+                    // 琥珀环（零动画成本，不受防空转目的约束）——PAUSED/终态保持熄灭
+                    goalStrip.setHostShowing(true); // 状态条呼吸表随恢复可见续跑
+                    GoalState.Status status = goalStrip.status();
+                    if (status == GoalState.Status.ACTIVE) {
+                        goalGlow.setGoalActive();
+                    } else if (status == GoalState.Status.BLOCKED) {
+                        goalGlow.setGoalBlocked();
+                    }
+                } else {
+                    goalStrip.setHostShowing(false); // 状态条呼吸表随隐藏停表（防后台空转）
+                    goalGlow.off();
+                }
+            }
+        });
+        // 构造末尾冲刷暂存的 goal 快照（hydrate/早期事件可能在 UI 字段就位前到达）
+        SwingUtilities.invokeLater(this::flushGoalStrip);
         messageField.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent e) {
-                inputBorderPanel.setFocused(true);
+                inputCard.setFocused(true);
             }
 
             @Override
             public void focusLost(java.awt.event.FocusEvent e) {
-                inputBorderPanel.setFocused(false);
+                inputCard.setFocused(false);
             }
         });
-        bottomPanel.add(inputBorderPanel, BorderLayout.CENTER);
+        bottomPanel.add(inputCard, BorderLayout.CENTER);
 
         // Style the control rows with the chat design tokens (first pass; also
         // re-applied on every Look and Feel change via refreshChatColors).
@@ -585,6 +667,46 @@ public class AiChatPanel extends JPanel
 
         // Subscribe to selection tracker (L1: tree node, L2: focused control)
         installSelectionTracker();
+    }
+
+    /**
+     * goal 呼吸光晕画在面板自身的底色之上、任何子组件之前：输入卡随后铺下的圆角
+     * 填充与描边盖住环带内侧的重叠，环看起来只从卡片边缘向外长进既有静区（页边距
+     * 与输入坞上方空隙）。绘制读 {@link GoalGlowAnimator} 的实时模式/alpha/扫掠角
+     * （无状态），动画帧与模式边沿各自触发 {@link #repaintGlowBand}。
+     */
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Rectangle cardRect = glowCardRect();
+        // 矩形随布局变化的自愈清理（展开/收起/条显隐都会挪动卡片）：本帧画的是新
+        // 位置的环，旧位置的环像素在组件界外、自动脏区域盖不到——对旧带补一次
+        // repaint（下一帧执行）。呼吸动画 80ms 一帧保证清理及时到达
+        if (lastPaintedGlowCardRect != null && !lastPaintedGlowCardRect.equals(cardRect)) {
+            repaint(GoalGlowPainter.bandAround(lastPaintedGlowCardRect));
+        }
+        lastPaintedGlowCardRect = cardRect;
+        GoalGlowPainter.paint(g, goalGlow, cardRect);
+    }
+
+    /** 输入卡矩形换算到面板坐标；未布局或已清理时返回 null（paint/repaint 早退）。 */
+    private Rectangle glowCardRect() {
+        if (inputCard == null || inputCard.getWidth() <= 0 || inputCard.getHeight() <= 0) {
+            return null;
+        }
+        return SwingUtilities.convertRectangle(inputCard.getParent(), inputCard.getBounds(), this);
+    }
+
+    /**
+     * 光晕带区域重绘：卡片矩形四周外扩余量，动画帧与模式边沿共用同一条路径——
+     * 熄灭沿复用同一 repaint 清掉残留像素（卡片矩形取值与光晕模式无关，熄灭沿
+     * 也能算出同一条带）。
+     */
+    private void repaintGlowBand() {
+        Rectangle cardRect = glowCardRect();
+        if (cardRect != null) {
+            repaint(GoalGlowPainter.bandAround(cardRect));
+        }
     }
 
     /**
@@ -884,6 +1006,95 @@ public class AiChatPanel extends JPanel
         transcript.addUserMessage(text);
     }
 
+    // ==== goal 状态呈现（goal-status-ui）：GoalStateEvents 通道（独立于回合事件流） ====
+
+    /**
+     * goal 状态事件入口：回调线程不保证（工具池/loop 线程/EDT，可能在
+     * resetFenceLock 内被同步调用）——恰一次 invokeLater，回调内不取任何锁
+     * （契约见 GoalStateEvents.Listener）。快照 null 表示 goal 清除。
+     */
+    private void onGoalStateChanged(String sessionKey, GoalState.GoalSnapshot snapshot) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            dispatchGoalSnapshot(sessionKey, snapshot);
+        } else {
+            SwingUtilities.invokeLater(() -> dispatchGoalSnapshot(sessionKey, snapshot));
+        }
+    }
+
+    /** EDT 上的分发：会话外通知过滤（对齐 dispatchTurnEvent 口径）。 */
+    private void dispatchGoalSnapshot(String sessionKey, GoalState.GoalSnapshot snapshot) {
+        if (!sessionKey.equals(InstanceContext.currentSessionKey())) {
+            return;
+        }
+        applyGoalSnapshot(snapshot);
+    }
+
+    /** 状态条 + 光晕的唯一驱动点（EDT；构造早期仅暂存，见 lastGoalSnapshot）。 */
+    private void applyGoalSnapshot(GoalState.GoalSnapshot snapshot) {
+        lastGoalSnapshot = snapshot;
+        if (goalStrip == null || goalGlow == null) {
+            return; // 构造早期窗口：由构造末尾的 flushGoalStrip 重放
+        }
+        goalStrip.applySnapshot(snapshot);
+        if (snapshot == null) {
+            goalGlow.off();
+            return;
+        }
+        switch (snapshot.status()) {
+            case ACTIVE -> {
+                // 面板不可见时不点火（SHOWING_CHANGED 恢复可见时续跑）
+                if (isShowing()) {
+                    goalGlow.setGoalActive();
+                }
+            }
+            case BLOCKED -> goalGlow.setGoalBlocked();
+            default -> goalGlow.off(); // PAUSED（灰条本身即反馈）与终态展示链期间熄灭
+        }
+    }
+
+    /** 构造末尾（EDT）冲刷暂存快照：hydrate/早期事件在 UI 字段就位后重放最新态。 */
+    private void flushGoalStrip() {
+        if (lastGoalSnapshot != null && goalStrip != null && goalGlow != null) {
+            applyGoalSnapshot(lastGoalSnapshot);
+        }
+    }
+
+    /**
+     * 懒创建/重启后的 goal 状态恢复：进程内缓存优先，否则从 session 持久化读；
+     * 初始呈现只认 ACTIVE/BLOCKED/PAUSED——终态历史不回放（recap 已在聊天流）。
+     */
+    private void hydrateGoalState() {
+        SwingUtilities.invokeLater(() -> {
+            String sessionKey = InstanceContext.currentSessionKey();
+            GoalState.GoalSnapshot snapshot = GoalStateEvents.lastKnown(sessionKey);
+            if (snapshot == null && agentLoop != null) {
+                Session session = agentLoop.getSessionManager().get(sessionKey);
+                GoalState goal = session == null ? null : GoalState.load(session);
+                snapshot = goal == null ? null : goal.snapshot(sessionKey);
+            }
+            if (snapshot != null
+                    && snapshot.status() != GoalState.Status.COMPLETED
+                    && snapshot.status() != GoalState.Status.CANCELLED) {
+                applyGoalSnapshot(snapshot);
+            }
+        });
+    }
+
+    /** ⏸：GUI 直写路线——引擎入口内部 hop 到 loop 执行器；忙期经 USER_STOP 取消链
+     *  （终止行照常渲染、Stop 按钮经正常终态事件链归位）。 */
+    private void requestGoalPause() {
+        if (agentLoop != null) {
+            agentLoop.pauseActiveGoal(InstanceContext.currentSessionKey());
+        }
+    }
+
+    /** ▶：恢复 + 投放续跑片（REPUBLISH、不渲染 You 行、续跑预算续算）。 */
+    private void requestGoalResume() {
+        if (agentLoop != null) {
+            agentLoop.resumePausedGoal(InstanceContext.currentSessionKey());
+        }
+    }
+
     /**
      * 回合开始前把界面置为「进行中」：按钮切到 Stop，聊天区末尾加一个加载提示。
      * 加载提示只需出现一次（loadingIndicatorArmed 拦截重复追加）。
@@ -1095,6 +1306,8 @@ public class AiChatPanel extends JPanel
         // 会话重置联动：指示器随转录清空一并归零（旧回合迟到的 USAGE 进度已在
         // dispatch 层被代数过滤，复位后无渗入）
         contextRing.reset();
+        // 注意：GoalStrip 不随代数复位——goal 跨 /new 存活（Session.clear 保留
+        // metadata，active 与 paused 均存活），这是行为锚，勿在此「顺手清掉」。
     }
 
     /**
@@ -1558,6 +1771,18 @@ public class AiChatPanel extends JPanel
         // 摘工厂级回合事件订阅 + 单实例注册：面板销毁后不再接收回合事件，
         // 静态引用不再钉住本面板（防泄漏与幽灵渲染）。
         AgentLoopFactory.removeTurnSubscriber(this);
+        // 摘 goal 状态订阅（按构造时登记的同一 listener 实例——方法引用每次生成
+        // 新对象，必须持字段摘除）+ 停状态条/光晕动画（防 JMeter 会话后台空转）
+        GoalStateEvents.removeListener(goalStateListener);
+        if (goalStrip != null) {
+            goalStrip.dispose();
+        }
+        if (goalGlow != null) {
+            goalGlow.dispose();
+        }
+        // dispose 直接置 OFF 不经 setMode、无边沿回调——teardown 后自清一次残留
+        // 光环像素（此时卡片矩形仍在，熄灭沿的清残影 repaint 在面板销毁前补上）
+        repaintGlowBand();
         INSTANCE = null;
 
         // Detach from SelectionTracker (other consumers may still be subscribed,
@@ -1604,6 +1829,9 @@ public class AiChatPanel extends JPanel
     private void applyControlBarTheme() {
         if (selectionContextBar != null) {
             selectionContextBar.applyTheme();
+        }
+        if (goalStrip != null) {
+            goalStrip.applyTheme();
         }
         if (injectContextCheckBox != null) {
             injectContextCheckBox.setFont(UiTokens.caption(UIManager.getFont("Label.font")));

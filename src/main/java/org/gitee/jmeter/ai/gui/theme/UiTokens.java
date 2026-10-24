@@ -31,6 +31,8 @@ public final class UiTokens {
 
     public static final int CONTROL_HEIGHT = 32;
     public static final int ICON_BUTTON_SIZE = 32;
+    /** 输入卡内 goal 状态条收起态的行高（body 字号 + 24px 操作钮 + 上下余量）。 */
+    public static final int GOAL_STRIP_HEIGHT = 28;
     public static final int BUTTON_COMPACT_HORIZONTAL_INSET = 6;
     public static final int BUTTON_STANDARD_HORIZONTAL_INSET = 11;
     public static final int BUTTON_STANDARD_VERTICAL_INSET = 5;

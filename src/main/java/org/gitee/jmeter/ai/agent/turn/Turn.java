@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.turn;
 
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
 import org.gitee.jmeter.ai.agent.presenter.TurnHandle;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -144,6 +145,14 @@ public final class Turn {
      * 读写，随回合对象消亡，无需显式清理。
      */
     private boolean drainTimedOut;
+
+    /**
+     * 本回合被取消的原因：signalCancel 置中止位时同步记录（写入线程 = 取消方，
+     * EDT/ipc-worker/loop 线程均可能；读取 = 回合终态收尾的 loop 线程，volatile
+     * 跨线程可见）。回合终态的 goal 自动收敛据此区分「用户停止」（USER_STOP →
+     * goal 落盘 PAUSED）与 RESET/SILENT/TIMEOUT（不收敛）。null = 未被取消。
+     */
+    private volatile CancelCause cancelCause;
 
     public Turn(String sessionKey, TurnHandle handle, AgentLoop.ProgressCallback callback,
             boolean delegated) {
@@ -316,5 +325,15 @@ public final class Turn {
     /** 子代理等待超时打标（本回合后续检查点不再阻塞等待，见 {@link #drainTimedOut}）。 */
     public void markDrainTimedOut() {
         this.drainTimedOut = true;
+    }
+
+    /** signalCancel 置中止位时记录取消原因（见 {@link #cancelCause}）。 */
+    public void markCancelCause(CancelCause cause) {
+        this.cancelCause = cause;
+    }
+
+    /** 本回合的取消原因；null = 未被取消（见 {@link #cancelCause}）。 */
+    public CancelCause cancelCause() {
+        return cancelCause;
     }
 }

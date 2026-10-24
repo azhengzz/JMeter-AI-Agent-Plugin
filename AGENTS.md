@@ -130,11 +130,17 @@ mvn clean package -DskipTests
 #### Goal 自主闭环 (`/goal`，见 `openspec/specs/goal-autonomous-loop/` 与 `test-plan-verification/`)
 `/goal <需求>` 触发的目标驱动脚本开发闭环（完整移植 Nanobot /goal 骨架 + 本插件特有的确定性验证层）：
 - **命令层**：`/goal` 必须内联需求（无参 usage、busy 拒绝先 Stop）；命令只打 goal 标记（`CommandContext` 附件）+ 返回 null 放行进普通回合，`AgentRunSpec.goalRequested` 透传 = goal 变更权限
-- **状态**：`GoalState`（active/completed/cancelled/blocked 状态机 + smokeAttempts/continuationRounds/验证证据）持久于 session jsonl 头行 `metadata.goal_state`——`/new` 清消息不清 goal、Stop 只停回合、终结仅经 update_goal（含必填 recap）
-- **工具**：`create_goal`/`update_goal`（tools/goal；权限门 = 仅 /goal 回合可 create/replace；complete 需证据：静态 PASS + 最近冒烟零 error，或冒烟 3 轮耗尽）
+- **状态**：`GoalState`（active/paused/completed/cancelled/blocked 状态机 + smokeAttempts/continuationRounds/验证证据）持久于 session jsonl 头行 `metadata.goal_state`——`/new` 清消息不清 goal（active 与 paused 均存活），且重置后活跃 goal 以翻转后新代数自动重新点火续跑（新租约，垂死回合旧代数切片照旧被栅栏丢弃；关闭整合清空腿 archive=false 豁免不重火）、终结仅经 update_goal（含必填 recap）。goal 引擎路径取会话经 `goalSession` 重载（invalidate 摘缓存后裸 get 恒 null，曾致 /new 后 ▶ 静默失灵）。**paused 为非终态**：用户 Stop 打断 goal active 回合 → 回合终态自动收敛 PAUSED（auto-converge，静默取消不触发）；GUI ⏸/▶ 直写迁移（`AgentLoop.pauseActiveGoal/resumePausedGoal`，不经模型，⏸ 收敛经 commonPool 即时落盘不等垂死回合收尾——中止是协作式的、在跑 LLM/工具批须跑完；恢复投放续跑片、预算续算）；PAUSED 阻断续跑调度（`isActive()` 严格语义）并注入宿主暂停指令（禁止本轮自发推进——纯静默抑制敌不过会话历史势能）、期间 create_goal 拒绝并提示；验证证据与冒烟计数在 active/paused 均记账（`isOngoing()`），终态停账。goal 状态变更经 `GoalState.store()` 咽喉点广播（`GoalStateEvents`，独立于回合事件流）驱动 GUI（见「Goal 状态 UI」）
+- **工具**：`create_goal`/`update_goal`（tools/goal；权限门 = 仅 /goal 回合可 create/replace，PAUSED 态两者均拒且口径互指 cancel——防 replace 侧门静默丢弃暂停目标；终态为汇点：completed/cancelled 定稿后不可再改写（blocked→complete 例外保留）；complete 需证据：静态 PASS + 最近冒烟零 error，或冒烟 3 轮耗尽；`verification='non_test_plan'` 目标例外——非测试计划型目标（不以测试计划为对象，仍可改脚本/文件等产物）免测试计划证据，按 objective 自证完成，载体以代码侧为准：工具 schema/description + GoalRuntime.statusLines 实时渲染，goal.md 模板只惠及新 workspace）
 - **验证层**：`validate_test_plan` 静态校验（结构/逻辑 lint 两族，结构化 PASS/FAIL；schema 回扫族已移除——不透明序列化产物如监听器 saveConfig 与未收录但合法的属性在导入计划上系统性误报，存量元素参数改由写路径（create/update）的 schema 校验把关；变量定义源与 HTTP Defaults 合并不可静态枚举，故不查未定义 `${var}` 引用与采样器目标——冒烟运行是这两类的仲裁者）+ `run_test mode:"smoke"`（VALIDATE_TG：全 TG 1×1、断言保留定时器剔除、计划不动、阻塞至完成给判定；每次 smoke 计入 goal 预算并回写证据）
 - **护栏**：`GoalRuntime` 提示词/合成消息单一来源（workspace `goal.md` 模板，两态渲染）；防收工 nudge（无工具终答且 goal 活跃 → 注入顶回，连续两次放行）；冒烟上限 → 结构化交回；迭代耗尽 → 跨回合自动续跑（REPUBLISH 回合、不渲染 You 行、每片全额预算）
-- **注入门控**：goal 提示只进本地/CLI 回合，IPC 委派回合不注入。注入形态对齐 Nanobot 的指令/数据分离：纪律文本（guidance）进独立 `[Goal Runtime Guidance — host instructions]` 包裹，状态数据（objective/冒烟计数/证据）进标准 Runtime Context metadata 包裹；复合块尾随环境块之后，持久化时随 `_runtime_context` 标记整体剥离
+- **注入门控**：goal 提示只进本地/CLI 回合，IPC 委派回合不注入；goal PAUSED 期间任何回合不注入（含 /goal 新需求回合——由 create_goal 拒绝门兜底）。注入形态对齐 Nanobot 的指令/数据分离：纪律文本（guidance）进独立 `[Goal Runtime Guidance — host instructions]` 包裹，状态数据（objective/冒烟计数/证据）进标准 Runtime Context metadata 包裹；复合块尾随环境块之后，持久化时随 `_runtime_context` 标记整体剥离
+
+#### Goal 状态 UI (`goal-status-ui`，见 `openspec/changes/goal-status-ui/`)
+goal 生命周期的 GUI 呈现与处置（回合事件流之外的独立通道——`GoalStateEvents` 静态广播，监听者契约对齐 TurnSubscriber：线程不保证/不取锁/O(μs)/恰一次 invokeLater）：
+- **GoalStrip**（gui）- 输入卡 goal 状态条：**全宽色带贴输入卡顶**（卡壳 NORTH、藏在输入区内边距之外；状态色淡染铺满组件宽，圆角外形由 RoundedBorderPanel 的 paintChildren 裁剪统一负责、不自绘圆角描边，底部状态色发丝线锚定分界——消除「圆角芯片内嵌白底」的盒中盒割裂感）+ 五态着色（ACTIVE=info/BLOCKED=warning 琥珀常驻/PAUSED=灰/终态 ✓✕）+ ⏸/▶ 互斥操作钮（GUI 直写引擎入口、24px 方形命中区）+ chevron 卡内内联展开完整目标（markdown、面板高 ~40% clamp、**展开体仅渲染 objective**——uiSummary 已在 header 常驻，正文重复会以两种字号呈现同一段文字；header 与正文同用 body 字号，收起态行高 GOAL_STRIP_HEIGHT=28）；◎ 图标呼吸仅 ACTIVE（与光晕同节奏、停表保留相位帧，PAUSED/BLOCKED/终态/面板隐藏静态，恢复可见续跑——面板 SHOWING_CHANGED 桥接 setHostShowing）；终态链 HOLD 1.5s→FADING 200ms 渐隐（保持占位高度）→收起（hold 表 fire 后须显式 stop——Swing Timer 默认 repeats=true，漏停即永久复燃）；复活快照取消终态计时。更新纪律：高频（冒烟/续跑计数）repaint-only 去重，仅出现/消失/展开/收起是 revalidate 边界
+- **GoalGlowPainter + GoalGlowAnimator** - 输入卡外围光环绘制器 + 光晕动画器。绘制器是**零布局**方案：光环由面板 `paintComponent`（子组件之前）画进输入卡外侧的既有静区（页边距 6 + 输入坞上方空隙 8），环带外延 ≤5.5px 恰好放得下，点亮/熄灭**不改任何布局尺寸**（早期壳层动态留边方案在固定像素宽度的分栏下拿不到新像素，多出的边距从卡片身上扣——光晕一点亮输入卡缩小 20px，已废弃；面板持有 `inputCard` 字段换算卡片矩形，`repaintGlowBand` 对外扩 8px 的光晕带做区域 repaint，熄灭沿复用同一卡片矩形清残影）。动画器：ACTIVE「涟漪 + 扫掠」双动画（三圈递减环各圈相位错开成涟漪，80ms 帧、alpha [0.28,0.60]，叠加绕边 6°/帧 ≈ 4.8s 一圈的 LinearGradientPaint 扫掠高亮头亮尾隐）；BLOCKED 静态琥珀环 Timer 停；PAUSED/终态熄灭；面板 SHOWING_CHANGED 暂停/恢复防后台空转
+- **面板接线**（AiChatPanel）- 先订阅后 hydrate（缓存 `lastKnown` 优先、磁盘腿兜底；终态历史不回放）；`/new` 代数翻转不清状态条（goal 跨会话存活锚）；`lastGoalSnapshot` 暂存 + 构造末尾 EDT 冲刷，防「订阅先于 UI 字段就位」窗口丢事件
 
 #### 上下文管理 (`agent/context`)
 - **ContextBuilder** - 构建发送给 LLM 的消息上下文
@@ -392,7 +398,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 - **策略模式**：AiService 接口允许在 Claude、OpenAI 和 Ollama 之间切换
 - **观察者模式**：树选择监听器触发 JSR223 编辑器的上下文菜单更新
-- **回合事件流模式**：AgentLoop 经 TurnSubscriber 多订阅者事件流驱动所有 UI 呈现（唯一显示通道）。AI 调用跑在 loop 专属 executor 上避免阻塞 UI——旧 SwingWorker（AgentSwingWorker）路线已删：本地/IPC/委派回合换轨至事件流后 worker 不再有职责，UI 更新由订阅端自投 EDT
+- **回合事件流模式**：AgentLoop 经 TurnSubscriber 多订阅者事件流驱动所有回合呈现（回合显示唯一通道；goal 状态条是会话级持久态，走 GoalStateEvents 独立通道，见「Goal 状态 UI」）。AI 调用跑在 loop 专属 executor 上避免阻塞 UI——旧 SwingWorker（AgentSwingWorker）路线已删：本地/IPC/委派回合换轨至事件流后 worker 不再有职责，UI 更新由订阅端自投 EDT
 - **工厂模式**：AiServiceFactory / AgentLoopFactory 创建服务和 Agent 实例
 - **Agent Loop 模式**：AgentLoop 驱动 LLM 调用 → 工具执行 → 结果反馈的迭代循环
 - **注册中心模式**：ToolRegistry / ProviderRegistry 管理工具和提供者的注册与查找

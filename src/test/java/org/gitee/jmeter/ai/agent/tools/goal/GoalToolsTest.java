@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -86,6 +87,202 @@ class GoalToolsTest {
     void createGoalRejectedWithoutRunContext() {
         ToolResult result = createTool.executeInternal(Map.of("objective", "o"));
         assertFalse(result.isSuccess());
+    }
+
+    @Test
+    void createGoalRejectedWhileGoalPaused() {
+        // 暂停中的 goal 不被 /goal 新需求静默覆盖：拒绝并指路（恢复入口或先终结）
+        bindTurn(true);
+        GoalState goal = GoalState.create("paused objective", null);
+        goal.pauseFromActive();
+        GoalState.store(session(), goal);
+
+        ToolResult result = createTool.executeInternal(Map.of("objective", "new objective"));
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.getError().contains("paused"), result.getError());
+        GoalState after = GoalState.load(session());
+        assertEquals(GoalState.Status.PAUSED, after.getStatus());
+        assertEquals("paused objective", after.getObjective(),
+                "the paused objective must not be overwritten");
+    }
+
+    @Test
+    void createGoalRevivesBlockedGoalAsBefore() {
+        // BLOCKED 复活路径维持现状（回归锚）：数据层终态 blocked 放行 create 复活
+        bindTurn(true);
+        GoalState goal = GoalState.create("blocked objective", null);
+        goal.markTerminal(GoalState.Status.BLOCKED, "stuck");
+        GoalState.store(session(), goal);
+
+        ToolResult result = createTool.executeInternal(Map.of("objective", "revival objective"));
+
+        assertTrue(result.isSuccess(), result.getError());
+        GoalState after = GoalState.load(session());
+        assertTrue(after.isActive());
+        assertEquals("revival objective", after.getObjective());
+    }
+
+    // --- 只读目标免证据完成（verification='non_test_plan'） ---
+
+    @Test
+    void readOnlyGoalCompletesWithoutTestPlanEvidence() {
+        // 只读系统查询型目标：validate/smoke 与目标边界冲突——建goal声明 non_test_plan 后
+        // complete 免测试计划证据（此前模型只能以 block 终结已完成的工作）
+        bindTurn(true);
+        ToolResult created = createTool.executeInternal(Map.of(
+                "objective", "查询并报告磁盘使用率（只读）",
+                "ui_summary", "磁盘使用率",
+                "verification", "non_test_plan"));
+        assertTrue(created.isSuccess(), created.getError());
+        assertTrue(GoalState.load(session()).isNonTestPlan());
+
+        bindTurn(false); // 终结动作任意本地回合可用
+        ToolResult done = updateTool.executeInternal(Map.of(
+                "action", "complete",
+                "recap", "objective 完成：disk_usage.ps1 Exit 0，分区表格已交付"));
+
+        assertTrue(done.isSuccess(), done.getError());
+        assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
+    }
+
+    @Test
+    void defaultTestPlanGoalStillRequiresEvidence() {
+        bindTurn(true);
+        assertTrue(createTool.executeInternal(
+                Map.of("objective", "build the login script")).isSuccess());
+        assertFalse(GoalState.load(session()).isNonTestPlan(),
+                "default verification stays test_plan");
+
+        bindTurn(false);
+        ToolResult done = updateTool.executeInternal(Map.of(
+                "action", "complete", "recap", "r"));
+        assertFalse(done.isSuccess(), "test_plan goals keep the evidence gate");
+        assertTrue(done.getError().contains("missing verification evidence"));
+        assertTrue(done.getError().contains("non_test_plan"),
+                "rejection carries the non-test-plan escape-hatch hint (no smoke run yet)");
+    }
+
+    @Test
+    void unknownVerificationValueRejected() {
+        bindTurn(true);
+        ToolResult result = createTool.executeInternal(Map.of(
+                "objective", "o", "verification", "sometimes"));
+        assertFalse(result.isSuccess());
+        assertTrue(result.getError().contains("test_plan"));
+        assertNull(GoalState.load(session()), "no goal is written on a bad verification value");
+    }
+
+    @Test
+    void replacePreservesVerificationMode() {
+        bindTurn(true);
+        createTool.executeInternal(Map.of(
+                "objective", "old objective", "verification", "non_test_plan"));
+
+        ToolResult replaced = updateTool.executeInternal(Map.of(
+                "action", "replace", "objective", "new objective"));
+        assertTrue(replaced.isSuccess(), replaced.getError());
+
+        GoalState after = GoalState.load(session());
+        assertTrue(after.isNonTestPlan(), "replace keeps the verification mode");
+        assertEquals("new objective", after.getObjective());
+    }
+
+    @Test
+    void legacyGoalBlobWithoutVerificationDefaultsToTestPlan() {
+        // 旧 blob（无 verification 键）：回落 test_plan，complete 门照常生效
+        session().putMetadataValue(GoalState.SESSION_METADATA_KEY, Map.of(
+                "status", "ACTIVE", "objective", "legacy objective"));
+        GoalState goal = GoalState.load(session());
+        assertEquals(GoalState.Verification.TEST_PLAN, goal.getVerification());
+    }
+
+    @Test
+    void evidenceBankedWhilePausedUnlocksComplete() {
+        // B5 次生 bug 钉定：暂停期间落地的 validate/smoke 证据必须记入 goal（簿记门
+        // = isOngoing 而非 isActive），带证据的 PAUSED goal 可直接 complete——
+        // 不再重演「工程已完成、证据被暂停吞掉、模型被迫 block」
+        bindTurn(false);
+        GoalState goal = GoalState.create("paused with evidence", null);
+        goal.recordSmokeAttempt();
+        goal.recordStaticPass();
+        goal.recordSmokePass();
+        goal.pauseFromActive();
+        GoalState.store(session(), goal);
+
+        ToolResult done = updateTool.executeInternal(Map.of(
+                "action", "complete", "recap", "verified while paused; evidence banked"));
+
+        assertTrue(done.isSuccess(), done.getError());
+        assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
+    }
+
+    // --- 暂停目标防静默替换（replace 侧门封堵） ---
+
+    @Test
+    void replaceRejectedWhileGoalPaused() {
+        // B6 实测钉定：create_goal 被 PAUSED 门拒后，模型转调 replace 绕行——侧门
+        // 必须同关：暂停目标的去留交还用户（cancel 后重提 / ▶ 恢复）
+        bindTurn(true);
+        GoalState goal = GoalState.create("paused objective", null);
+        goal.pauseFromActive();
+        GoalState.store(session(), goal);
+
+        ToolResult result = updateTool.executeInternal(Map.of(
+                "action", "replace", "objective", "sneaky new objective"));
+
+        assertFalse(result.isSuccess(), "replace must not swap a paused goal");
+        assertTrue(result.getError().contains("cancel"), result.getError());
+        GoalState after = GoalState.load(session());
+        assertEquals(GoalState.Status.PAUSED, after.getStatus());
+        assertEquals("paused objective", after.getObjective(),
+                "the paused objective must survive the replace attempt");
+    }
+
+    // --- 终态汇点：判定定稿后不可再迁移 ---
+
+    @Test
+    void terminalVerdictIsFinal() {
+        bindTurn(false);
+        GoalState goal = GoalState.create("done objective", null);
+        goal.recordStaticPass();
+        goal.recordSmokePass();
+        goal.markTerminal(GoalState.Status.COMPLETED, "final recap");
+        GoalState.store(session(), goal);
+
+        // 工具层：completed 之后 cancel/block/幂等 complete 全拒
+        for (String action : new String[] {"cancel", "block"}) {
+            ToolResult result = updateTool.executeInternal(Map.of(
+                    "action", action, "recap", "rewrite attempt"));
+            assertFalse(result.isSuccess(), action + " must not rewrite a completed goal");
+        }
+        assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
+        assertEquals("final recap", GoalState.load(session()).getRecap(),
+                "the terminal recap is sealed");
+
+        // 状态机层：COMPLETED/CANCELLED 作为源直接抛
+        GoalState cancelled = GoalState.create("o", null);
+        cancelled.markTerminal(GoalState.Status.CANCELLED, "bye");
+        assertThrows(IllegalArgumentException.class,
+                () -> cancelled.markTerminal(GoalState.Status.COMPLETED, "changed my mind"));
+    }
+
+    @Test
+    void blockedGoalMayStillComplete() {
+        // 终态汇点的唯一保留口：BLOCKED 是「数据层终态、故事未完」——受阻后完成
+        // 是合法叙事（对齐 dsh：complete 允许自任何非 complete 相位）
+        bindTurn(false);
+        GoalState goal = GoalState.create("blocked then solved", null);
+        goal.recordStaticPass();
+        goal.recordSmokePass();
+        goal.markTerminal(GoalState.Status.BLOCKED, "stuck for now");
+        GoalState.store(session(), goal);
+
+        ToolResult done = updateTool.executeInternal(Map.of(
+                "action", "complete", "recap", "unblocked and verified"));
+
+        assertTrue(done.isSuccess(), done.getError());
+        assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
     }
 
     @Test
@@ -177,7 +374,12 @@ class GoalToolsTest {
         assertNotNull(goal);
         assertTrue(goal.isActive());
         assertEquals("为登录接口建脚本并验证通过", goal.getObjective());
-        assertTrue(result.getContent().contains("update_goal"));
+        // 回执全文钉死（曾出现「done and ve」被误删粘成 donerified 的字符串损坏，
+        // contains("update_goal") 宽断言放行过它——回执每次 goal 创建都进模型上下文）
+        assertEquals("Goal recorded. Keep working toward the objective using ordinary "
+                + "tools (layered verification: validate_test_plan, then run_test mode=smoke). "
+                + "When fully done and verified, call update_goal with action='complete'.",
+                result.getContent());
     }
 
     @Test

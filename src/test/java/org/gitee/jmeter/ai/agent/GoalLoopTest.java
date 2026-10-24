@@ -393,7 +393,9 @@ class GoalLoopTest {
     // --- Stop semantics ---
 
     @Test
-    void stopLeavesGoalActiveAndNextMessageContinuesWithoutAutoContinuation() throws Exception {
+    void stopAutoConvergesToPausedAndResumeContinues() throws Exception {
+        // Stop 语义（goal-status-ui 变更后）：打断 goal 回合 → goal 自动落盘 PAUSED；
+        // 暂停期间插话消息不注入 goal 语境；经 ▶ 恢复入口投放续跑片继续 goal（预算续算）
         Path workspace = Files.createTempDirectory("goal-test");
         CapturingAiService ai = new CapturingAiService();
         var gated = ai.script().scriptGated(LLMResponse.text("interrupted reply"));
@@ -412,18 +414,37 @@ class GoalLoopTest {
                 // signalCancel cancels the future (NewCommandCancelTest precedent)
             }
 
-            GoalState goal = GoalState.load(loop.getSessionManager().getOrCreate("chat:main"));
-            assertTrue(goal.isActive(), "Stop must not clear the goal");
-            assertEquals(0, goal.getContinuationRounds(),
+            assertTrue(await(() -> {
+                GoalState g = GoalState.load(loop.getSessionManager().getOrCreate("chat:main"));
+                return g != null && g.getStatus() == GoalState.Status.PAUSED
+                        && !loop.hasActiveRun("chat:main");
+            }), "user-stop must auto-converge the goal to PAUSED");
+            assertEquals(0, GoalState.load(loop.getSessionManager().getOrCreate("chat:main"))
+                            .getContinuationRounds(),
                     "a stopped turn must not trigger auto-continuation");
 
-            // the next user message continues the goal naturally
-            ai.script().script(LLMResponse.text("resumed try"));
-            ai.script().script(LLMResponse.text("resumed final"));
-            AgentResponse response = loop.processMessage("continue the goal", "chat:main")
+            // 暂停期间插话：不注入 goal 语境（隔离契约）
+            ai.script().script(LLMResponse.text("interjection answer"));
+            AgentResponse aside = loop.processMessage("quick side question", "chat:main")
                     .get(20, TimeUnit.SECONDS);
-            assertTrue(response.isSuccess());
-            assertTrue(response.getContent().contains("resumed final"));
+            assertTrue(aside.isSuccess());
+            String trigger = ai.lastMessages.get().stream()
+                    .filter(m -> m.getRole() == Message.Role.USER
+                            && m.getContent() != null
+                            && m.getContent().startsWith("quick side question"))
+                    .findFirst().orElseThrow().getContent();
+            assertFalse(trigger.contains("Active Sustained Goal"),
+                    "a paused goal must not inject its context into interjections");
+
+            // ▶ 恢复：续跑片接手继续 goal
+            ai.script().script(LLMResponse.text("slice try"));
+            ai.script().script(LLMResponse.text("slice final"));
+            loop.resumePausedGoal("chat:main");
+            assertTrue(await(() -> {
+                GoalState g = GoalState.load(loop.getSessionManager().getOrCreate("chat:main"));
+                return g != null && g.isActive() && g.getContinuationRounds() >= 1
+                        && !loop.hasActiveRun("chat:main");
+            }), "resume must flip the goal ACTIVE and run a continuation slice");
         } finally {
             gated.release.countDown();
             loop.shutdown();
