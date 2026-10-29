@@ -119,11 +119,9 @@ class AiChatPanelIpcTurnPresenterTest {
         TurnHandle turn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
         panel.onTurnEvent(TurnEvent.started(turn));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
         JButton sendButton = field(panel, "sendButton");
-        assertTrue(chatArea.getText().contains("You: [from cli] hello"),
+        assertTrue(chatTextOnEdt(panel).contains("You: [from cli] hello"),
                 "来源消息（带前缀）必须以 You: 行渲染");
         assertTrue(stopButton.isVisible(), "回合运行中 Stop 按钮必须可见");
         assertNotNull(sendButton.getToolTipText(), "Send 必须切入注入模式");
@@ -134,14 +132,14 @@ class AiChatPanelIpcTurnPresenterTest {
         // PROGRESS 的渲染比终态多一跳 EDT（dispatch 的 EDT 投递 + handleProgress 的
         // 内层跳）：invokeAndWait 排不干净，须轮询内容而非排空事件
         awaitUntil(() -> {
-            String t = chatTextOnEdt(chatArea);
+            String t = chatTextOnEdt(panel);
             return t.contains("THINKING-TRACE") && t.contains("FINAL-ANSWER");
         }, "progress and completion rendered");
         awaitEdtDrained();
 
-        // 注：chatArea.getText() 是 HTML 源码，非 ASCII 会被转成数字字符实体——断言用 ASCII
+        // 注：chatTextOnEdt(panel) 是 HTML 源码，非 ASCII 会被转成数字字符实体——断言用 ASCII
         // 失败消息带代数与聊天区全文：诊断全量回归下偶发的渲染丢失（代数被外部翻转 vs 渲染被清除）
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         String diag = "convGen=" + field(panel, "conversationGeneration")
                 + " chat=" + html;
         assertTrue(html.contains("THINKING-TRACE"), "进度事件必须接入既有渲染链 " + diag);
@@ -152,39 +150,42 @@ class AiChatPanelIpcTurnPresenterTest {
     }
 
     @Test
-    void thinkingProgressSplitsThinkTagFromReplyBodyStyling() throws Exception {
+    void thinkingProgressRoutesReasoningToThinkingCardAndBodyToAssistantCard() throws Exception {
         // THINKING 进度载荷携带 <think>…</think> 包裹的思考 + 标签外正文（结构化
-        // reasoning_content 的展示形态，ProgressCallbackHookAdapter:43）：思考段保持
-        // 灰斜体并以 <think> 标签字面包裹，标签外的正文按回复正文样式渲染（非斜体、
-        // 主题色）。注：getText() 的 HTML 序列化不回写 color/font-style（loading 指示
-        // 同款丢样式）且会转义标签文本，样式断言走文档元素属性、标签断言走文档纯文本。
-        JTextPane chatArea = field(panel, "chatArea");
+        // reasoning_content 的展示形态，ProgressCallbackHookAdapter:43）：思考段流入
+        // 可折叠思考卡（与正文视觉分离、独立容器呈现），标签外的正文按助手回复
+        // markdown 卡渲染——两段内容各归其容器，与思考可区分。
         TurnHandle turn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
         panel.onTurnEvent(TurnEvent.started(turn));
         awaitEdtDrained();
 
         panel.onTurnEvent(TurnEvent.progress(turn,
                 ProgressUpdate.thinking("<think>REASON-TRACE</think>\nBODY-COMMENT")));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("BODY-COMMENT"),
+        awaitUntil(() -> chatTextOnEdt(panel).contains("BODY-COMMENT"),
                 "thinking progress rendered");
 
-        String html = chatTextOnEdt(chatArea);
-        String diag = "reason=" + attrsToString(styleAttrsAt(chatArea, "REASON-TRACE"))
-                + " body=" + attrsToString(styleAttrsAt(chatArea, "BODY-COMMENT"));
-        assertTrue(html.contains("REASON-TRACE"), "思考段必须渲染 " + diag);
-        assertTrue(html.contains("BODY-COMMENT"), "标签外正文必须渲染 " + diag);
-        assertTrue(isItalicAt(chatArea, "REASON-TRACE"),
-                "think 内的思考段保持灰斜体样式 " + diag);
-        assertTrue("#787878".equalsIgnoreCase(cssColorAt(chatArea, "REASON-TRACE")),
-                "think 内的思考段保持思考灰（#787878）" + diag);
-        assertFalse(isItalicAt(chatArea, "BODY-COMMENT"),
-                "think 外的正文按正文样式渲染（非斜体），与思考可区分 " + diag);
-        // 思考段以 <think> 标签字面包裹展示（appendStyled 转义后作为文本渲染）
-        String docText = docTextOnEdt(chatArea);
-        assertTrue(docText.contains("<think>REASON-TRACE</think>"),
-                "思考段必须以 <think> 标签包裹展示 " + diag + " doc=" + docText);
-        assertFalse(docText.contains("<think>BODY-COMMENT"),
-                "正文段不得被 think 标签包裹 " + diag);
+        String chat = chatTextOnEdt(panel);
+        assertTrue(chat.contains("REASON-TRACE"), "思考段必须渲染");
+        assertTrue(chat.contains("BODY-COMMENT"), "标签外正文必须渲染");
+
+        // 思考段路由进思考卡：正文不得混入思考卡
+        ThinkingCard card = onEdt(() -> transcriptOf(panel).getThinkingCard());
+        assertNotNull(card, "思考段必须流入思考卡");
+        assertTrue(onEdt(card::getText).contains("REASON-TRACE"), "思考段归属思考卡");
+        assertFalse(onEdt(card::getText).contains("BODY-COMMENT"),
+                "正文段不得混入思考卡（思考与正文分容器呈现）");
+        // 载荷内的正文段即"回复正文开始"：思考卡按契约自动折叠为带预览的单行
+        assertFalse(card.isRunning(), "正文已开始渲染，思考卡必须自动折叠");
+        assertTrue(card.isCollapsed(), "折叠态可点击重展开");
+
+        // 标签外正文以助手 markdown 卡渲染（终卡为 ASSISTANT 角色）
+        MessageCard last = onEdt(() -> {
+            TranscriptView t = transcriptOf(panel);
+            return t.getCard(t.getCardCount() - 1);
+        });
+        assertEquals(MessageCard.Role.ASSISTANT, last.getRole(),
+                "标签外正文必须以助手卡渲染");
+        assertTrue(last.getText().contains("BODY-COMMENT"), "正文归属助手卡");
     }
 
     @Test
@@ -193,9 +194,7 @@ class AiChatPanelIpcTurnPresenterTest {
         TurnHandle turn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
         panel.onTurnEvent(TurnEvent.progress(turn, ProgressUpdate.thinking("EARLY-EVENT")));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
-        assertFalse(chatArea.getText().contains("EARLY-EVENT"),
+        assertFalse(chatTextOnEdt(panel).contains("EARLY-EVENT"),
                 "武装前到达的进度不得渲染（回合提交与首事件间的毫秒窗口）");
     }
 
@@ -216,12 +215,10 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.progress(turn, ProgressUpdate.thinking("LATE-PROGRESS")));
         panel.onTurnEvent(TurnEvent.completed(turn, AgentResponse.success("LATE-FINAL")));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
-        assertTrue(chatArea.getText().contains("You: /new"), "/new 自身的回显不受影响");
-        assertFalse(chatArea.getText().contains("LATE-PROGRESS"),
+        assertTrue(chatTextOnEdt(panel).contains("You: /new"), "/new 自身的回显不受影响");
+        assertFalse(chatTextOnEdt(panel).contains("LATE-PROGRESS"),
                 "重置后迟到的进度必须被活回合集合丢弃");
-        assertFalse(chatArea.getText().contains("LATE-FINAL"),
+        assertFalse(chatTextOnEdt(panel).contains("LATE-FINAL"),
                 "重置后迟到的结论必须被活回合集合丢弃，不得渲染进新会话");
     }
 
@@ -233,12 +230,10 @@ class AiChatPanelIpcTurnPresenterTest {
 
         panel.onTurnEvent(TurnEvent.cancelled(turn, CancelCause.USER_STOP));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
-        assertTrue(chatArea.getText().contains("Task cancelled"),
+        assertTrue(chatTextOnEdt(panel).contains("Task cancelled"),
                 "人工终止必须渲染系统提示行");
-        assertTrue(chatArea.getText().contains("Partial results"),
+        assertTrue(chatTextOnEdt(panel).contains("Partial results"),
                 "人工终止文案必须含『部分结果已回传』回执");
         assertFalse(stopButton.isVisible(), "取消后（无后续回合）Stop 按钮必须隐藏");
     }
@@ -252,9 +247,7 @@ class AiChatPanelIpcTurnPresenterTest {
 
         panel.onTurnEvent(TurnEvent.cancelled(turn, CancelCause.TIMEOUT));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
-        assertTrue(chatArea.getText().contains("timed out"),
+        assertTrue(chatTextOnEdt(panel).contains("timed out"),
                 "超时取消必须渲染超时文案");
     }
 
@@ -263,7 +256,6 @@ class AiChatPanelIpcTurnPresenterTest {
         // SILENT 显示域（design D3 校验修复）：关闭整合静默取消——LOCAL_PANEL 源回合
         // 不渲染取消噪音行；IPC 源回合照旧渲染人工终止回执行（对端在等终止反馈）。
         // RESET 一律不渲染（/new 清屏后回执属旧会话噪音）——IPC 源亦然
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
 
         TurnHandle local = new TurnHandle(sessionKey, TurnOrigin.LOCAL_PANEL, "local q", false);
@@ -271,7 +263,7 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
         panel.onTurnEvent(TurnEvent.cancelled(local, CancelCause.SILENT));
         awaitEdtDrained();
-        assertFalse(chatArea.getText().contains("Task cancelled"),
+        assertFalse(chatTextOnEdt(panel).contains("Task cancelled"),
                 "SILENT 对 LOCAL 源回合必须静默（关闭整合无取消噪音行）");
         assertFalse(stopButton.isVisible(), "SILENT 取消后（无后续回合）Stop 按钮复位");
 
@@ -280,9 +272,9 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
         panel.onTurnEvent(TurnEvent.cancelled(ipc, CancelCause.SILENT));
         awaitEdtDrained();
-        assertTrue(chatArea.getText().contains("Task cancelled"),
+        assertTrue(chatTextOnEdt(panel).contains("Task cancelled"),
                 "SILENT 对 IPC 源回合必须保留终止回执行（目标面板反馈行不消失）");
-        assertTrue(chatArea.getText().contains("Partial results"),
+        assertTrue(chatTextOnEdt(panel).contains("Partial results"),
                 "与 USER_STOP 共用人工终止回执文案");
 
         // SILENT + REPUBLISH 孤儿：孤儿无对端调用方，回执文案无的放矢——同不渲染。
@@ -292,7 +284,7 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
         panel.onTurnEvent(TurnEvent.cancelled(orphan, CancelCause.SILENT));
         awaitEdtDrained();
-        assertEquals(1, chatTextOnEdt(chatArea).split("Task cancelled", -1).length - 1,
+        assertEquals(1, chatTextOnEdt(panel).split("Task cancelled", -1).length - 1,
                 "REPUBLISH 孤儿的 SILENT 取消不渲染回执（仍仅上文 IPC+SILENT 那一条）");
 
         TurnHandle reset = new TurnHandle(sessionKey, TurnOrigin.IPC_DELEGATED,
@@ -301,7 +293,7 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
         panel.onTurnEvent(TurnEvent.cancelled(reset, CancelCause.RESET));
         awaitEdtDrained();
-        assertEquals(1, chatTextOnEdt(chatArea).split("Task cancelled", -1).length - 1,
+        assertEquals(1, chatTextOnEdt(panel).split("Task cancelled", -1).length - 1,
                 "RESET 不新增取消行（即便 IPC 源）——仅上文 IPC+SILENT 那一条");
     }
 
@@ -309,19 +301,18 @@ class AiChatPanelIpcTurnPresenterTest {
     void commandResultDisplayDomain_localRenders_peerLeftToEnvelope() throws Exception {
         // COMMAND_RESULT 显示域（值基规则）：本地面板命令补画 You 行并渲染结果（UX
         // 差异②）；CLI/委派命令的结果留给其对端界面（HTTP 信封），面板不渲染
-        JTextPane chatArea = field(panel, "chatArea");
 
         panel.onTurnEvent(TurnEvent.commandResult(sessionKey, TurnOrigin.LOCAL_PANEL,
                 "/help", AgentResponse.success("HELP-TEXT")));
         awaitEdtDrained();
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         assertTrue(html.contains("You: /help"), "本地命令必须补画 You 行");
         assertTrue(html.contains("HELP-TEXT"), "本地命令结果必须渲染");
 
         panel.onTurnEvent(TurnEvent.commandResult(sessionKey, TurnOrigin.IPC_CLI,
                 "/status", AgentResponse.success("CLI-STATUS")));
         awaitEdtDrained();
-        html = chatTextOnEdt(chatArea);
+        html = chatTextOnEdt(panel);
         assertFalse(html.contains("You: /status"), "CLI 命令原文不渲染（发起方界面显示）");
         assertFalse(html.contains("CLI-STATUS"), "CLI 命令结果留给对端 HTTP 信封");
     }
@@ -330,7 +321,6 @@ class AiChatPanelIpcTurnPresenterTest {
     void stopWithoutCancellableTargetStillResetsUnconditionally() throws Exception {
         // spec「Stop 无可取消对象时不死寂」：终态已发、取消事件尚未送达的毫秒窗口内
         // 点 Stop——复位（清 loading/恢复发送）无条件执行，不依赖取消事件到达
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
         JButton sendButton = field(panel, "sendButton");
 
@@ -338,7 +328,7 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.started(turn));
         awaitEdtDrained();
         assertTrue(stopButton.isVisible(), "武装后 Stop 按钮可见（前置）");
-        assertTrue(chatTextOnEdt(chatArea).contains("AI is thinking"),
+        assertTrue(chatTextOnEdt(panel).contains("AI is thinking"),
                 "武装后 loading 指示在（前置）");
 
         // loop 上无在跑回合（IdleAiService，句柄只是合成武装）：signalCancel 无可取消
@@ -346,12 +336,12 @@ class AiChatPanelIpcTurnPresenterTest {
         SwingUtilities.invokeAndWait(() -> invoke(panel, "stopActiveTask"));
         awaitEdtDrained();
 
-        assertFalse(chatTextOnEdt(chatArea).contains("AI is thinking"),
+        assertFalse(chatTextOnEdt(panel).contains("AI is thinking"),
                 "无条件清 loading——不依赖取消事件到达");
         assertFalse(stopButton.isVisible(), "无条件恢复发送模式");
         assertNull(sendButton.getToolTipText(), "Send 退出注入模式");
         assertEquals("Send", sendButton.getText(), "Send 退出插入模式（文字复位）");
-        assertTrue(chatTextOnEdt(chatArea).contains("Stopped"),
+        assertTrue(chatTextOnEdt(panel).contains("Stopped"),
                 "本地取消由 Stopped. 行交代");
     }
 
@@ -360,12 +350,11 @@ class AiChatPanelIpcTurnPresenterTest {
         // C2 取消路径倒序钉子（契约修订的容错面）：signalCancel 在摘槽后才发取消终态，
         // 槽已空窗口内新回合可开跑——订阅者可能先见 STARTED(N+1)、后见 CANCELLED(N)。
         // 面板按回合身份（活回合集合）过滤，两回合渲染互不吞没
-        JTextPane chatArea = field(panel, "chatArea");
 
         TurnHandle turnA = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] A", false);
         panel.onTurnEvent(TurnEvent.started(turnA));
         awaitEdtDrained();
-        assertTrue(chatTextOnEdt(chatArea).contains("You: [from cli] A"), "回合 A 回显（前置）");
+        assertTrue(chatTextOnEdt(panel).contains("You: [from cli] A"), "回合 A 回显（前置）");
 
         // 倒序窗口：A 的取消终态未发，新回合 B 的 STARTED 先到达
         TurnHandle turnB = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] B", false);
@@ -376,7 +365,7 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.cancelled(turnA, CancelCause.USER_STOP));
         awaitEdtDrained();
 
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         assertTrue(html.contains("You: [from cli] A"), "倒序取消不吞没回合 A 的回显");
         assertTrue(html.contains("You: [from cli] B"), "回合 B 的回显照常");
         assertEquals(1, html.split("Task cancelled", -1).length - 1,
@@ -390,11 +379,9 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.rejectedBusy(sessionKey));
         panel.onTurnEvent(TurnEvent.injected(sessionKey, TurnOrigin.IPC_CLI, "[from cli] extra input"));
         awaitEdtDrained();
-
-        JTextPane chatArea = field(panel, "chatArea");
-        assertTrue(chatArea.getText().contains("Session busy"),
+        assertTrue(chatTextOnEdt(panel).contains("Session busy"),
                 "busy 快拒必须渲染系统提示行");
-        assertTrue(chatArea.getText().contains("[Injected] You: [from cli] extra input"),
+        assertTrue(chatTextOnEdt(panel).contains("[Injected] You: [from cli] extra input"),
                 "注入消息必须以注入回显样式渲染（含来源前缀）");
     }
 
@@ -403,7 +390,6 @@ class AiChatPanelIpcTurnPresenterTest {
         // F4 复现（对抗审查）：/new 的 EDT 事件先入队、回合启动事件排其后——
         // dispatch 的代数必须于<b>通知时</b>快照；若在 EDT 执行时才读，会按
         // /new 之后的新代数放行，幽灵 "You:" 行与取消回执渗入刚清空的新会话
-        JTextPane chatArea = field(panel, "chatArea");
         java.util.concurrent.CountDownLatch edtHold = new java.util.concurrent.CountDownLatch(1);
         SwingUtilities.invokeLater(() -> {
             try {
@@ -422,16 +408,16 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.started(turn));
         edtHold.countDown();
 
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("You: /new"), "/new echo rendered");
+        awaitUntil(() -> chatTextOnEdt(panel).contains("You: /new"), "/new echo rendered");
         awaitEdtDrained();
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         assertFalse(html.contains("[from cli] race"),
                 "旧会话的回合启动不得按 EDT 执行时的新代数放行并渲染进 /new 后的新会话");
 
         // 活回合集合已被 /new 清空、该回合 id 从未入集：迟到的取消回执同样丢弃
         panel.onTurnEvent(TurnEvent.cancelled(turn, CancelCause.USER_STOP));
         awaitEdtDrained();
-        assertFalse(chatTextOnEdt(chatArea).contains("Task cancelled"),
+        assertFalse(chatTextOnEdt(panel).contains("Task cancelled"),
                 "已重置会话的迟到取消回执不得渲染");
     }
 
@@ -441,7 +427,6 @@ class AiChatPanelIpcTurnPresenterTest {
         // 渲染（proposal：终态先于下回合 STARTED / 垂死迟到终态渲染=今日双渲染基线的
         // 推广）——旧单窗口「本地回合一开即关闭 IPC 呈现窗口」被集合模型取代，
         // 两个回合的输出互不清除
-        JTextPane chatArea = field(panel, "chatArea");
         TurnHandle ipcTurn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
         panel.onTurnEvent(TurnEvent.started(ipcTurn));
         awaitEdtDrained();
@@ -451,12 +436,12 @@ class AiChatPanelIpcTurnPresenterTest {
             messageField.setText("local question");
             invoke(panel, "sendMessage");
         });
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("You: local question"),
+        awaitUntil(() -> chatTextOnEdt(panel).contains("You: local question"),
                 "local turn echo rendered");
 
         panel.onTurnEvent(TurnEvent.cancelled(ipcTurn, CancelCause.TIMEOUT));
         awaitEdtDrained();
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         assertTrue(html.contains("You: [from cli] hello"),
                 "同代数内先前的 IPC 回显不受影响（sanity）");
         assertTrue(html.contains("timed out"),
@@ -469,7 +454,6 @@ class AiChatPanelIpcTurnPresenterTest {
         // TURN_STARTED 发给了零订阅者。构造完成时本实例会话上仍有活跃回合 →
         // 领养：提示行 + Stop 模式 + 活回合集合登记（后续事件照常渲染，
         // 错过的中途进度不补放——Q12 无缓冲决策）
-        JTextPane chatArea = field(panel, "chatArea");
         java.util.concurrent.CountDownLatch llmEntered = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.CountDownLatch releaseLlm = new java.util.concurrent.CountDownLatch(1);
         MemoryStore memoryStore = Mockito.mock(MemoryStore.class);
@@ -495,7 +479,7 @@ class AiChatPanelIpcTurnPresenterTest {
 
             JButton stopButton = field(panel, "stopButton");
             awaitUntil(stopButton::isVisible, "adoption switches to Stop mode");
-            String html = chatTextOnEdt(chatArea);
+            String html = chatTextOnEdt(panel);
             assertTrue(html.contains("An IPC turn"),
                     "领养必须渲染提示行（面板晚到，回合已在跑）");
             assertFalse(html.contains("You: [from cli] long delegated task"),
@@ -504,13 +488,13 @@ class AiChatPanelIpcTurnPresenterTest {
             // 领养后的事件照常渲染：PROGRESS 用领养登记的真实句柄直发
             TurnHandle adopted = runningLoop.activeTurn(sessionKey).orElseThrow();
             panel.onTurnEvent(TurnEvent.progress(adopted, ProgressUpdate.thinking("ADOPTED-PROGRESS")));
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("ADOPTED-PROGRESS"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("ADOPTED-PROGRESS"),
                     "post-adoption progress renders");
 
             // 终态经真实事件流（面板已订阅 runningLoop）：LLM 放行 → 回合完成
             releaseLlm.countDown();
             running.get(10, java.util.concurrent.TimeUnit.SECONDS);
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("blocked-done"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("blocked-done"),
                     "post-adoption terminal renders via the real event stream");
         } finally {
             runningLoop.removeTurnSubscriber(panel);
@@ -568,7 +552,6 @@ class AiChatPanelIpcTurnPresenterTest {
         // getAgentLoop(newService) 重建 loop——面板订阅挂在工厂级表（构造器注册），
         // 重建后由工厂自动重挂；IPC 回合显示不得因换 loop 断流（「重建后忘了再挂」
         // 一类 bug 的护栏，对齐 AiChatPanel.switchAiService 的注释契约）
-        JTextPane chatArea = field(panel, "chatArea");
         AgentLoop rebuilt = null;
         try {
             AgentLoopFactory.reset();
@@ -580,7 +563,7 @@ class AiChatPanelIpcTurnPresenterTest {
             rebuilt.processMessage("[from cli] after rebuild", sessionKey, null,
                     TurnOrigin.IPC_CLI)
                     .get(10, java.util.concurrent.TimeUnit.SECONDS);
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("You: [from cli] after rebuild"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("You: [from cli] after rebuild"),
                     "post-rebuild IPC turn still renders on the panel");
         } finally {
             if (rebuilt != null) {
@@ -620,14 +603,13 @@ class AiChatPanelIpcTurnPresenterTest {
         // 由测试线程直发——走 invokeLater 分支，即生产 ipc-worker 路径。EDT 队列 FIFO + 测试线程
         // 程序序 ⇒ 执行序恒为 STARTED(N+1) → CANCELLED(N)：即使 EDT 抢先取走先入队的 STARTED
         // 任务，该任务也同步完整跑完后才轮到后入队的取消任务。
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
 
         // ① 回合 N 开跑（IPC 源：/agent 超时取消路径的攻击对象）
         TurnHandle turnN = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] N", false);
         panel.onTurnEvent(TurnEvent.started(turnN));
         awaitEdtDrained();
-        assertEquals(1, loadingIndicatorCount(chatArea), "首次武装后文档恰一个 loading 指示（前置）");
+        assertEquals(1, loadingIndicatorCount(panel), "首次武装后文档恰一个 loading 指示（前置）");
         assertTrue(stopButton.isVisible(), "武装后 Stop 按钮可见（前置）");
 
         // ②+③ 倒序窗口：N 的取消终态先入队（测试线程 invokeLater）、
@@ -640,14 +622,14 @@ class AiChatPanelIpcTurnPresenterTest {
         // 活回合集合语义（spec「面板过滤为活回合集合」）：倒序交付下两回合渲染互不吞没。
         // 注意：此处刻意不断言指示计数——幂等守卫式修复（不再追加）与全删式修复（删除时
         // 清除全部）的中间态计数分别为 1 与 2，均合法；只钉契约级终态。
-        String mid = chatTextOnEdt(chatArea);
+        String mid = chatTextOnEdt(panel);
         assertTrue(mid.contains("You: [from cli] N"), "回合 N 的回显不受倒序影响（sanity）");
         assertTrue(mid.contains("You: next question"), "回合 N+1 的回显照常（sanity）");
         assertTrue(mid.contains("timed out"), "IPC 源超时取消回执照常渲染（sanity）");
 
         // ⑤ N+1 自然完成——最后一个终态是清理指示的最后机会
         panel.onTurnEvent(TurnEvent.completed(turnN1, AgentResponse.success("REPLY-SECOND-TURN")));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("REPLY-SECOND-TURN"),
+        awaitUntil(() -> chatTextOnEdt(panel).contains("REPLY-SECOND-TURN"),
                 "second turn completion rendered");
         awaitEdtDrained();
 
@@ -656,10 +638,10 @@ class AiChatPanelIpcTurnPresenterTest {
         // 顺序，且两者均照常处理；「面板过滤为活回合集合」——终态对集合内任意标识渲染并收尾。
         // 两回合终态均已处理后，文档不得残留任何 "AI is thinking..." 指示（重复武装须幂等：
         // armed 已置时不再追加，或删除时清除全部）。现实现此处 residual=1（I1 永久滞留）。
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         String diag = "convGen=" + field(panel, "conversationGeneration")
-                + " residual=" + loadingIndicatorCount(chatArea) + " chat=" + html;
-        assertEquals(0, loadingIndicatorCount(chatArea),
+                + " residual=" + loadingIndicatorCount(panel) + " chat=" + html;
+        assertEquals(0, loadingIndicatorCount(panel),
                 "倒序窗口后两回合终态均已处理，不得残留 loading 指示"
                         + "（armActiveTurn 无武装守卫叠加第二指示 + lastIndexOf 单点删除 + armed 门 no-op）" + diag);
         assertTrue(html.contains("REPLY-SECOND-TURN"),
@@ -683,13 +665,12 @@ class AiChatPanelIpcTurnPresenterTest {
         // panel.onTurnEvent，COMPLETED(N) 由测试线程直发走 invokeLater 后入队——EDT FIFO +
         // 程序序 ⇒ 执行序恒为 STARTED(N+1) → COMPLETED(N)。标记文本互非前缀，防 contains
         // 假阳性（不用 REPLY-N / REPLY-N1 这类前缀对）。
-        JTextPane chatArea = field(panel, "chatArea");
 
         // ① 回合 N（IPC 源）开跑并武装指示 I1
         TurnHandle turnN = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] N", false);
         panel.onTurnEvent(TurnEvent.started(turnN));
         awaitEdtDrained();
-        assertEquals(1, loadingIndicatorCount(chatArea), "首次武装后文档恰一个 loading 指示（前置）");
+        assertEquals(1, loadingIndicatorCount(panel), "首次武装后文档恰一个 loading 指示（前置）");
 
         // ②+③ 倒序：STARTED(N+1) 零跳先执行、已入队的 COMPLETED(N) 后出队
         TurnHandle turnN1 = new TurnHandle(sessionKey, TurnOrigin.LOCAL_PANEL, "next question", false);
@@ -699,19 +680,19 @@ class AiChatPanelIpcTurnPresenterTest {
 
         // ⑤ N+1 自然完成——最后一个终态是清理指示的最后机会
         panel.onTurnEvent(TurnEvent.completed(turnN1, AgentResponse.success("REPLY-SECOND-TURN")));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("REPLY-SECOND-TURN"),
+        awaitUntil(() -> chatTextOnEdt(panel).contains("REPLY-SECOND-TURN"),
                 "second turn completion rendered");
         awaitEdtDrained();
 
         // 契约断言（缺陷存在时的红点）：spec「面板过滤为活回合集合」——垂死/已终回合与
         // 新回合交叠时两者的回复 SHALL 都渲染且终态对集合内任意标识收尾；两回合终态均已
         // 处理后文档不得残留任何 "AI is thinking..." 指示。现实现此处 residual=1。
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         assertTrue(html.contains("REPLY-FIRST-TURN"), "回合 N 的最终回复照常渲染（sanity）");
         assertTrue(html.contains("REPLY-SECOND-TURN"), "回合 N+1 的最终回复照常渲染（sanity）");
-        assertEquals(0, loadingIndicatorCount(chatArea),
+        assertEquals(0, loadingIndicatorCount(panel),
                 "自然完成路径的倒序交付同样不得残留 loading 指示"
-                        + " residual=" + loadingIndicatorCount(chatArea) + " chat=" + html);
+                        + " residual=" + loadingIndicatorCount(panel) + " chat=" + html);
     }
 
     @Test
@@ -730,7 +711,6 @@ class AiChatPanelIpcTurnPresenterTest {
         //   判据，而非 armed 单槽；
         // - Requirement「事件顺序保证」→ Scenario「取消路径倒序容忍」：本交叠序列是契约
         //   明确许可的到达顺序，面板必须按回合身份过滤而非依赖跨回合到达顺序。
-        JTextPane chatArea = field(panel, "chatArea");
 
         // 回合 A 武装（合成事件直发 panel.onTurnEvent，与生产事件同构——本类既有配方）
         TurnHandle turnA = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] A", false);
@@ -738,7 +718,7 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
         // 前置 sanity：恰一个指示。同时钉住计数观测面非空——防止终态断言在
         // 「getText() 根本不含该文本」时空转绿（vacuous green）
-        assertEquals(1, loadingIndicatorCount(chatArea),
+        assertEquals(1, loadingIndicatorCount(panel),
                 "前置 sanity：首个回合武装后恰一个 loading 指示");
 
         // 契约许可的交叠窗口：A 未终结，B 的 STARTED 先到达
@@ -747,27 +727,27 @@ class AiChatPanelIpcTurnPresenterTest {
         panel.onTurnEvent(TurnEvent.started(turnB));
         awaitEdtDrained();
         // 缺陷现场①：armActiveTurn 不看 armed 已置 → 无条件二次 append（现行为 2 个）
-        assertEquals(1, loadingIndicatorCount(chatArea),
+        assertEquals(1, loadingIndicatorCount(panel),
                 "交叠活回合下至多一个 loading 指示（活回合集合呈现不得单槽重复武装）");
 
         // B 先完成：liveTurnIds.remove(B) 成功 → handleAgentResponse(:1068) 首行即
         // removeLoadingIndicator(:1070)。removeLoadingIndicator 先于内容渲染执行，
         // 「B-DONE」可见即删除已被执行——计数读取无竞态
         panel.onTurnEvent(TurnEvent.completed(turnB, AgentResponse.success("B-DONE")));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("B-DONE"), "B 终态渲染落地");
+        awaitUntil(() -> chatTextOnEdt(panel).contains("B-DONE"), "B 终态渲染落地");
         awaitEdtDrained();
         // A 仍在跑（liveTurnIds 仍含 A），指示必须保留。此断言同时钉住「只给 append
         // 加 gate」的天真修复方向（删除仍单槽）：B 的终态会误删 A 的指示 → 0 个，同样红
-        assertEquals(1, loadingIndicatorCount(chatArea),
+        assertEquals(1, loadingIndicatorCount(panel),
                 "B 的终态不得清掉仍在跑的 A 的指示（终态收尾以『仍有活回合』为判据，对齐按钮复位判据）");
 
         // A 最后完成：全部活回合结束
         panel.onTurnEvent(TurnEvent.completed(turnA, AgentResponse.success("A-DONE")));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("A-DONE"), "A 终态渲染落地");
+        awaitUntil(() -> chatTextOnEdt(panel).contains("A-DONE"), "A 终态渲染落地");
         awaitEdtDrained();
         // 缺陷现场②：B 的终态已 lastIndexOf 删掉最后一个指示（I2）并清 armed=false，
         // A 的终态 removeLoadingIndicator 因 armed=false 直接 no-op → I1 永久残留
-        assertEquals(0, loadingIndicatorCount(chatArea),
+        assertEquals(0, loadingIndicatorCount(panel),
                 "全部活回合结束后文档不得残留 'AI is thinking...'（armed 单槽永久残留缺陷）");
     }
 
@@ -799,7 +779,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void completedTerminalEdtReadDuringSlotTeardownWindowMustResetButton() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
         JButton sendButton = field(panel, "sendButton");
 
@@ -838,7 +817,7 @@ class AiChatPanelIpcTurnPresenterTest {
             SwingUtilities.invokeAndWait(() -> { });
             // 前置（红/绿两界均须成立）：终态内容渲染已落地——handleAgentResponse 的内容
             // 渲染无条件先行于按钮判定，以此证明 EDT 确在窗口内执行了终态处理
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("unused"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("unused"),
                     "terminal content rendered inside the teardown window");
 
             // 窗口观测（仅诊断、随失败消息输出，不作断言：面板侧/补发事件侧修复的世界里
@@ -874,12 +853,12 @@ class AiChatPanelIpcTurnPresenterTest {
     }
 
     /**
-     * 统计文档中 "AI is thinking" 指示出现次数。chatArea.getText() 返回 HTML 源码，
+     * 统计文档中 "AI is thinking" 指示出现次数。chatTextOnEdt(panel) 返回 HTML 源码，
      * 指示文本为 ASCII 可直读（对齐既有测试约定）；在 EDT 上同步读取（复用本类
      * chatTextOnEdt）。供本文件倒序/交叠残留测试共用。
      */
-    private static int loadingIndicatorCount(JTextPane chatArea) {
-        return chatTextOnEdt(chatArea).split("AI is thinking", -1).length - 1;
+    private static int loadingIndicatorCount(AiChatPanel panel) {
+        return chatTextOnEdt(panel).split("AI is thinking", -1).length - 1;
     }
 
     /**
@@ -912,7 +891,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void adoptionSkipsInvisibleIpcCommandTurn_itsTerminalStaysDropped() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
 
         // 门控脚本服务：首个（也是唯一一个）LLM 调用进入即挂起。本场景无 signalCancel、
@@ -967,7 +945,7 @@ class AiChatPanelIpcTurnPresenterTest {
                     "不可见 IPC 命令回合（visibleToPanel()==false）不得被领养写入活回合集合"
                             + "——spec「订阅者 SHALL 能按『终态可无起点』编码」");
             assertFalse(stopButton.isVisible(), "不得武装 Stop 模式（命令回合无显示契约）");
-            assertFalse(chatTextOnEdt(chatArea).contains("An IPC turn"),
+            assertFalse(chatTextOnEdt(panel).contains("An IPC turn"),
                     "不得渲染领养提示行（发射端刻意省略的起点不得由领养手工补画）");
 
             // ⑤ 放行占位回合 → 命令回合真正执行 cmdNew→resetConversation 并收尾
@@ -984,7 +962,7 @@ class AiChatPanelIpcTurnPresenterTest {
             //    emitTerminal 先于 future.complete + cmdFuture.get() 已返回 + EDT 已排空
             //    ⇒ 事件必已处理完毕，此负断言确定性成立
             awaitEdtDrained();
-            assertFalse(chatTextOnEdt(chatArea).contains("New session started."),
+            assertFalse(chatTextOnEdt(panel).contains("New session started."),
                     "未被领养的命令回合终态必须被活回合集合丢弃（id 不在集合 → 不渲染）；"
                             + "命令回执属于对端 CLI 的 HTTP 信封显示域，本地面板双渲染即泄漏");
         } finally {
@@ -1045,7 +1023,6 @@ class AiChatPanelIpcTurnPresenterTest {
         //    归属，面板级共享标志正是跨回合串扰；
         // 3)「Requirement: 统一回合事件交付」——迁移到事件流后渲染语义不变，
         //    旧单 worker 模型的"渐进显示过则不补显汇总/未显示过则补显"必须按回合保留。
-        JTextPane chatArea = field(panel, "chatArea");
 
         // ① 两活回合并行：A = 换血后退役 loop 上仍在跑的委派回合（本面板未见其任何
         //    TOOL_CALL 进度——生产对应领养前进度已丢/进度早到被活回合集合丢弃/跨 loop
@@ -1059,13 +1036,13 @@ class AiChatPanelIpcTurnPresenterTest {
         awaitEdtDrained();
 
         // ② B 渐进显示一条工具调用 → 面板级标志被置位（缺陷：置位无回合归属）。
-        //    注：断言只用 ASCII 工具名——chatArea.getText() 是 HTML 源码，✓ 图标会被
+        //    注：断言只用 ASCII 工具名——chatTextOnEdt(panel) 是 HTML 源码，✓ 图标会被
         //    转成数字字符实体（既有测试同款注意事项）
         ToolEvent toolOfB = ToolEvent.success("TOOL-LIVE-B", "b detail", 34);
         panel.onTurnEvent(TurnEvent.progress(turnB, ProgressUpdate.toolCall(toolOfB)));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("TOOL-LIVE-B"),
+        awaitUntil(() -> chatTextOnEdt(panel).contains("TOOL-LIVE-B"),
                 "B 的渐进工具行渲染（前置）");
-        assertEquals(1, chatTextOnEdt(chatArea).split("TOOL-LIVE-B", -1).length - 1,
+        assertEquals(1, chatTextOnEdt(panel).split("TOOL-LIVE-B", -1).length - 1,
                 "前置：B 的工具行此刻恰一条（仅渐进行）");
 
         // ③ A 的终态先到：A 自身从未渐进显示过任何 TOOL_CALL，按旧模型语义（flag 为
@@ -1075,9 +1052,9 @@ class AiChatPanelIpcTurnPresenterTest {
         ToolEvent toolOfA = ToolEvent.success("TOOL-SUMMARY-A", "a detail", 12);
         panel.onTurnEvent(TurnEvent.completed(turnA,
                 AgentResponse.success("FINAL-A", List.of("TOOL-SUMMARY-A"), 1, List.of(toolOfA))));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("FINAL-A"), "A 终态渲染完成");
+        awaitUntil(() -> chatTextOnEdt(panel).contains("FINAL-A"), "A 终态渲染完成");
 
-        String html = chatTextOnEdt(chatArea);
+        String html = chatTextOnEdt(panel);
         String diag = "convGen=" + field(panel, "conversationGeneration") + " chat=" + html;
         assertEquals(1, html.split("TOOL-SUMMARY-A", -1).length - 1,
                 "A 的工具摘要必须补显：A 未渐进显示过任何 TOOL_CALL，兄弟回合 B 置位的"
@@ -1089,9 +1066,9 @@ class AiChatPanelIpcTurnPresenterTest {
         //    false → B 的 displayToolCallInfo 再次渲染同一工具块 → 计数变 2
         panel.onTurnEvent(TurnEvent.completed(turnB,
                 AgentResponse.success("FINAL-B", List.of("TOOL-LIVE-B"), 1, List.of(toolOfB))));
-        awaitUntil(() -> chatTextOnEdt(chatArea).contains("FINAL-B"), "B 终态渲染完成");
+        awaitUntil(() -> chatTextOnEdt(panel).contains("FINAL-B"), "B 终态渲染完成");
 
-        html = chatTextOnEdt(chatArea);
+        html = chatTextOnEdt(panel);
         diag = "convGen=" + field(panel, "conversationGeneration") + " chat=" + html;
         assertEquals(1, html.split("TOOL-LIVE-B", -1).length - 1,
                 "B 的工具块恰渲染一次（仅②的渐进行）：若 A 的终态错误消费复位了标志，"
@@ -1131,7 +1108,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void stopButtonStaysVisibleForRetiredLoopTurnAfterModelSwitch() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
 
         // L1 的服务：HANG_UNTIL_RELEASED——Stop 路由的 interrupt 有 interrupted 锚，
@@ -1155,7 +1131,7 @@ class AiChatPanelIpcTurnPresenterTest {
             tFuture = l1.processMessage("[delegated-from peer] long running task",
                     sessionKey, null, TurnOrigin.IPC_DELEGATED);
             assertTrue(tCall.entered.await(10, TimeUnit.SECONDS), "T 必须已进入 LLM 调用（确定性锚）");
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("You: [delegated-from peer]"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("You: [delegated-from peer]"),
                     "T 的 TURN_STARTED 武装面板（You 行渲染）");
             assertTrue(stopButton.isVisible(), "前置：T 在跑，Stop 模式已武装");
             long tId = l1.activeTurn(sessionKey).orElseThrow().id();
@@ -1187,7 +1163,7 @@ class AiChatPanelIpcTurnPresenterTest {
             edtHold.countDown(); // 放行 EDT：STARTED(U) → COMPLETED(U) 按序执行
             // 确定性锚：handleAgentResponse 在同一个 EDT runnable 内先渲染内容（:1091）
             // 再评估复位判据（:1098-1100）——内容可见即判据已执行，无需竞速
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("QUICK-FINAL"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("QUICK-FINAL"),
                     "U 的终态已进 handleAgentResponse（同 EDT runnable 内含复位判据）");
             awaitEdtDrained();
 
@@ -1211,7 +1187,7 @@ class AiChatPanelIpcTurnPresenterTest {
                     "signalCancelAny 须路由到退役 L1 的在跑回合（R6 终止信号可达）");
             tCall.hang.countDown();
             assertTrue(l1.waitForCancellation(sessionKey, 10, TimeUnit.SECONDS), "T 的取消收尾落地");
-            awaitUntil(() -> chatTextOnEdt(chatArea).contains("Task cancelled"),
+            awaitUntil(() -> chatTextOnEdt(panel).contains("Task cancelled"),
                     "T 的取消回执行渲染（IPC_DELEGATED 源 + USER_STOP）");
             awaitEdtDrained();
             assertFalse(stopButton.isVisible(),
@@ -1296,7 +1272,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void remoteSlashNewDuringArmedLocalTurnMustClearStaleTranscript() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
 
         // 门控 fake（HANG_UNTIL_RELEASED）：武装回合被 RESET interrupt 后挂 hang——
         // signalCancel 得以先认领终态并派发 TURN_CANCELLED(RESET)，断言窗口内回合体
@@ -1315,11 +1290,11 @@ class AiChatPanelIpcTurnPresenterTest {
             remoteLoop.addTurnSubscriber(panel);      // 生产对等：回合事件订阅挂注入的 loop
 
             // ① 旧会话转录：一轮真实本地回合渲染出可断言的 ASCII 标记
-            //   （chatArea.getText() 是 HTML 源码，断言一律用 ASCII）
+            //   （chatTextOnEdt(panel) 是 HTML 源码，断言一律用 ASCII）
             gated.script(LLMResponse.text("OLD-SESSION-ANSWER"));
             remoteLoop.processMessage("OLD-SESSION-QUESTION", sessionKey)
                     .get(10, TimeUnit.SECONDS);
-            AwaitUtil.awaitUntil(() -> chatTextOnEdt(chatArea).contains("OLD-SESSION-ANSWER"),
+            AwaitUtil.awaitUntil(() -> chatTextOnEdt(panel).contains("OLD-SESSION-ANSWER"),
                     "precondition: prior transcript rendered");
 
             // ①b 武装中的本地回合：门控挂进 LLM 调用（entered 双锁为同步锚）
@@ -1327,7 +1302,7 @@ class AiChatPanelIpcTurnPresenterTest {
             armed = remoteLoop.processMessage("LOCAL-IN-FLIGHT", sessionKey);
             assertTrue(armedCall.entered.await(10, TimeUnit.SECONDS),
                     "precondition: armed local turn reached its LLM call");
-            AwaitUtil.awaitUntil(() -> chatTextOnEdt(chatArea).contains("You: LOCAL-IN-FLIGHT"),
+            AwaitUtil.awaitUntil(() -> chatTextOnEdt(panel).contains("You: LOCAL-IN-FLIGHT"),
                     "precondition: armed turn echo rendered");
             int generationBefore = (Integer) field(panel, "conversationGeneration");
 
@@ -1351,7 +1326,7 @@ class AiChatPanelIpcTurnPresenterTest {
             // 残留已被清空的旧会话内容。缺陷存在时旧转录是稳定终态（无任何路径
             // 清屏），本行 10s 有界轮询后超时红；修复后（面板收到清理信号/事件流补「重置」
             // 会话级事件触发清屏）轮询即绿。
-            AwaitUtil.awaitUntil(() -> !chatTextOnEdt(chatArea).contains("OLD-SESSION-ANSWER"),
+            AwaitUtil.awaitUntil(() -> !chatTextOnEdt(panel).contains("OLD-SESSION-ANSWER"),
                     "remote /new must clear the stale transcript "
                             + "(spec R2 premise: 'the panel is about to clean up' must hold for remote resets)");
 
@@ -1393,7 +1368,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void remoteSlashNewAsIdleCommandTurnMustClearStaleTranscript() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
 
         // 空闲路径无需门控冻结：脚本化即答 fake 已够（保留 testsupport 配方）
         GatedScriptAiService gated = new GatedScriptAiService();
@@ -1411,7 +1385,7 @@ class AiChatPanelIpcTurnPresenterTest {
             gated.script(LLMResponse.text("OLD-SESSION-ANSWER"));
             remoteLoop.processMessage("OLD-SESSION-QUESTION", sessionKey)
                     .get(10, TimeUnit.SECONDS);
-            AwaitUtil.awaitUntil(() -> chatTextOnEdt(chatArea).contains("OLD-SESSION-ANSWER"),
+            AwaitUtil.awaitUntil(() -> chatTextOnEdt(panel).contains("OLD-SESSION-ANSWER"),
                     "precondition: prior transcript rendered");
             int generationBefore = (Integer) field(panel, "conversationGeneration");
 
@@ -1432,7 +1406,7 @@ class AiChatPanelIpcTurnPresenterTest {
             // 【红线断言】转录不得残留旧会话标记。缺陷存在时本行 10s 超时红
             // （IPC_CLI 命令回合不可见+活回合集合外终态早退，面板无任何清理路径）；
             // 修复后（清理信号/会话级重置事件 → 清屏+翻代数）即绿。
-            AwaitUtil.awaitUntil(() -> !chatTextOnEdt(chatArea).contains("OLD-SESSION-ANSWER"),
+            AwaitUtil.awaitUntil(() -> !chatTextOnEdt(panel).contains("OLD-SESSION-ANSWER"),
                     "remote /new must clear the stale transcript "
                             + "(spec R2 premise: 'the panel is about to clean up' must hold for remote resets)");
 
@@ -1475,7 +1449,6 @@ class AiChatPanelIpcTurnPresenterTest {
      */
     @Test
     void adoptedDeadTurnInEmissionWindowMustNotStayArmed() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
         JButton stopButton = field(panel, "stopButton");
 
         // 脚本化 fake（testsupport）：单次立即应答——回合自然完成，收尾即进入被钉死的 finally
@@ -1536,9 +1509,9 @@ class AiChatPanelIpcTurnPresenterTest {
             // 修复后：变体 a（TurnHandle 暴露 terminalEmitted / 领养双检——死回合不武装）
             //   → 条件立即成立；变体 b（武装后异步补查 future/hasActiveRun 自复位）
             //   → 句柄摘除后一拍内复位 → 条件成立。两变体均绿。
-            String before = chatTextOnEdt(chatArea);
+            String before = chatTextOnEdt(panel);
             awaitUntil(() -> !stopVisibleOnEdt(stopButton)
-                            && !chatTextOnEdt(chatArea).contains("AI is thinking"),
+                            && !chatTextOnEdt(panel).contains("AI is thinking"),
                     "adopted dead turn must not leave the panel armed (loading cleared + Stop "
                             + "hidden) after the turn fully completed; chat-at-judgment=" + before);
         } finally {
@@ -1561,6 +1534,34 @@ class AiChatPanelIpcTurnPresenterTest {
         return ref.get();
     }
 
+    @Test
+    void cancelledTerminalFinishesActivityGroupAndThinkingCard() throws Exception {
+        // spec「工具活动折叠卡 · 终态折叠」：取消终态与完成一致——活动卡停止动态
+        // 指示并自动折叠，思考卡同理（不得让 spinner 在取消后无限旋转）
+        TurnHandle turn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
+        panel.onTurnEvent(TurnEvent.started(turn));
+        awaitEdtDrained();
+
+        panel.onTurnEvent(TurnEvent.progress(turn, ProgressUpdate.thinking("<think>REASON-A</think>")));
+        panel.onTurnEvent(TurnEvent.progress(turn,
+                ProgressUpdate.toolCall(ToolEvent.success("TOOL-A", "detail", 5))));
+        awaitUntil(() -> chatTextOnEdt(panel).contains("TOOL-A"), "progressive tool line rendered");
+
+        ToolActivityGroup group = onEdt(() -> transcriptOf(panel).getActivityGroup());
+        ThinkingCard thinking = onEdt(() -> transcriptOf(panel).getThinkingCard());
+        assertNotNull(group, "前置：活动卡已建");
+        assertTrue(group.isRunning(), "前置：活动卡运行中");
+        assertNotNull(thinking, "前置：思考卡已建");
+        assertTrue(thinking.isRunning(), "前置：思考卡运行中");
+
+        panel.onTurnEvent(TurnEvent.cancelled(turn, CancelCause.USER_STOP));
+        awaitEdtDrained();
+
+        assertFalse(group.isRunning(), "取消终态必须收尾活动卡（spec 终态折叠：完成/取消一致）");
+        assertTrue(group.isCollapsed(), "收尾后自动折叠为 N tool calls 总结行");
+        assertFalse(thinking.isRunning(), "取消终态必须收尾思考卡");
+    }
+
     // ------------------------------------------------------------------
     // 测试基础设施（对齐 AiChatPanelNewConversationTest 的面板脚手架）
     // ------------------------------------------------------------------
@@ -1570,99 +1571,25 @@ class AiChatPanelIpcTurnPresenterTest {
         SwingUtilities.invokeAndWait(() -> { });
     }
 
-    /**
-     * needle 起点处的生效样式：自根沿祖先链合并到字符元素（HTML 内联样式落在块级
-     * 元素上，字符叶子自身可能不带）——视图解析样式的同一来源。EDT 上同步读取。
-     */
-    private static javax.swing.text.AttributeSet styleAttrsAt(JTextPane chatArea, String needle) {
+
+    /** 在 EDT 上读转录可见文本（组件树读取须在 EDT，且轮询需同步取值）。 */
+    private static String chatTextOnEdt(AiChatPanel panel) {
+        return onEdt(() -> transcriptOf(panel).visibleTextForTests());
+    }
+
+    private static TranscriptView transcriptOf(AiChatPanel panel) {
+        return field(panel, "transcript");
+    }
+
+    /** 在 EDT 上同步取值（Swing 状态读取须在 EDT；拷贝后离线断言）。 */
+    private static <T> T onEdt(java.util.function.Supplier<T> supplier) {
         try {
-            java.util.concurrent.atomic.AtomicReference<javax.swing.text.AttributeSet> ref =
+            java.util.concurrent.atomic.AtomicReference<T> ref =
                     new java.util.concurrent.atomic.AtomicReference<>();
-            SwingUtilities.invokeAndWait(() -> {
-                try {
-                    javax.swing.text.StyledDocument doc = chatArea.getStyledDocument();
-                    int idx = doc.getText(0, doc.getLength()).indexOf(needle);
-                    if (idx < 0) {
-                        return;
-                    }
-                    java.util.ArrayList<javax.swing.text.Element> chain = new java.util.ArrayList<>();
-                    for (javax.swing.text.Element e = doc.getCharacterElement(idx);
-                            e != null; e = e.getParentElement()) {
-                        chain.add(e);
-                    }
-                    javax.swing.text.SimpleAttributeSet merged =
-                            new javax.swing.text.SimpleAttributeSet();
-                    for (int i = chain.size() - 1; i >= 0; i--) {
-                        merged.addAttributes(chain.get(i).getAttributes());
-                    }
-                    ref.set(merged);
-                } catch (javax.swing.text.BadLocationException ignored) {
-                    // needle 不在文档内：返回 null，由调用方断言失败
-                }
-            });
+            SwingUtilities.invokeAndWait(() -> ref.set(supplier.get()));
             return ref.get();
         } catch (Exception e) {
-            throw new IllegalStateException("cannot read style attributes on EDT", e);
-        }
-    }
-
-    /** styleAttrsAt 的斜体判定：HTML 文档把内联样式存为 CSS.Attribute 键（非 StyleConstants.Italic）。 */
-    private static boolean isItalicAt(JTextPane chatArea, String needle) {
-        javax.swing.text.AttributeSet attrs = styleAttrsAt(chatArea, needle);
-        Object fontStyle = attrs == null ? null
-                : attrs.getAttribute(javax.swing.text.html.CSS.Attribute.FONT_STYLE);
-        return "italic".equalsIgnoreCase(String.valueOf(fontStyle));
-    }
-
-    /** styleAttrsAt 的取色（CSS.Attribute.COLOR 的字符串值；无内联色返回 null）。 */
-    private static String cssColorAt(JTextPane chatArea, String needle) {
-        javax.swing.text.AttributeSet attrs = styleAttrsAt(chatArea, needle);
-        Object color = attrs == null ? null
-                : attrs.getAttribute(javax.swing.text.html.CSS.Attribute.COLOR);
-        return color == null ? null : String.valueOf(color);
-    }
-
-    /** AttributeSet 的诊断展开（失败消息用）。 */
-    private static String attrsToString(javax.swing.text.AttributeSet attrs) {
-        if (attrs == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("[");
-        for (java.util.Enumeration<?> e = attrs.getAttributeNames(); e.hasMoreElements(); ) {
-            Object k = e.nextElement();
-            sb.append(k).append('=').append(attrs.getAttribute(k)).append(' ');
-        }
-        return sb.append(']').toString();
-    }
-
-    /** 在 EDT 上读文档纯文本（非 HTML 源码）：字面标签断言用（getText 会转义且丢样式）。 */
-    private static String docTextOnEdt(JTextPane chatArea) {
-        try {
-            java.util.concurrent.atomic.AtomicReference<String> ref =
-                    new java.util.concurrent.atomic.AtomicReference<>();
-            SwingUtilities.invokeAndWait(() -> {
-                try {
-                    javax.swing.text.StyledDocument doc = chatArea.getStyledDocument();
-                    ref.set(doc.getText(0, doc.getLength()));
-                } catch (javax.swing.text.BadLocationException ignored) {
-                    ref.set("");
-                }
-            });
-            return ref.get();
-        } catch (Exception e) {
-            throw new IllegalStateException("cannot read document text on EDT", e);
-        }
-    }
-
-    /** 在 EDT 上读聊天区全文（HTML 源码）：Swing 组件读取须在 EDT，且轮询需同步取值。 */
-    private static String chatTextOnEdt(JTextPane chatArea) {
-        try {
-            java.util.concurrent.atomic.AtomicReference<String> ref =
-                    new java.util.concurrent.atomic.AtomicReference<>();
-            SwingUtilities.invokeAndWait(() -> ref.set(chatArea.getText()));
-            return ref.get();
-        } catch (Exception e) {
-            throw new IllegalStateException("cannot read chatArea on EDT", e);
+            throw new IllegalStateException("cannot read on EDT", e);
         }
     }
 

@@ -150,7 +150,7 @@ public final class SelectionTracker {
         lastPolledFocusComponent = null;
         SelectionSnapshot snapshot = buildSnapshot(node, null);
         lastSnapshot = snapshot;
-        log.info("fireComponentSelected: node={}, listeners={}",
+        log.debug("fireComponentSelected: node={}, listeners={}",
                 node.getName(), LISTENERS.size());
         for (SelectionListener l : LISTENERS) {
             try {
@@ -219,7 +219,7 @@ public final class SelectionTracker {
             // describe 是 O(1) 操作，下游 SelectionContextBar.computeKey 会基于 value 去重，
             // 内容真正没变时不会触发 paint。
             if (c != lastPolledFocusComponent) {
-                log.info("L2 pollFocus: new focus owner = {}", c.getClass().getSimpleName());
+                log.debug("L2 pollFocus: new focus owner = {}", c.getClass().getSimpleName());
                 lastPolledFocusComponent = c;
             }
             ElementInfo info = ElementDescriptor.describe(c);

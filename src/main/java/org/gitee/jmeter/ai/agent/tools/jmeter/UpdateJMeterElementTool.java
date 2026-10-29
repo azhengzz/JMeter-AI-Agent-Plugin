@@ -5,11 +5,13 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.ValidationResult;
+import org.gitee.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -118,6 +120,7 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
             // (reads TestElement back into RSyntaxTextArea via configure()) must be in the same EDT
             // call. Otherwise, configure() may read a half-written TestElement and corrupt the
             // RSyntaxTextArea Token cache, triggering EDT NPE.
+            String refreshWarning = null;
             if (hasUpdates) {
                 final ToolResult[] updateResultHolder = new ToolResult[1];
                 Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
@@ -140,21 +143,33 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
 
                     // 4. Refresh GUI panel from updated TestElement
                     //    (calls configure() → RSyntaxTextArea.setText — needs EDT)
-                    guiPackage.refreshCurrentGui();
-                    // Force-refresh JTables that don't fire tableChanged on configure
-                    refreshTables(guiPackage.getCurrentGui());
+                    try {
+                        guiPackage.refreshCurrentGui();
+                        // Force-refresh JTables that don't fire tableChanged on configure
+                        refreshTables(guiPackage.getCurrentGui());
+                    } catch (Exception refreshError) {
+                        log.warn("GUI refresh failed after element update (update already applied)", refreshError);
+                        updateResultHolder[0] = ToolResult.success("Warning: element updated, but GUI refresh failed: "
+                                + refreshError.getMessage());
+                    }
                 });
                 if (edtError != null) {
                     log.error("Error updating JMeter element", edtError);
                     return ToolResult.error("Failed to update element: " + edtError.getMessage());
                 }
                 if (updateResultHolder[0] != null) {
-                    return updateResultHolder[0];
+                    if (updateResultHolder[0].isSuccess()) {
+                        refreshWarning = updateResultHolder[0].getResult();
+                    } else {
+                        return updateResultHolder[0];
+                    }
                 }
             }
 
             // Build and return success result
-            return buildSuccessResult(element, elementType, properties, universalProps);
+            ToolResult result = buildSuccessResult(element, elementType, properties, universalProps);
+            return refreshWarning == null ? result
+                    : ToolResult.success(result.getResult() + "\n\n" + refreshWarning);
 
         } catch (Exception e) {
             log.error("Error updating JMeter element", e);
@@ -234,7 +249,12 @@ public class UpdateJMeterElementTool extends AbstractJMeterElementTool {
             }
 
             // Use schema-based property handler to update properties
-            propertyHandler.setProperties(element, properties, schema);
+            List<SchemaBasedPropertyHandler.PropertyGuardViolation> guardViolations =
+                    propertyHandler.setProperties(element, properties, schema);
+            if (!guardViolations.isEmpty()) {
+                // Non-scalar guard refused the whole call (fail-fast) — element untouched
+                return ToolResult.error(SchemaBasedPropertyHandler.buildGuardErrorMessage(guardViolations));
+            }
 
             log.info("Successfully updated {} properties on element: {}",
                     properties.size(), element.getName());

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-此文件为 Codex (Codex.ai/code) 在处理本仓库代码时提供指导。
+此文件为 AI 编码助手（Claude Code、Codex、Cursor 等）在处理本仓库代码时提供指导。
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
@@ -65,7 +65,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 项目概述
 
-Gitee Ai (JMeter Agent) 是一个 JMeter 插件，提供 AI Agent 驱动的聊天界面，用于创建、优化和排查 JMeter 测试计划。它集成了 Codex (Anthropic)、OpenAI 和 Ollama AI 模型，并实现了完整的 Agent Loop 架构（工具调用、技能系统、上下文管理、会话管理等）。
+Gitee Ai (JMeter Agent) 是一个 JMeter 插件，提供 AI Agent 驱动的聊天界面，用于创建、优化和排查 JMeter 测试计划。它集成了 Claude (Anthropic)、OpenAI 和 Ollama AI 模型，并实现了完整的 Agent Loop 架构（工具调用、技能系统、上下文管理、会话管理等）。
 
 ## 构建和测试命令
 
@@ -84,12 +84,15 @@ mvn test
 mvn test -Dtest=ClassNameTest
 ```
 
-**安装到本地 JMeter（修改 pom.xml 的 antrun 配置路径）：**
+**安装到本地 JMeter（`jmeter.home` 读自 `JMETER_HOME` 环境变量，可用 `-Djmeter.home=...` 覆盖）：**
 ```bash
 mvn clean install                    # 复制 jar/skills/templates/CLI 脚本，默认不启动 GUI
 mvn clean install -DskipTests
-mvn clean install -Dlaunch.gui=true  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
+mvn clean install -Djmeter.home=C:/path/to/apache-jmeter-5.6.3  # 未设 JMETER_HOME 时显式传路径
+mvn clean install "-Dlaunch.gui=true"  # 同上 + 启动 JMeter GUI（仅 Windows；其他平台静默跳过）
 ```
+
+> **前提**：pom.xml 中 `<jmeter.home>` 写为 `${env.JMETER_HOME}`，不再写死机器路径。未设置 `JMETER_HOME` 环境变量且未传 `-Djmeter.home` 时，`${jmeter.home}` 解析为空，antrun copy 的目标退化为项目根下的相对路径 `lib/ext`（静默复制到错处，不报错）。故**裸跑 `mvn install` 前须先配 `JMETER_HOME`**。JDK 相关写死也已移除：编译器/测试 JVM 均归零为 `JAVA_HOME`（当前 `D:\IDE\Java\jdk-17.0.8`），换 JDK 版本靠改 `JAVA_HOME`。
 
 **跳过测试构建：**
 ```bash
@@ -103,14 +106,50 @@ mvn clean package -DskipTests
 ### AI Agent 框架 (`org.gitee.jmeter.ai.agent`)
 核心 Agent 执行引擎，实现工具调用的闭环：
 
-- **AgentLoop** / **AgentLoopFactory** - Agent 主循环，驱动 LLM 调用 → 工具执行 → 结果反馈的迭代
+- **AgentLoop** / **AgentLoopFactory** - Agent 主循环，驱动 LLM 调用 → 工具执行 → 结果反馈的迭代（回合生命周期状态收敛于 `agent.turn` 单表，见「回合对象」）
 - **AgentConfig** - Agent 配置管理（模型、温度、最大轮次等）
 - **GenerationSettings** - AI 生成参数的唯一来源
+
+#### 回合事件流 (`agent.presenter`)
+所有 UI 呈现的唯一通道（旧单槽 TurnPresenter 与 AgentSwingWorker 已删，见「关键设计模式」）：
+
+- **TurnEvent** / **TurnHandle** / **TurnOrigin** / **CancelCause** / **TurnSubscriber** - 回合事件流 5 类型。`TurnEvent` 7 种 Kind（TURN_STARTED/PROGRESS/TURN_COMPLETED/TURN_CANCELLED/INJECTED/REJECTED_BUSY/COMMAND_RESULT）；`TurnOrigin` 分 LOCAL_PANEL/IPC_CLI/IPC_DELEGATED/REPUBLISH；`TurnHandle` 携进程唯一回合 id 与显示域元数据
+- **订阅挂接**：订阅关系挂 `AgentLoopFactory` 静态表（`addTurnSubscriber` 记全局表并挂存活单例；模型切换换血 loop 后由 `createAgentLoop` 全量重挂，订阅不丢）；`AgentLoop.activeTurn(sessionKey)` 供面板懒创建时领养在跑 IPC 回合
+- **线程契约**：回调线程不保证（EDT/ipc-worker/loop 线程/池化线程均可能）；订阅端（如 AiChatPanel）自投 EDT + 通知时代数快照，防 /new 后迟到事件渗入新会话
+- **USAGE 进度载荷**：PROGRESS 事件可携带 `ProgressUpdate.Type.USAGE`（`AgentRunner` 每次 LLM 调用返回且 usage 非空时经 `AgentHook.onUsage` → adapter 发射，载荷 = usage map），专供上下文用量指示器；面板 `handleProgressNow` 对其早退于 `removeLoadingIndicator`（不清 loading、不渲染聊天行）
+
+**4 处刻意 UX 差异（本地回合显示域，防未来「对齐旧行为」误修）**：① 竞态注入成回合时补画 You 行（旧版该消息从转录消失）；② busy 期本地命令补画 You 行（旧版只渲染结果行）；③ 空闲 `/new` 经完整回合短暂武装 loading+Stop 后自复位（旧版直接渲染不武装）；④ `/new` 回执渲染时机为事件驱动（busy 期 COMMAND_RESULT / 空闲期终态）。
+
+**SILENT 显示域**：`CancelCause.SILENT`（关闭整合取消）仅抑制 LOCAL_PANEL 源回合的取消渲染；IPC 源回合照旧渲染 USER_STOP 回执行（关闭整合取消 IPC 回合时目标面板的终止反馈行不消失）。
 
 #### 命令路由 (`agent/command`)
 - **CommandRouter** - 将用户命令路由到对应处理器
 - **BuiltinCommands** - 内置命令定义
 - **CommandContext** - 命令执行上下文
+
+#### Goal 自主闭环 (`/goal`，见 `openspec/specs/goal-autonomous-loop/` 与 `test-plan-verification/`)
+`/goal <需求>` 触发的目标驱动脚本开发闭环（完整移植 Nanobot /goal 骨架 + 本插件特有的确定性验证层）：
+- **命令层**：`/goal` 必须内联需求（无参 usage、busy 拒绝先 Stop）；命令只打 goal 标记（`CommandContext` 附件）+ 返回 null 放行进普通回合，`AgentRunSpec.goalRequested` 透传 = goal 变更权限
+- **状态**：`GoalState`（active/paused/completed/cancelled/blocked 状态机 + smokeAttempts/continuationRounds/验证证据）持久于 session jsonl 头行 `metadata.goal_state`——`/new` 清消息不清 goal（active 与 paused 均存活），且重置后活跃 goal 以翻转后新代数自动重新点火续跑（新租约，垂死回合旧代数切片照旧被栅栏丢弃；关闭整合清空腿 archive=false 豁免不重火）、终结仅经 update_goal（含必填 recap）。goal 引擎路径取会话经 `goalSession` 重载（invalidate 摘缓存后裸 get 恒 null，曾致 /new 后 ▶ 静默失灵）。**paused 为非终态**：用户 Stop 打断 goal active 回合 → 回合终态自动收敛 PAUSED（auto-converge，静默取消不触发）；GUI ⏸/▶ 直写迁移（`AgentLoop.pauseActiveGoal/resumePausedGoal`，不经模型，⏸ 收敛经 commonPool 即时落盘不等垂死回合收尾——中止是协作式的、在跑 LLM/工具批须跑完；恢复投放续跑片、预算续算）；PAUSED 阻断续跑调度（`isActive()` 严格语义）并注入宿主暂停指令（禁止本轮自发推进——纯静默抑制敌不过会话历史势能）、期间 create_goal 拒绝并提示；验证证据与冒烟计数在 active/paused 均记账（`isOngoing()`），终态停账。goal 状态变更经 `GoalState.store()` 咽喉点广播（`GoalStateEvents`，独立于回合事件流）驱动 GUI（见「Goal 状态 UI」）
+- **工具**：`create_goal`/`update_goal`（tools/goal；权限门 = 仅 /goal 回合可 create/replace，PAUSED 态两者均拒且口径互指 cancel——防 replace 侧门静默丢弃暂停目标；终态为汇点：completed/cancelled 定稿后不可再改写（blocked→complete 例外保留）；complete 需证据：静态 PASS + 最近冒烟零 error，或冒烟 3 轮耗尽；`verification='non_test_plan'` 目标例外——非测试计划型目标（不以测试计划为对象，仍可改脚本/文件等产物）免测试计划证据，按 objective 自证完成，载体以代码侧为准：工具 schema/description + GoalRuntime.statusLines 实时渲染，goal.md 模板只惠及新 workspace）
+- **验证层**：`validate_test_plan` 静态校验（结构/逻辑 lint 两族，结构化 PASS/FAIL；schema 回扫族已移除——不透明序列化产物如监听器 saveConfig 与未收录但合法的属性在导入计划上系统性误报，存量元素参数改由写路径（create/update）的 schema 校验把关；变量定义源与 HTTP Defaults 合并不可静态枚举，故不查未定义 `${var}` 引用与采样器目标——冒烟运行是这两类的仲裁者）+ `run_test mode:"smoke"`（VALIDATE_TG：全 TG 1×1、断言保留定时器剔除、计划不动、阻塞至完成给判定；每次 smoke 计入 goal 预算并回写证据）
+- **护栏**：`GoalRuntime` 提示词/合成消息单一来源（workspace `goal.md` 模板，两态渲染）；防收工 nudge（无工具终答且 goal 活跃 → 注入顶回，连续两次放行）；冒烟上限 → 结构化交回；迭代耗尽 → 跨回合自动续跑（REPUBLISH 回合、不渲染 You 行、每片全额预算）
+- **注入门控**：goal 提示只进本地/CLI 回合，IPC 委派回合不注入；goal PAUSED 期间任何回合不注入（含 /goal 新需求回合——由 create_goal 拒绝门兜底）。注入形态对齐 Nanobot 的指令/数据分离：纪律文本（guidance）进独立 `[Goal Runtime Guidance — host instructions]` 包裹，状态数据（objective/冒烟计数/证据）进标准 Runtime Context metadata 包裹；复合块尾随环境块之后，持久化时随 `_runtime_context` 标记整体剥离
+
+#### Goal 状态 UI (`goal-status-ui`，见 `openspec/changes/goal-status-ui/`)
+goal 生命周期的 GUI 呈现与处置（回合事件流之外的独立通道——`GoalStateEvents` 静态广播，监听者契约对齐 TurnSubscriber：线程不保证/不取锁/O(μs)/恰一次 invokeLater）：
+- **GoalStrip**（gui）- 输入卡 goal 状态条：**全宽色带贴输入卡顶**（卡壳 NORTH、藏在输入区内边距之外；状态色淡染铺满组件宽，圆角外形由 RoundedBorderPanel 的 paintChildren 裁剪统一负责、不自绘圆角描边，底部状态色发丝线锚定分界——消除「圆角芯片内嵌白底」的盒中盒割裂感）+ 五态着色（ACTIVE=info/BLOCKED=warning 琥珀常驻/PAUSED=灰/终态 ✓✕）+ ⏸/▶ 互斥操作钮（GUI 直写引擎入口、24px 方形命中区）+ chevron 卡内内联展开完整目标（markdown、面板高 ~40% clamp、**展开体仅渲染 objective**——uiSummary 已在 header 常驻，正文重复会以两种字号呈现同一段文字；header 与正文同用 body 字号，收起态行高 GOAL_STRIP_HEIGHT=28）；◎ 图标呼吸仅 ACTIVE（与光晕同节奏、停表保留相位帧，PAUSED/BLOCKED/终态/面板隐藏静态，恢复可见续跑——面板 SHOWING_CHANGED 桥接 setHostShowing）；终态链 HOLD 1.5s→FADING 200ms 渐隐（保持占位高度）→收起（hold 表 fire 后须显式 stop——Swing Timer 默认 repeats=true，漏停即永久复燃）；复活快照取消终态计时。更新纪律：高频（冒烟/续跑计数）repaint-only 去重，仅出现/消失/展开/收起是 revalidate 边界
+- **GoalGlowPainter + GoalGlowAnimator** - 输入卡外围光环绘制器 + 光晕动画器。绘制器是**零布局**方案：光环由面板 `paintComponent`（子组件之前）画进输入卡外侧的既有静区（页边距 6 + 输入坞上方空隙 8），环带外延 ≤5.5px 恰好放得下，点亮/熄灭**不改任何布局尺寸**（早期壳层动态留边方案在固定像素宽度的分栏下拿不到新像素，多出的边距从卡片身上扣——光晕一点亮输入卡缩小 20px，已废弃；面板持有 `inputCard` 字段换算卡片矩形，`repaintGlowBand` 对外扩 8px 的光晕带做区域 repaint，熄灭沿复用同一卡片矩形清残影）。动画器：ACTIVE「涟漪 + 扫掠」双动画（三圈递减环各圈相位错开成涟漪，80ms 帧、alpha [0.28,0.60]，叠加绕边 6°/帧 ≈ 4.8s 一圈的 LinearGradientPaint 扫掠高亮头亮尾隐）；BLOCKED 静态琥珀环 Timer 停；PAUSED/终态熄灭；面板 SHOWING_CHANGED 暂停/恢复防后台空转
+- **面板接线**（AiChatPanel）- 先订阅后 hydrate（缓存 `lastKnown` 优先、磁盘腿兜底；终态历史不回放）；`/new` 代数翻转不清状态条（goal 跨会话存活锚）；`lastGoalSnapshot` 暂存 + 构造末尾 EDT 冲刷，防「订阅先于 UI 字段就位」窗口丢事件
+
+#### 浏览器录制 (`recorder`，见 `openspec/changes/browser-recording/` 与 `docs/browser-recording.md`)
+CDP 直连 Chrome 的浏览器录制能力（无代理/无 MITM 证书）：两阶段状态机 IDLE→ARMED（预备态零采集）→RECORDING→收官；注入脚本、UI 事件监听与控制 binding 运行在 **CDP 隔离世界**（页面主世界不可见不可调，防伪造）；录制期 Set-Cookie 取自 `Network.responseReceivedExtraInfo`（`responseReceived.headers` 被 Chrome 裁剪）；cookie 三源（基线 ∪ Set-Cookie ∪ 停止刷新）按 domain+path+name 合并。核心类：
+- **RecorderEngine** - 状态机/双通道收官/single-flight 幂等/宽限补拉/JVM 退出钩子/cookie 三源
+- **RecorderConfig / RecorderRuntime / RecorderParams / RecordingStore / EventFilter / RecorderScripts** - 配置（`jmeter.ai.recorder.*`）/进程单会话持有/参数记忆/`rec_{yyyyMMdd-HHmmss}-{instanceId}` jsonl 落盘/过滤与字节截断/注入脚本
+- **recorder.cdp** - 薄 CDP 客户端（JDK WebSocket，onOpen 必须 `request(n)`——否则只收第一条消息）/专用实例启动（attach 模式已移除，进程树杀）/`Browser.getVersion` 预检
+- **recorder.convert** - 确定性骨架转换器（ThreadGroup+事务控制器、query/表单拆 arguments、固有头剥离、Origin 协议一致前缀、cookie 身份含 path 与删除语义）+ `JmeterElementBridge`（registry+schema 管线、原子插入、TestPlan 包裹另存）
+- **RecorderStartDialog / RecorderResultDialog**（gui）- 参数窗（起始 URL/只采域名/资源类型复选/Body 截断上限，后两者按次覆盖配置默认并记忆为下次默认）/产物落点窗（busy 时插入禁用，工具驱动收官在回合终态再弹）
+- 产物目录：`{workspace}/recordings/`（可配）、专用浏览器 profile：`{workspace}/browser-profile/`（跨重启持久、登录态保留；并行录制经**跨进程 FileLock 占用声明**仲裁——被占方不 spawn 进对方 Chrome 单例域、秒级回退临时目录，防单例转交挤进同一浏览器）；均无自动清理
 
 #### 上下文管理 (`agent/context`)
 - **ContextBuilder** - 构建发送给 LLM 的消息上下文
@@ -118,13 +157,23 @@ mvn clean package -DskipTests
 
 #### 会话管理 (`agent/session`)
 - **Session** - 单次 Agent 会话
-- **SessionManager** - 管理多个会话的生命周期
+- **SessionManager** - 管理多个会话的生命周期（每实例会话模式只加载当前 instanceId 的 jsonl，不解析历史遗留/其他实例文件）
+- **GoalState** / **GoalRuntime** - goal 状态机与会话 metadata 持久化（jsonl 头行 `metadata.goal_state`，`clear()` 保留）；GoalRuntime 为 goal 提示词/合成消息（nudge/交回/续跑）的单一来源
 
 #### Agent 运行 (`agent/run`)
-- **AgentRunner** - 执行 Agent 运行
-- **AgentRunSpec** - 运行规格定义
+- **AgentRunner** - 执行 Agent 运行（同步方法，跑在调用方线程：主链路 = agent-loop 专用执行器线程，子代理 = subagent 池线程；`runAgentLoop` 经 `LoopState` + 分支函数分解）。持久化三阶段（对齐 Nanobot persist-early，详见 `openspec/specs/` 的 `early-user-message-persist` 能力）：① 触发 user 消息**回合开始即早落盘**（含 Runtime Context 块 + `_runtime_context` 标记，终局 skipCount 去重）；② 回合没跑完（非重置取消或内部异常中止）时**中止落盘**——真实已完成消息 + 合成中断标记（`"Error: Task interrupted before this tool finished."` 悬空 tool_call 配对 / `"Error: Task interrupted before a response was generated."` 收尾，jsonl 顶层 `_recovery_interrupted: true`，LLM 上下文不可见）；③ 回合开始时**悬空 user 尾懒收尾**（任何 USER 尾——崩溃/Error 逃逸/LLM 错误回合/drain6 遗留——补合成收尾，防 Anthropic 连续同角色 400）。RESET 判别用 session epoch 活引用（`AgentRunSpec.resetEpochSupplier`，`resetConversationAny` 路由腿同步翻退役 loop 代数），中止落盘 compose-then-commit + 异常隔离
+- **AgentRunSpec** - 运行规格定义（含 `resetEpochSupplier` 会话重置代数活引用）
 - **AgentRunResult** - 运行结果
-- **InjectionManager** - 管理注入点和依赖注入
+
+#### 回合计划快照 (`agent.snapshot`)
+- **TurnPlanSnapshotService** - 回合级测试计划快照：回合起点（`AgentRunner.run` 入口、先于任何工具）在 EDT 克隆计划树为内存基线并异步序列化；回合终态（`run()` 收尾 finally——完成/Stop/异常/重置四路全覆盖）在 runner 线程同步采样终点克隆后，把**序列化/比对/条件落盘**提交给专用单线程执行器——异步任务体不依赖 EDT（标准退出路径 System.exit 期间 EDT 不泵事件，EDT 依赖任务在关闭冲刷窗口内结构性无法完成），树变化才把**起点基线**原子写盘（临时文件+ATOMIC_MOVE）到 workspace `autosave/`。两端克隆均「清中断位执行、结束回置」：迟到中断/Stop 残留中断不击穿克隆且 `isAborted` 语义不变。参与门 = `AgentRunSpec.turnId` 非空（子代理/直构测试/纯命令回合不参与，缺席即旁路不落盘）；全链路 best-effort 记日志不影响回合；不修改计划文件关联与 IPC 注册；JVM 关闭时有界冲刷（~2s，挂 SelectionInitCommand 的 shutdown hook）
+- **SnapshotTreeCapture** - EDT 上「getTestPlan → 节点键换 TestElement → TreeCloner 深克隆」取脱离副本（与 JMeter Save/Start 同源管线），序列化前**只在克隆副本上**按类型（instanceof）剥 `AgentResultCollector`（绝不摘活树）
+- **SnapshotNames** - 快照文件名唯一来源：回合快照 `{yyyyMMddHHmmssSSS}-{instanceId}-{turnId}-{origin}-{计划文件名}.jmx`（紧凑定宽时间戳字典序=时间序、跨实例隔离、计划文件名段=起点关联文件基名去扩展/未保存占位 unsaved；turnId 为进程内簿记，聊天转录不显示，挑文件靠时间序）；run_test autosave 沿用 `{agent-run|goal-smoke}-{instanceId}-{ts}.jmx`（双实例共享 workspace 目录不撞名）。可发现性只走技能文档（`skills/jmeter/references/plan-snapshots.md`：最新=撤销最近改树回合、第k新=回退k回合，恢复后须 Save As 另存勿 Ctrl+S 写回），恢复 = `open_jmx_file` 手动打开，无专用工具；无清理机制（接受累积）、无配置开关
+
+#### 回合对象 (`agent.turn`)
+- **Turn** - 单回合全部生命周期状态的聚合（原散落 AgentLoop 6 张 per-turn map + 3 ThreadLocal + InjectionManager 路由槽的状态收敛为一对象；sessionKey/handle/callback/delegated/abortFlag/completionLatch 构造时定，queue/future/epoch/ownResetEpoch/runnerThread/closed 为保序武装的 volatile 后写字段；含 drain/drainBlocking 注入队列消费）
+- **TurnRegistry** - 会话 → 在跑回合注册表（extends ConcurrentHashMap）；路由槽 = 条目 + `closed` 标志双生命周期：offer/closeRouting/cleanup/hasActiveRun 在 CHM bin 锁下原子，条目真正 remove 只在两处且均按值条件（`removeIfCurrent`，防误摘同 key 后继）：latch 释放点与 signalCancel 自我豁免步
+- **InjectionItem** - 注入队列条目（text + announcement 标记）
 
 #### Agent 模型 (`agent/model`)
 - **Message** / **ToolCall** / **ToolResult** - LLM 交互消息模型
@@ -139,23 +188,25 @@ mvn clean package -DskipTests
 - **ProgressCallbackHookAdapter** - 进度回调适配器
 
 #### Agent 记忆 (`agent/memory`)
-- **MemoryStore** - Agent 记忆存储
+- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`：`distillSync` 路径在 commonPool 载体上 interrupt 不可达；内联整合线程虽可被 interrupt 命中，但阻塞式 `channel.lock()` 被 interrupt 会抛 `ClosedByInterruptException` 关闭通道；统一以 abort flag 为取消事实来源），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
 - **MemoryConsolidator** - 跨会话记忆整合
+- **CloseConsolidationCoordinator** - 关闭期记忆整合协调器（静默归档 HISTORY.md 的幂等守卫 + 深度提炼入口，供关闭对话框与 shutdown hook 共用）
 
 #### Agent 技能 (`agent/skills`)
 - **SkillsLoader** - 从文件系统加载技能
 - **SkillInfo** / **SkillMetadata** - 技能元数据
 
-#### Agent Swing 集成 (`agent/swing`)
-- **AgentSwingWorker** - SwingWorker 封装，在 UI 线程安全执行 Agent 操作
+> `agent/swing` 包（AgentSwingWorker）已删：本地回合显示换轨至 TurnEvent 流后 worker 不再有职责，面板更新统一由 AgentLoop 事件流驱动（见「回合事件流」）。
 
 ### 工具层 (`org.gitee.jmeter.ai.agent.tools`)
 
 #### 工具基础设施
-- **Tool** - 工具接口
+- **Tool** - 工具接口（含 `isConcurrencySafe()` 并行资格分类，默认 false=单例批内联串行；只读工具显式覆盖加入并行白名单）
 - **AbstractTool** - 工具基类
-- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心
+- **ToolRegistry** / **JMeterToolRegistry** - 工具注册中心（`executeAsyncWithEvent` 派发时搬运 AgentRunContext + DelegationGuard 到池线程）
 - **ValidationResult** - 工具参数校验结果
+
+工具并发采用 Nanobot 式 `concurrency_safe` 分批（无用户开关，`AgentRunner` 按调用序分批：连续安全调用并行批、非安全单例批内联 run 线程）
 
 #### JMeter 元素工具 (`tools/jmeter`)
 - **AbstractJMeterElementTool** - JMeter 元素工具基类
@@ -178,7 +229,7 @@ mvn clean package -DskipTests
 - **AgentResultCollector** - 测试结果收集器
 
 #### JMeter 属性处理 (`tools/jmeter/property`)
-- **SchemaBasedPropertyHandler** - 基于 schema 将参数应用到 JMeter 元素
+- **SchemaBasedPropertyHandler** - 基于 schema 将参数应用到 JMeter 元素；含非标量覆盖护栏——未知属性兜底分支预扫描（fail-fast），拒绝以标量覆盖既有结构化属性（Collection/Map/TestElement/ObjectProperty，任一命中整批拒绝不改写），违规经工具层转教学式错误（指明属性名/结构化类别；指引按 schema 有无分支——无 schema 明示不可经工具设置并指引 GUI 手工编辑、有 schema 指引核对属性名，均不建议结构化重试），create/update/batch_update 共用同一路径全量生效
 
 #### JMeter 工具类 (`tools/jmeter/utils`)
 - **JMeterTreeUtils** - JMeter 树操作工具
@@ -198,10 +249,23 @@ mvn clean package -DskipTests
 #### 执行工具 (`tools/exec`)
 - **ExecTool** - 执行 shell 命令
 
+#### Goal 工具 (`tools/goal`)
+- **CreateGoalTool** - 录制持续目标（仅 /goal 回合可用，权限门走 AgentRunContext）
+- **UpdateGoalTool** - 终结/替换 goal（complete 需验证证据或冒烟预算耗尽；终结必带 recap）
+
+#### 浏览器录制工具 (`tools/recorder`)
+与 GUI ●REC 按钮共用同一引擎单会话（互斥、可接管）；`jmeter.ai.recorder.enabled=false` 时不注册；open/begin/stop 在 goal 回合硬阻断（录制须人工驱动；get_recording_status 只读保留）。
+- **OpenRecordingBrowserTool / BeginRecordingTool / StopRecordingTool / GetRecordingStatusTool** - 打开浏览器（预备态）/显式开始/停录收官（并发败者等终态）/查状态
+- **ImportRecordingTool** - 把已有录制场次确定性转换为独立骨架 .jmx（「稍后导入」入口，goal 回合可用）
+
+#### 跨实例协作工具 (`tools/ipc`)
+仅当 `jmeter.ai.ipc.enabled=true` 时注册（IPC 提供传输通道；关闭则不注册）。
+- **ListInstancesTool** - 列出本机存活实例（instanceId/pid/port/打开的 jmx/启动时间），标注自身
+- **DelegateToInstanceTool** - 把任务委派给持有某 jmx 或某 instanceId 的对端实例，阻塞等待其 Agent 回合回复；载荷带 `[delegated-from …]` 来源前缀，被委派回合内再委派被 DelegationGuard 硬阻断（深度 1，防跨实例 ping-pong）
+
 ### 服务层 (`org.gitee.jmeter.ai.service`)
 - **AiService** 接口定义了 AI 提供者的契约
-- **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Codex
-- **OpenAiService** - 使用 openai-java SDK 集成 OpenAI GPT
+- **ClaudeService** - 使用 anthropic-java SDK 集成 Anthropic Claude
 
 #### 服务提供者 (`service/provider`)
 - **AiServiceFactory** - AI 服务工厂
@@ -215,13 +279,32 @@ mvn clean package -DskipTests
 - **LangSmithClient** - LangSmith API 客户端
 - **TracedAiService** - 带追踪的 AiService 包装器
 
+### 多实例协调与会话隔离
+
+同时打开多个 JMeter 实例时，本插件保证：每个实例用独立的会话文件（互不串扰上下文），关闭时自动归档记忆，且实例间可互相发现并委派任务（共享 IPC 通道）。详见 `openspec/changes/multi-instance-session-ipc/`。
+
+#### 实例上下文 (`org.gitee.jmeter.ai.instance`)
+- **InstanceContext** - 进程单例，持有本次启动的 `instanceId`（`{pid}-{startedAtMs}`），是每实例会话键、注册表锚点与委派寻址的唯一来源（`currentSessionKey()` 受 `agent.session.per-instance` 门控，false 回退全局 legacy 键）
+- **LegacySessionMigrator** - 启动期 best-effort 把遗留 `jmeter-ai-chat.jsonl` 归档进共享 HISTORY.md
+- **SessionReaper** - 启动期 best-effort 回收失活且超 TTL 的孤立 `{instanceId}.jsonl`（经注册表 PID+TCP 双确认失活、且防 PID 复用误判）
+
+#### IPC 通道 (`org.gitee.jmeter.ai.ipc`)
+- **InstanceRegistry** - 端口文件（`port-{pid}.json`：pid/port/token/startedAt/bind/instanceId/jmxPath）的读写与实例发现；**零 JMeter 依赖**（CLI 复用），TCP+PID 双确认探活与残留自清理
+- **IpcServer** - 内嵌 com.sun.net.httpserver loopback 服务，token 鉴权；`/agent` 处理器在自身超时后 `cancelActiveTask` 自取消并回 504
+- **IpcClient** - 进程内可复用的 JMeter-free 传输客户端，供委派工具与 CLI 共用同一传输
+- **IpcServer** 还在 `Load`/`LoadRecentProject`/`Save`/`Close` 的 post-action 监听里把当前 jmx 路径原子写回本实例端口文件（供对端发现）
+
+> **前提**：跨实例协作（list_instances / delegate_to_instance）必须 `jmeter.ai.ipc.enabled=true`——IPC 关闭时无传输通道，协作工具不注册。会话隔离与关闭记忆整合独立于 IPC（始终开启）。
+
 ### GUI 层 (`org.gitee.jmeter.ai.gui`)
 - **AI** - AI 集成入口
-- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行、拖拽调整区域高度）
+- **AiChatPanel** - 主 Swing 面板，包含聊天界面、模型选择器和元素建议（支持 Shift+Enter 换行；信息展示区与输入区同为圆角卡语言——展示区为 canvas 底圆角外壳（header 卡内条 + 转录），输入区为统一圆角输入卡：上下文条在输入框上方、模型/按钮行在卡内下方，固定高度无分割条）；实现 `TurnSubscriber`——本地/IPC/委派回合的呈现统一由 AgentLoop 回合事件流驱动（唯一显示通道），自投 EDT + 通知时代数快照
 - **AiMenuItem** - 切换聊天面板的菜单项和工具栏按钮
 - **AiMenuCreator** - 创建 AI 相关菜单
+- **ContextUsageRing** - 上下文窗口用量环形指示器（模型选择器右侧；分子 = 最近一次 LLM 调用 `prompt_tokens`，分母 = `jmeter.ai.context.window.tokens`；repaint-only 更新防 revalidate 传播，会话重置经 `advanceRenderEpoch` 一并归零）
 - **MessageProcessor** - 处理 markdown 渲染和消息显示（支持 reasoningContent 结构化思考内容展示）
 - **ComponentFinder** - 查找 JMeter 组件
+- **CloseConsolidationDialog** - 关闭期记忆整合交互对话框（EDT 模态：告知未整合消息数 N（**全量消息口径**，含 tool 消息），选"是"先 `cancelActiveTask` 停掉在跑回合、再经 SwingWorker 后台深度提炼并回传进度，提供"Skip & Exit"逃生按钮；N=0/测试运行中/开关关闭时不弹——注意回合运行中关闭时，早落盘的触发消息使 N≥1，原「N=0 不弹」门不再触发）。被取消的整合回合经共享 abort flag 写盘前放弃落盘（不会覆盖提炼结果）
 
 ### 智能提示 (`org.gitee.jmeter.ai.intellisense`)
 - **CommandIntellisenseProvider** - 提供命令建议（/new、/status、/help）
@@ -230,7 +313,6 @@ mvn clean package -DskipTests
 
 ### 使用统计 (`org.gitee.jmeter.ai.usage`)
 - **AnthropicUsage** - Anthropic 用量统计
-- **OpenAiUsage** - OpenAI 用量统计
 
 ### 工具类 (`org.gitee.jmeter.ai.utils`)
 - **AiConfig** - AI 配置工具类
@@ -252,12 +334,13 @@ mvn clean package -DskipTests
 - 组件描述（`description`）
 - 属性列表（`properties`），包括：
   - 属性名（`name`）
-  - 数据类型（`type`）：String, Integer, Boolean, Number, Object, Array
+  - 数据类型（`type`）：String, Integer, Long, Float, Double, Boolean, Number, Object, Array, Array_2D
   - 是否必填（`required`）
   - 默认值（`default`）
   - 枚举值限制（`enum`）
   - 数值范围（`min`/`max`）
   - 正则表达式模式（`pattern`）
+  - 类型驱动的 `${...}` 变量引用（数值类型 Integer/Long/Float/Double/Number 接受 `${...}` 引用字符串、Boolean/枚举拒绝；无需字段级开关——JMeter 引擎在运行前统一把整棵树的 `${...}` 编译为 FunctionProperty 再求值，对所有组件的数值属性一致适用）
   - 嵌套属性（`properties`）和集合项属性（`itemProperties`）
 
 **部署位置：** 构建时复制到 `{JMETER_HOME}/bin/jmeter-agent/skills/jmeter/references/`
@@ -294,7 +377,7 @@ references/
 ### 技能系统 (`src/main/jmeter-agent/skills/`)
 Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` 和可选的 `references/` 目录：
 
-- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 133 个参考文档（含 58 个 JMeter 函数文档）
+- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 135 个参考文档（含 58 个 JMeter 函数文档、快照恢复指南 plan-snapshots.md 与录制增强指南 recording-workflow.md）
   - `SKILL.md` - 主技能定义
   - `references/functions/` - 58 个 JMeter 函数参考文档（覆盖全部内置函数和自定义扩展函数）
   - `references/standards.md` - JMeter 编写规范
@@ -316,7 +399,11 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - **agent/validation/** - Schema 加载和类型校验测试
   - `ComponentSchemaTypeTest` / `SchemaLoaderTest` / `YamlDebugTest`
 - **agent/context/** - 上下文管理测试
+- **recorder/** - 浏览器录制测试（engine/cdp/convert/tools，含 Adversarial 三件套与需本机 Chrome 的 RealBrowserSmokeTest，RealBrowserSmokeTest 为 opt-in：`-Drecorder.run.real.browser=true` 且本机有 Chrome 才运行）
   - `ContextWindowManagerTest`
+- **agent/testsupport/** - 回合事件流测试公共脚手架（跨测试文件共享）
+  - `GatedScriptAiService`（脚本化/门控 fake，Stop/Reset 钉子经 `InterruptStrategy.HANG_UNTIL_RELEASED`）/ `RecordingSubscriber` / `NoopTool` / `AwaitUtil`
+- **agent/snapshot/** - 回合快照测试（`TurnPlanSnapshotServiceTest` 命名/no-op/冲刷、`SnapshotTreeCloneTest` 克隆剥离与序列化——需 JMETER_HOME 定位 saveservice.properties、`TurnSnapshotTerminalStatesTest` 四终态配对验收）
 - **intellisense/** - 智能提示测试
   - `CommandIntellisenseProviderTest` / `InputBoxIntellisenseTest` / `IntellisensePopupTest`
 - **utils/** - 工具类测试
@@ -324,9 +411,9 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 ## 关键设计模式
 
-- **策略模式**：AiService 接口允许在 Codex、OpenAI 和 Ollama 之间切换
+- **策略模式**：AiService 接口允许在 Claude、OpenAI 和 Ollama 之间切换
 - **观察者模式**：树选择监听器触发 JSR223 编辑器的上下文菜单更新
-- **工作者模式**：所有 AI API 调用使用 SwingWorker 以避免阻塞 UI
+- **回合事件流模式**：AgentLoop 经 TurnSubscriber 多订阅者事件流驱动所有回合呈现（回合显示唯一通道；goal 状态条是会话级持久态，走 GoalStateEvents 独立通道，见「Goal 状态 UI」）。AI 调用跑在 loop 专属 executor 上避免阻塞 UI——旧 SwingWorker（AgentSwingWorker）路线已删：本地/IPC/委派回合换轨至事件流后 worker 不再有职责，UI 更新由订阅端自投 EDT
 - **工厂模式**：AiServiceFactory / AgentLoopFactory 创建服务和 Agent 实例
 - **Agent Loop 模式**：AgentLoop 驱动 LLM 调用 → 工具执行 → 结果反馈的迭代循环
 - **注册中心模式**：ToolRegistry / ProviderRegistry 管理工具和提供者的注册与查找
@@ -335,8 +422,8 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| anthropic-java | 2.18.0 | Anthropic Codex SDK |
-| openai-java | 4.30.0 | OpenAI GPT SDK |
+| anthropic-java | 2.18.0 | Anthropic Claude SDK |
+| openai-java | 4.43.0 | OpenAI GPT SDK（ReasoningEffort 自 4.42.0 起含 MAX） |
 | langsmith-java | 0.1.0-alpha.24 | LangSmith 链路追踪 |
 | ApacheJMeter_core | 5.6.3 | JMeter 核心 |
 | snakeyaml | 2.2 | YAML 解析 |
@@ -348,9 +435,47 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 所有配置通过 JMeter 属性完成（通常在 `user.properties` 或 `jmeter.properties` 中）：
 
 - `anthropic.api.key` / `openai.api.key` - API 凭证
-- `Codex.default.model` / `openai.default.model` / `ollama.default.model` - 模型选择
-- `Codex.temperature` / `openai.temperature` - 响应创造力 (0.0-1.0)
-- `Codex.max.history.size` / `openai.max.history.size` - 对话历史限制
+- `jmeter.ai.default.provider` / `jmeter.ai.default.model` - 全局默认提供者与模型选择（读于 `AiConfig.java:47-48`；无 per-provider 默认模型属性）
+- `jmeter.ai.temperature` - 响应创造力 (0.0-1.0)
+- `jmeter.ai.max.history.size` - 对话历史限制
+
+**多实例会话与协调（会话隔离、关闭整合与 IPC 均默认开启）：** 每个实例用独立会话文件（`sessions/{instanceId}.jsonl`），关闭时把未整合消息归档进共享 HISTORY.md（可选深度提炼写 MEMORY.md 供他实例系统提示可见），并通过 IPC 让实例间互相发现打开的 jmx 并委派任务。关闭记忆整合与跨实例协作无独立开关（整合始终开启，协作随 IPC 开关），详见 `openspec/changes/multi-instance-session-ipc/`。
+
+- `agent.session.per-instance` - 每实例独立会话文件（默认 `true`；false 回退全局 `jmeter-ai-chat` 键）
+- `agent.memory.consolidate-on-exit.timeout.ms` - 关闭整合"深度提炼"有界超时毫秒（默认 `120000`）
+- `agent.session.reap.ttl.days` - 启动期回收孤立会话文件的存活 TTL 天数（默认 `7`）
+- `jmeter.ai.ipc.enabled` - 内嵌 IPC HTTP 服务开关（默认 `true`，仅 loopback + token 鉴权；**多实例协作依赖此开关**）
+- `jmeter.ai.ipc.bind` / `jmeter.ai.ipc.port` / `jmeter.ai.ipc.token` - 绑定地址（仅 loopback）/端口（0 自动分配）/鉴权 token（空则随机生成）
+- `jmeter.ai.ipc.agent.timeout.ms` - `/agent` 路由同步等待超时毫秒（默认 `120000`）
+
+**异步子代理（SubAgent，默认关闭）：** 主代理通过 `spawn` 工具把只读分析任务委派给后台子代理（隔离的只读工具集 + 临时会话，不污染主会话），结果回合内回注。详见 `openspec/changes/add-async-subagent/`。
+
+- `agent.subagent.enabled` - 总开关（默认 `false`；关闭时不注册 `spawn`/`subagent_status`）
+- `agent.subagent.max.concurrent` - 每主会话并发子代理上限（默认 `1`）
+- `agent.subagent.max.iterations` - 单次子代理工具迭代上限（默认 `50`）
+- `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `120`，硬上限 `300`）
+- `agent.subagent.status.retention.seconds` - 完成态状态可查询保留 TTL 秒数（默认 `60`；晚到/未投递结果保留此窗口后被回收；0 = 不按时长回收）
+- `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`；超出按最旧淘汰；0 = 不按数量淘汰）
+
+完整可配置项见 `jmeter-ai-sample.properties`。
+
+**GUI 运行结果采集（默认开启）：** 一个全局 JMeter `Start.class` 预监听器在用户点击 GUI Run 按钮（或 Run Thread Group）发起的本地运行前注入结果收集器，使 `get_test_status` / `get_test_results` 对用户发起的运行也返回实时数据（并在 `get_test_status` 显示运行来源 USER/AGENT）。`run_test` 的采集不受影响、开关关闭时仍工作；`Save.class` 预监听器始终剥离收集器节点以防泄漏进 `.jmx`。详见 `openspec/changes/capture-gui-run-results/`。
+
+- `agent.runcapture.enabled` - 仅门控 `Start.class` 预监听器注册（默认 `true`）；关闭时 GUI 运行不采集，但 `run_test` 仍采集
+
+**Goal 自主闭环（`/goal` 命令，始终开启）：** `/goal <需求>` 触发目标驱动的「改脚本 → 静态校验（validate_test_plan）→ 冒烟运行（run_test smoke：全线程组 1×1）→ 读反馈 → 迭代修复」闭环。goal 状态持久于会话 jsonl 头行 metadata（`/new` 不清 goal），冒烟修复上限 3 轮后结构化交回，迭代耗尽自动跨回合续跑；断言失败消息经结果采集暴露给 Agent。Agent 自主决定冒烟目标端点（写操作端点会真实发一次请求）。详见 `openspec/specs/goal-autonomous-loop/` 与 `openspec/specs/test-plan-verification/`。
+
+- `agent.goal.max.continuations` - 单个 goal 的跨回合自动续跑次数上限（默认 `5`；以 goal 为单位，replace 重置；Nanobot 硬编码 12 不可配，此处参数化为有意偏离）
+- `agent.goal.smoke.limit` - 单个 goal 的冒烟修复轮次上限（默认 `3`；`run_test` smoke 尝试按 goal 累计，耗尽后 complete 免证据但 recap 须含遗留风险）
+
+**浏览器录制（`jmeter.ai.recorder.*`，见 `openspec/changes/browser-recording/`）：** 默认开启；Chrome 专用（Edge 不支持）。
+
+- `jmeter.ai.recorder.enabled` - 总开关（默认 `true`；关闭时按钮与 5 个工具均不注册）
+- `jmeter.ai.recorder.browser` - 浏览器（默认 `chrome`，或可执行文件绝对路径；attach 模式 cdp.url/scan 配置已随 attach 移除删除）
+- `jmeter.ai.recorder.resource.types` - resourceType 白名单（默认 `xhr,fetch`；同时是参数窗复选的默认勾选）
+- `jmeter.ai.recorder.max.body.bytes` - 落盘 body 上限（默认 `65536`，按 UTF-8 字节；同时是参数窗截断上限输入的默认值）
+- `jmeter.ai.recorder.output.dir` - 录制数据目录（空 = `{workspace}/recordings`）
+- `jmeter.ai.recorder.start.url` / `jmeter.ai.recorder.include.domains` - 参数窗预填
 
 ## 开发参考
 
@@ -386,7 +511,7 @@ D:\WorkHome\git\github\jmeter-5.6.3
 - **GenerationSettings** 是 LLM 默认参数的唯一来源
 - Agent 通过 SkillsLoader 从文件系统动态加载技能
 - 工具注册通过 JMeterToolRegistry 统一管理
-- 聊天输入框支持 Shift+Enter 换行、拖拽调整消息区域与输入区域高度
+- 聊天输入框支持 Shift+Enter 换行；输入区为统一圆角输入卡（上下文条在输入框上方、模型/按钮行在卡内下方），固定高度、无可拖拽分割条
 - 支持 reasoningContent 结构化思考内容展示
 
 ## 添加新 JMeter 组件 Checklist

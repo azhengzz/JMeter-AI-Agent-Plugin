@@ -112,6 +112,7 @@ Test Plan
 - Use **CSV Data Set Config** for data parameterization
 - Variable names use lowercase with underscores: `${user_name}`, `${order_id}`
 - Place CSV files in `data/` directory
+- When creating/updating elements via tools, numeric fields (e.g. `ThreadGroup.num_threads`, `LoopController.loops`) accept either a JSON number or a `${...}` variable reference (`${__P(threads,10)}` is the common CI form); plain numeric strings like `"50"` are rejected. Boolean/enum fields stay strict — pass a literal value
 
 ### 4.2 Assertions
 

@@ -41,6 +41,10 @@ public class ComponentValidator {
 
         log.debug("Validating component type: {} with schema", elementType);
 
+        // Normalize JMeter historical property-name quirks before any schema lookup,
+        // so callers may use the natural spelling (e.g. Assertion.test_strings)
+        properties = normalizePropertyNames(properties);
+
         ValidationResult.Builder builder = ValidationResult.builder();
 
         // Validate unknown parameters (parameters not defined in schema)
@@ -82,6 +86,10 @@ public class ComponentValidator {
 
         log.debug("Validating component type: {} with schema (update mode - skipping required checks)", elementType);
 
+        // Same normalization as validate(): unknown/type/value lookups must all see
+        // the canonical spelling the schema registers
+        properties = normalizePropertyNames(properties);
+
         ValidationResult.Builder builder = ValidationResult.builder();
 
         // Validate unknown parameters (parameters not defined in schema)
@@ -97,6 +105,18 @@ public class ComponentValidator {
         validateParameterValues(schema, properties, builder);
 
         return builder.build();
+    }
+
+    /**
+     * Return a copy of the properties map with keys mapped through
+     * {@link ComponentSchema#normalizePropertyName(String)}, preserving order.
+     */
+    private static Map<String, Object> normalizePropertyNames(Map<String, Object> properties) {
+        Map<String, Object> normalized = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            normalized.put(ComponentSchema.normalizePropertyName(entry.getKey()), entry.getValue());
+        }
+        return normalized;
     }
 
     /**
@@ -376,12 +396,14 @@ public class ComponentValidator {
                 continue; // Unknown property or no type specified - allow for flexibility
             }
 
-            if (!isValidType(value, propDef.getType())) {
+            if (!isValidType(value, propDef.getType())
+                    && !(isVariableExpression(value) && acceptsVariableExpressions(propDef))) {
                 String error = String.format(
-                    "Parameter '%s' has invalid type. Expected %s but got %s",
+                    "Parameter '%s' has invalid type. Expected %s but got %s%s",
                     propName,
                     propDef.getType(),
-                    value != null ? value.getClass().getSimpleName() : "null"
+                    value != null ? value.getClass().getSimpleName() : "null",
+                    typeMismatchHint(propDef, value)
                 );
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
@@ -397,6 +419,26 @@ public class ComponentValidator {
             if (propDef.hasItemProperties() && value instanceof Map) {
                 validateItemProperties(propDef, (Map<String, Object>) value, builder);
             }
+
+            // Array with declared itemType: each element is validated as a scalar of that
+            // type, mirroring the scalar path above (numeric item types keep ${...} exemption)
+            if (propDef.getType() == ComponentSchema.PropertyType.ARRAY && propDef.hasItemType()) {
+                validateArrayItemTypes(propName, value, propDef.getItemType(), builder);
+            }
+
+            // Array without any item-shape declaration: refuse supplied values instead of
+            // letting the write path stringify unknown shapes (schema gap invariant)
+            if (propDef.getType() == ComponentSchema.PropertyType.ARRAY && value != null
+                    && !propDef.hasItemType() && propDef.getClassName() == null
+                    && !(propDef.hasItemClass() && propDef.hasItemProperties())) {
+                String error = String.format(
+                    "Parameter '%s' is an Array property whose item shape is not declared in the component "
+                    + "schema (expected itemType for flat scalar lists, or itemClass+itemProperties for "
+                    + "structured rows). This looks like a schema gap — the property cannot be set via tools "
+                    + "until its schema declares the item shape.", propName);
+                builder.addError(error);
+                log.debug("Validation failed: {}", error);
+            }
         }
     }
 
@@ -405,6 +447,37 @@ public class ComponentValidator {
      * Used for properties like HTTPsampler.Arguments where each item should conform to itemProperties.
      */
     @SuppressWarnings("unchecked")
+    /**
+     * Per-item type validation for Array properties with a declared itemType. Mirrors the
+     * scalar path: strict type match, numeric item types accept ${...} references.
+     */
+    private void validateArrayItemTypes(String propName, Object value,
+                                        ComponentSchema.PropertyType itemType,
+                                        ValidationResult.Builder builder) {
+        List<Object> items = convertToSimpleList(value);
+        if (items == null) {
+            return; // non-list shape — the outer isValidType check already flagged it
+        }
+        String example = itemType == ComponentSchema.PropertyType.STRING
+                ? "[\"200\", \"201\"]" : "[1, 2]";
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            if (item == null) {
+                continue; // null items are dropped by the write path
+            }
+            if (!isValidType(item, itemType)
+                    && !(isVariableExpression(item) && acceptsVariableExpressions(itemType))) {
+                String error = String.format(
+                    "Parameter '%s' expects a flat list of %s items (e.g. %s), but item #%d is %s — "
+                    + "nested objects/arrays and mismatched scalar types are not accepted",
+                    propName, itemType.name().toLowerCase(), example, i + 1,
+                    item.getClass().getSimpleName());
+                builder.addError(error);
+                log.debug("Validation failed: {}", error);
+            }
+        }
+    }
+
     private void validateItemProperties(ComponentSchema.PropertyDefinition propDef,
                                        Map<String, Object> itemValues,
                                        ValidationResult.Builder builder) {
@@ -475,11 +548,13 @@ public class ComponentValidator {
             }
 
             // Validate type
-            if (!isValidType(nestedPropValue, nestedDef.getType())) {
+            if (!isValidType(nestedPropValue, nestedDef.getType())
+                    && !(isVariableExpression(nestedPropValue) && acceptsVariableExpressions(nestedDef))) {
                 builder.addError(String.format(
-                    "Nested property '%s.%s' has invalid type. Expected %s but got %s",
+                    "Nested property '%s.%s' has invalid type. Expected %s but got %s%s",
                     propDef.getName(), nestedPropName, nestedDef.getType(),
-                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null"
+                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null",
+                    typeMismatchHint(nestedDef, nestedPropValue)
                 ));
                 log.debug("Validation failed: nested property {}.{} type mismatch",
                     propDef.getName(), nestedPropName);
@@ -548,7 +623,9 @@ public class ComponentValidator {
         // Enum validation
         if (propDef.getEnumValues() != null && !propDef.getEnumValues().isEmpty()) {
             String strValue = value.toString();
-            if (!propDef.getEnumValues().contains(strValue)) {
+            // ${...} references resolve at runtime — skip enum check on fields that accept them
+            if (!propDef.getEnumValues().contains(strValue)
+                    && !(isVariableExpression(value) && acceptsVariableExpressions(propDef))) {
                 builder.addError(String.format(
                     "Property '%s' has invalid value '%s'. Allowed values: %s",
                     propDef.getName(), value, propDef.getEnumValues()
@@ -973,6 +1050,69 @@ public class ComponentValidator {
         }
 
         return result;
+    }
+
+    /**
+     * Check if a value looks like a JMeter variable/function reference
+     * (e.g. ${threadNum}, ${__P(threads,10)}).
+     * <p>
+     * This is a deliberately loose pre-check, matching JMeter's own GUI-side gate
+     * (WrapperEditor.isExpression: {@code text.contains("${")}) rather than the
+     * engine's strict parser (FunctionParser.compileString, a char-by-char state
+     * machine that also honours backslash escapes and treats a malformed "${" as
+     * a literal). Aligning with the GUI gate keeps the tool's acceptance a superset
+     * of what a human can type in the GUI; being stricter here would reject inputs
+     * the engine happily accepts. Malformed or unresolved references degrade to 0
+     * for numeric fields at run time via AbstractProperty.getIntValue() — JMeter's
+     * existing lenient semantics, not a risk introduced here.
+     */
+    private static boolean isVariableExpression(Object value) {
+        return value instanceof String s && s.contains("${");
+    }
+
+    /**
+     * Whether a ${...} variable-reference string is accepted in place of the declared type.
+     * Purely type-driven: numeric fields accept it, everything else does not.
+     * <p>
+     * Rationale (verified against JMeter 5.6.3 sources): the engine replaces variable
+     * references on the whole tree before running (StandardJMeterEngine precompiles via
+     * PreCompiler/ValueReplacer), turning any "${...}" string into a FunctionProperty
+     * whose getIntValue() parses the resolved value. This applies uniformly to every
+     * numeric property of every component, so no per-field opt-in is needed. Non-numeric
+     * fields (Boolean, enum, Object, Array) have no such guarantee and stay strict.
+     */
+    private static boolean acceptsVariableExpressions(ComponentSchema.PropertyDefinition propDef) {
+        return acceptsVariableExpressions(propDef.getType());
+    }
+
+    /**
+     * Type-level variant used by array-item validation, where the governing type is the
+     * declared itemType rather than the (always ARRAY) property type.
+     */
+    private static boolean acceptsVariableExpressions(ComponentSchema.PropertyType type) {
+        return switch (type) {
+            case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Guidance appended to type-mismatch errors, telling the caller which
+     * literal forms are accepted for this field.
+     */
+    private static String typeMismatchHint(ComponentSchema.PropertyDefinition propDef, Object value) {
+        String literal = switch (propDef.getType()) {
+            case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> "a JSON number (e.g. 50)";
+            case BOOLEAN -> "a JSON boolean (true/false)";
+            case ARRAY, ARRAY_2D -> "an array";
+            case OBJECT -> "an object";
+            case STRING -> "a string";
+        };
+        if (acceptsVariableExpressions(propDef)) {
+            return ". Only " + literal + " or a ${...} variable reference (e.g. ${varName}) is accepted"
+                    + (value instanceof String ? "; plain strings are not" : "");
+        }
+        return ". Only " + literal + " is accepted";
     }
 
     /**

@@ -80,8 +80,45 @@ public class BuiltinCommands {
                 "Gitee Ai commands:",
                 "/new — Start a new conversation",
                 "/status — Show bot status",
+                "/goal <objective> — Start an autonomous goal: modify, verify, and fix the test plan until the hard standard passes",
                 "/help — Show available commands"
         );
+    }
+
+    /**
+     * /goal with no args — usage hint. Registered as exact("/goal").
+     */
+    public static String cmdGoalUsage(CommandContext ctx) {
+        return "Usage: /goal <objective> — describe what the test plan must achieve "
+                + "(e.g. /goal build a login test plan that passes the smoke run). The agent will modify the plan, "
+                + "statically validate it, run a minimal-cost smoke test, and iterate until it passes.";
+    }
+
+    /**
+     * /goal with an inline objective (prefix "/goal "). Marks the turn as a
+     * sustained-goal request and returns null so the raw {@code /goal <objective>}
+     * text flows into the normal agent turn (the model sees the original text and
+     * may call create_goal — the permission gate only opens on turns marked here).
+     * Busy sessions are rejected with a Stop-first hint: the Phase 2 dispatch
+     * (non turn-owner) sees a foreign active run; the Phase 3 dispatch IS the
+     * owning turn and always proceeds.
+     */
+    public static String cmdGoal(CommandContext ctx) {
+        if (ctx.getArgs() == null || ctx.getArgs().isBlank()) {
+            return cmdGoalUsage(ctx);
+        }
+        if (!ctx.isTurnOwner()) {
+            // Phase 2（忙期直派）路径。返回值必须非 null：返回 null 会让该消息落入
+            // 垂死回合的注入队列（TOCTOU 窗口内槽恰好被摘时），权限标记也随之丢失。
+            if (ctx.getLoop().hasActiveRun(ctx.getSessionKey())) {
+                return "A task is already running for this chat. Use Stop first, "
+                        + "then send `/goal <objective>` again.";
+            }
+            return "The previous turn is just finishing. Send `/goal <objective>` again "
+                    + "once the chat is idle.";
+        }
+        ctx.setGoalRequested(true);
+        return null;
     }
 
     /** Register the default set of slash commands. */
@@ -90,5 +127,7 @@ public class BuiltinCommands {
         router.exact("/new", BuiltinCommands::cmdNew);
         router.exact("/status", BuiltinCommands::cmdStatus);
         router.exact("/help", BuiltinCommands::cmdHelp);
+        router.exact("/goal", BuiltinCommands::cmdGoalUsage);
+        router.prefix("/goal ", BuiltinCommands::cmdGoal);
     }
 }

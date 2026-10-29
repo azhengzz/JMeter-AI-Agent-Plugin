@@ -1,5 +1,6 @@
 package org.gitee.jmeter.ai.agent.tools.jmeter.execution;
 
+import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
@@ -69,6 +70,18 @@ public class AgentResultCollector extends AbstractTestElement
     private static volatile long testStartTime = 0;
     private static volatile long testEndTime = 0;
     private static volatile RunProvenance lastProvenance = RunProvenance.USER;
+    /** 最近一次运行是否 run_test 冒烟模式（reset 时与来源一并原子置位）。 */
+    private static volatile boolean lastRunWasSmoke = false;
+
+    /**
+     * 运行代数：reset 翻新；采集器实例构造（含引擎侧树克隆对实例字段的浅拷贝）时
+     * 捕获绑定代。事件写点（testStarted/testEnded/sampleOccurred）校验绑定代一致
+     * 才写——前代引擎的迟到事件（如 stop 后立即冒烟时垂死引擎的异步 testEnded）
+     * 不得污染当前运行的静态状态，也不得经 invokeLater 摘掉刚为当前运行注入的
+     * 收集器节点。
+     */
+    private static final AtomicLong runGeneration = new AtomicLong();
+    private final long boundGeneration = runGeneration.get();
 
     /**
      * True between a start's pre-action arming and the matching Start post-action listener.
@@ -90,6 +103,17 @@ public class AgentResultCollector extends AbstractTestElement
      * AGENT via {@link RunTestTool}).
      */
     public static void reset(RunProvenance provenance) {
+        reset(provenance, false);
+    }
+
+    /**
+     * @param smoke 本次运行是否 {@code run_test mode=smoke}（与来源一并原子置位，
+     *              不拆 reset+mark 两步——两步窗口会把并发用户运行误标成冒烟）。
+     *              证据仲裁只认冒烟运行的采集：普通 normal 全量运行即使零错也
+     *              不得被洗成冒烟证据
+     */
+    public static void reset(RunProvenance provenance, boolean smoke) {
+        runGeneration.incrementAndGet();
         totalSamples.set(0);
         totalErrors.set(0);
         responseTimeSum.set(0);
@@ -102,11 +126,12 @@ public class AgentResultCollector extends AbstractTestElement
         testStartTime = 0;
         testEndTime = 0;
         lastProvenance = (provenance != null) ? provenance : RunProvenance.USER;
+        lastRunWasSmoke = smoke;
     }
 
     /** Backwards-compatible reset; equivalent to {@link #reset(RunProvenance)} with USER. */
     public static void reset() {
-        reset(RunProvenance.USER);
+        reset(RunProvenance.USER, false);
     }
 
     public static RunProvenance getLastProvenance() {
@@ -134,6 +159,9 @@ public class AgentResultCollector extends AbstractTestElement
 
     @Override
     public void testStarted(String host) {
+        if (boundGeneration != runGeneration.get()) {
+            return; // 前代引擎的迟到事件：不写当前运行状态
+        }
         testRunning = true;
         testStartTime = System.currentTimeMillis();
         testEndTime = 0;
@@ -147,6 +175,9 @@ public class AgentResultCollector extends AbstractTestElement
 
     @Override
     public void testEnded(String host) {
+        if (boundGeneration != runGeneration.get()) {
+            return; // 前代引擎的迟到收尾：不写结束态、不摘当前运行的收集器节点
+        }
         testRunning = false;
         testEndTime = System.currentTimeMillis();
         log.info("AgentResultCollector: test ended. Total samples: {}, errors: {}",
@@ -157,6 +188,9 @@ public class AgentResultCollector extends AbstractTestElement
 
     @Override
     public void sampleOccurred(SampleEvent e) {
+        if (boundGeneration != runGeneration.get()) {
+            return; // 前代引擎的迟到采样：不计入当前统计
+        }
         SampleResult result = e.getResult();
         if (result == null) return;
 
@@ -184,7 +218,8 @@ public class AgentResultCollector extends AbstractTestElement
                 truncate(result.getSamplerData()),
                 truncate(result.getResponseHeaders()),
                 truncate(result.getResponseDataAsString()),
-                truncate(result.getRequestHeaders()));
+                truncate(result.getRequestHeaders()),
+                captureAssertions(result));
         recentSamples.add(snapshot);
 
         while (sampleCount.incrementAndGet() > MAX_SAMPLES) {
@@ -364,6 +399,39 @@ public class AgentResultCollector extends AbstractTestElement
         return data.substring(0, MAX_BODY_SIZE) + "\n...(truncated, total " + data.length() + " chars)";
     }
 
+    /**
+     * Capture per-sample assertion results (name / failed-or-error flag / failure message).
+     * Transaction controllers with "generate parent sample" nest their sub-samples inside
+     * the parent result (no separate sampleOccurred fires for them), so sub-results are
+     * walked recursively — without this, assertion failures inside a transaction are
+     * structurally invisible. Returns null when neither the sample nor any sub-result
+     * carries assertions.
+     */
+    private static List<AssertionSnapshot> captureAssertions(SampleResult result) {
+        List<AssertionSnapshot> captured = new ArrayList<>();
+        collectAssertions(result, captured);
+        return captured.isEmpty() ? null : captured;
+    }
+
+    private static void collectAssertions(SampleResult result, List<AssertionSnapshot> out) {
+        AssertionResult[] results = result.getAssertionResults();
+        if (results != null) {
+            for (AssertionResult ar : results) {
+                if (ar == null) continue;
+                out.add(new AssertionSnapshot(ar.getName(), ar.isFailure() || ar.isError(),
+                        truncate(ar.getFailureMessage())));
+            }
+        }
+        SampleResult[] subs = result.getSubResults();
+        if (subs != null) {
+            for (SampleResult sub : subs) {
+                if (sub != null) {
+                    collectAssertions(sub, out);
+                }
+            }
+        }
+    }
+
     private static void updateMax(AtomicLong maxRef, long value) {
         long current;
         while (value > (current = maxRef.get())) {
@@ -375,6 +443,25 @@ public class AgentResultCollector extends AbstractTestElement
 
     public static boolean isTestRunning() {
         return testRunning;
+    }
+
+    /**
+     * 门禁点仲裁（update_goal complete 证据缺失时的当场对账）：最近一次运行是
+     * 本插件发起的冒烟、确已完成、且发过流量零 error 才为真。撕裂读推演：任何
+     * reset 只会否定条件（USER 来源败 / 完成态清零 / 非冒烟置否），不存在混合
+     * 读出假 PASS 的交错——条件全真必对应某次真实完成的 AGENT 冒烟快照。调用方
+     * 须另校验 goal 的冒烟预算确实消耗过（smokeAttempts &gt; 0，防跨 goal 陈旧
+     * 数据被冒名）。样本&gt;0 &amp;&amp; 错误==0 与 {@code RunTestTool.isSmokePass}
+     * 是同一硬标准。
+     */
+    public static boolean completedAgentSmokePassed() {
+        if (getLastProvenance() != RunProvenance.AGENT || !lastRunWasSmoke) {
+            return false;
+        }
+        if (testRunning || testEndTime <= 0) {
+            return false;
+        }
+        return totalSamples.get() > 0 && totalErrors.get() == 0;
     }
 
     public static long getTestStartTimeMs() {
@@ -471,12 +558,15 @@ public class AgentResultCollector extends AbstractTestElement
         public final String requestHeaders;
         public final String responseData;
         public final String responseHeaders;
+        /** Per-assertion results; null when the sampler has no assertions. */
+        public final List<AssertionSnapshot> assertions;
 
         public SampleSnapshot(String label, String responseCode, boolean success,
                               long responseTime, long latency, long timestamp,
                               String url, int errorCount,
                               String requestData, String requestHeaders,
-                              String responseData, String responseHeaders) {
+                              String responseData, String responseHeaders,
+                              List<AssertionSnapshot> assertions) {
             this.label = label;
             this.responseCode = responseCode;
             this.success = success;
@@ -489,6 +579,20 @@ public class AgentResultCollector extends AbstractTestElement
             this.requestHeaders = requestHeaders;
             this.responseData = responseData;
             this.responseHeaders = responseHeaders;
+            this.assertions = assertions;
+        }
+    }
+
+    /** Single assertion outcome attached to a {@link SampleSnapshot}. */
+    public static class AssertionSnapshot {
+        public final String name;
+        public final boolean failed;
+        public final String failureMessage;
+
+        public AssertionSnapshot(String name, boolean failed, String failureMessage) {
+            this.name = name;
+            this.failed = failed;
+            this.failureMessage = failureMessage;
         }
     }
 

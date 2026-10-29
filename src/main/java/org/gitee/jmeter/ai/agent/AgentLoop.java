@@ -17,6 +17,8 @@ import org.gitee.jmeter.ai.agent.presenter.TurnSubscriber;
 import org.gitee.jmeter.ai.agent.run.AgentRunResult;
 import org.gitee.jmeter.ai.agent.run.AgentRunSpec;
 import org.gitee.jmeter.ai.agent.run.AgentRunner;
+import org.gitee.jmeter.ai.agent.session.GoalRuntime;
+import org.gitee.jmeter.ai.agent.session.GoalState;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
 import org.gitee.jmeter.ai.agent.subagent.SubagentManager;
@@ -249,13 +251,24 @@ public class AgentLoop {
         // Phase 1: Priority command dispatch (immediate, no executor needed)
         if (commandRouter.isPriority(raw)) {
             CommandContext ctx = new CommandContext(raw, "", null, sessionKey, this);
-            String result = commandRouter.dispatchPriority(ctx);
-            if (result != null) {
-                AgentResponse response = AgentResponse.success(result);
-                // Phase 1 同步命令结果：旧模型无通道（面板靠发起方自发渲染），事件流给出
-                // 统一通道；载荷带命令方来源与原文
-                dispatchTurnEvent(TurnEvent.commandResult(sessionKey, origin, raw, response));
-                return CompletableFuture.completedFuture(response);
+            try {
+                String result = commandRouter.dispatchPriority(ctx);
+                if (result != null) {
+                    AgentResponse response = AgentResponse.success(result);
+                    // Phase 1 同步命令结果：旧模型无通道（面板靠发起方自发渲染），事件流给出
+                    // 统一通道；载荷带命令方来源与原文
+                    dispatchTurnEvent(TurnEvent.commandResult(sessionKey, origin, raw, response));
+                    return CompletableFuture.completedFuture(response);
+                }
+            } catch (java.io.UncheckedIOException e) {
+                // getOrCreate 对读失败的响亮失败（防覆写）不得变成 EDT 未捕获异常：
+                // 命令明确失败并留在聊天里，而不是静默丢失
+                log.error("Session file unreadable, priority command '{}' dropped for {}",
+                        raw, sessionKey, e);
+                return CompletableFuture.completedFuture(AgentResponse.error(
+                        "Session file is unreadable (transient lock?): "
+                                + e.getMessage() + ". The command was not executed; "
+                                + "try again in a moment."));
             }
         }
 
@@ -264,7 +277,7 @@ public class AgentLoop {
         // 该回合的注入队列，由回合内检查点中途注入；否则落到 Phase 3 开新回合。
         // 槽是注入路由的唯一事实来源。术语：提交=execute 把回合任务交给线程池；pickup=
         // 工作线程取出任务真正开跑；ack=offer 入队成功、调用方收到"已注入"回执。
-        // startTurn 在提交之前就武装队列，故 [提交→pickup] 窗口内的并发 offer 仍能命中队列
+        // startTurn 在提交之前就让队列就位，故 [提交→pickup] 窗口内的并发 offer 仍能命中队列
         // 并拿到 ack（DelegationGuardTest 确定性的前提——窗口消息不会被拆成独立回合排到
         // 忙碌回合之后）；signalCancel 摘槽（置 closed）后，垂死会话读 hasActiveRun 为
         // false，新消息自然只能走 Phase 3 开新回合。窗口内已 ack 的消息由其载体回合在
@@ -284,14 +297,25 @@ public class AgentLoop {
             // Non-priority commands must not be queued for injection.
             // dispatch them directly (same pattern as priority commands).
             if (commandRouter.isDispatchable(raw)) {
-                Session session = sessionManager.getOrCreate(sessionKey);
-                CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
-                String cmdResult = commandRouter.dispatch(ctx);
-                if (cmdResult != null) {
-                    AgentResponse response = AgentResponse.success(cmdResult);
-                    // Phase 2 会话忙时的同步命令结果：与 Phase 1 同一 COMMAND_RESULT 通道
-                    dispatchTurnEvent(TurnEvent.commandResult(sessionKey, origin, raw, response));
-                    return CompletableFuture.completedFuture(response);
+                try {
+                    Session session = sessionManager.getOrCreate(sessionKey);
+                    CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
+                    String cmdResult = commandRouter.dispatch(ctx);
+                    if (cmdResult != null) {
+                        AgentResponse response = AgentResponse.success(cmdResult);
+                        // Phase 2 会话忙时的同步命令结果：与 Phase 1 同一 COMMAND_RESULT 通道
+                        dispatchTurnEvent(TurnEvent.commandResult(sessionKey, origin, raw, response));
+                        return CompletableFuture.completedFuture(response);
+                    }
+                } catch (java.io.UncheckedIOException e) {
+                    // 同 Phase 1：读失败响亮进聊天，绝不以未捕获异常砸 EDT（忙期内联
+                    // cmdNew/cmdStatus 等就在这条调用线程上）
+                    log.error("Session file unreadable, command '{}' dropped for {}",
+                            raw, sessionKey, e);
+                    return CompletableFuture.completedFuture(AgentResponse.error(
+                            "Session file is unreadable (transient lock?): "
+                                    + e.getMessage() + ". The command was not executed; "
+                                    + "try again in a moment."));
                 }
             }
 
@@ -335,7 +359,7 @@ public class AgentLoop {
      *
      * <p>注入队列归回合私有（对齐 Nanobot loop.py 的 per-turn pending queue + 身份条件摘除）：
      * <ul>
-     *   <li>队列归回合私有：提交前 {@code armQueue} 武装队列（路由槽上线），
+     *   <li>队列归回合私有：提交前 {@code armQueue} 使队列就位（路由槽上线），
      *       lambda 按<b>句柄</b>（Turn 自身）抽干/清理——垂死回合偷不到后继回合的
      *       消息，cleanup 身份条件置 closed 不误摘后继的路由；</li>
      *   <li>手工 future + executor.execute（而非 supplyAsync）：supplyAsync 对已取消
@@ -353,28 +377,50 @@ public class AgentLoop {
             boolean delegated,
             TurnOrigin origin,
             List<InstanceInfo> instanceMentions) {
+        return startTurn(raw, message, sessionKey, callback, delegated, origin,
+                instanceMentions, false);
+    }
+
+    /**
+     * 完整签名：{@code syntheticTrigger} 标记触发消息为宿主合成（goal 续跑/交回
+     * 切片直投，早落盘据此挂记忆/归档视图的跳过标记）。真实用户消息恒 false。
+     */
+    private CompletableFuture<AgentResponse> startTurn(
+            String raw,
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated,
+            TurnOrigin origin,
+            List<InstanceInfo> instanceMentions,
+            boolean syntheticTrigger) {
         // 回合身份句柄（进程唯一 id + 来源 + 显示域元数据 + 终态去重位）。REPUBLISH 的
         // echoText 为 null——You 回显已由 INJECTED 事件给过，孤儿回合不再重复回显。
         // 句柄随 Turn 构造、先于注册表可见（不按旧 activeTurnHandles.put 的时机后写）：
-        // 注册表条目在注册瞬间即整条替换为新回合，若句柄晚于此才武装，activeTurn
-        // （= 条目句柄）会在 [注册 → 武装] 窗口误报空——旧 activeTurnHandles 在垂死→
+        // 注册表条目在注册瞬间即整条替换为新回合，若句柄晚于此才就位，activeTurn
+        // （= 条目句柄）会在 [注册 → 就位] 窗口误报空——旧 activeTurnHandles 在垂死→
         // 后继交接期间靠前驱句柄尚未摘除保持非空，轮询方（面板领养、「等回合落定」
         // 探询）不得在交接窗口误判空闲。signalCancel 的 TURN_CANCELLED 认领以 future
-        // 已武装且未完成为前提，不受句柄提前可见影响（见 Turn 类 javadoc）。
+        // 已就位且未完成为前提，不受句柄提前可见影响（见 Turn 类 javadoc）。
+        // "/goal <objective>" 是 dispatchable 前缀命令但实际进入 agent 回合（handler
+        // 返回 null 放行）——不能按命令回合标记（命令回合对面板不可见/不可取消）
+        final boolean goalAgentTurn = origin != TurnOrigin.REPUBLISH
+                && raw.toLowerCase().startsWith("/goal ")
+                && !raw.substring(6).isBlank();
         final TurnHandle handle = new TurnHandle(sessionKey, origin,
                 origin == TurnOrigin.REPUBLISH ? null : message,
-                commandRouter.isPriority(raw) || commandRouter.isDispatchable(raw));
+                !goalAgentTurn && (commandRouter.isPriority(raw) || commandRouter.isDispatchable(raw)));
 
         // 回合对象 + 注册（= 旧 abortFlags/completionLatches 的 put，startTurn 最前）：
         // abortFlag/latch（及句柄）随 Turn 构造就位——signalCancel 从此刻起可置中止位、
-        // waitForCancellation 可等收尾。武装次序（queue→future 逐字段后写）不得
-        // 压扁成构造一次成型，见 Turn 类 javadoc「保序武装」。
+        // waitForCancellation 可等收尾。就位次序（queue→future 逐字段后写）不得
+        // 压扁成构造一次成型，见 Turn 类 javadoc「保序就位」。
         final Turn turn = new Turn(sessionKey, handle, callback, delegated);
         activeTurnTokens.register(sessionKey, turn);
 
-        // 武装注入队列（路由槽上线）：槽 = 注册表条目 + closed/queue 派生
+        // 注入队列就位（路由槽上线）：槽 = 注册表条目 + closed/queue 派生
         // （TurnRegistry.hasActiveRun），hasActiveRun 据此判忙/闲（忙→Phase 2 注入
-        // 队列，闲→Phase 3 开新回合）。武装在前、提交（execute）在后——提前占位让
+        // 队列，闲→Phase 3 开新回合）。就位在前、提交（execute）在后——提前占位让
         // [提交→pickup] 窗口内的并发 offer 仍判忙并命中队列，不被误拆成独立回合
         // （见 doProcessMessage Phase 2 注释）。
         turn.armQueue();
@@ -417,10 +463,16 @@ public class AgentLoop {
                     turn.markPickup(turnEpoch);
                     AgentResponse outcome = null;
                     Throwable failure = null;
+                    // goal 续跑延后到收尾（republishLeftovers 之后）再排队：排队过早会把
+                    // 续跑文本落进垂死回合的注入队列、被 re-publish 渲染成 "[Injected] You:"
+                    boolean goalContinuationPending = false;
                     try {
                         // Check regular commands first (inside executor)
                         Session session = sessionManager.getOrCreate(sessionKey);
                         CommandContext ctx = new CommandContext(raw, "", session, sessionKey, this);
+                        // Phase 3 派发发生在本回合自己的回合体内（/goal 借此区分闲时
+                        // 触发与忙期到达——见 CommandContext.markTurnOwner）
+                        ctx.markTurnOwner();
                         String cmdResult = commandRouter.dispatch(ctx);
                         if (cmdResult != null) {
                             outcome = AgentResponse.success(cmdResult);
@@ -450,11 +502,52 @@ public class AgentLoop {
                                 .resetEpochSupplier(() -> currentEpoch(sessionKey))
                                 .delegated(delegated)
                                 .instanceMentions(instanceMentions)
+                                // /goal 标记透传（命令处理器置位）：goal 变更权限 +
+                                // Runtime Context 请求态
+                                .goalRequested(ctx.isGoalRequested())
+                                // 宿主合成触发（goal 续跑/交回切片）：记忆/归档视图跳过标记
+                                .hostSyntheticTrigger(syntheticTrigger)
+                                // 回合身份（句柄 id + 来源）：回合快照的参与门与文件名段
+                                .turnIdentity(handle.id(), origin)
                                 .build();
+
+                            // 末迭代终结判定的基线：回合起点 goal 是否活跃（结束后对比，
+                            // 期间被 update_goal 终结则终态换 recap 文案）
+                            Session sessionAtStart = sessionManager.get(sessionKey);
+                            GoalState goalAtStart = sessionAtStart == null
+                                    ? null : GoalState.load(sessionAtStart);
+                            boolean goalActiveAtStart = goalAtStart != null && goalAtStart.isActive();
 
                             // Run agent（同步直调：跑在本 executor 线程上，
                             // 异常/Error 由下方 catch (Throwable) 统一收口）
                             AgentRunResult result = agentRunner.run(spec);
+
+                            if (isGoalContinuationDue(result, sessionKey, delegated, turn.abortFlag().get(), turnEpoch)) {
+                                // goal 活跃的迭代耗尽不产生「达到最大迭代」的用户可见
+                                // 失败——终态换中性文案，续跑回合随后接手
+                                outcome = AgentResponse.success(
+                                    "(Continuing the active goal in a new turn...)");
+                                goalContinuationPending = true;
+                            } else {
+                                // Convert to legacy response format
+                                outcome = result.toAgentResponse();
+                                // goal 在末迭代内被 update_goal 终结：通用「达到最大迭代」
+                                // 失败文案对用户是误报——终态换 goal 终结 recap。基线含
+                                // goalActiveAtStart（回合起点已活跃）或本回合即 /goal 请求
+                                // （回合内 create+终结一气呵成时起点快照还是 false）
+                                if ((goalActiveAtStart || spec.isGoalRequested())
+                                        && "max_iterations".equals(result.getStopReason())) {
+                                    Session endedSession = sessionManager.get(sessionKey);
+                                    GoalState endedGoal = endedSession == null
+                                            ? null : GoalState.load(endedSession);
+                                    if (endedGoal != null && !endedGoal.isActive()) {
+                                        outcome = AgentResponse.success("(Goal "
+                                                + endedGoal.getStatus().name()
+                                                        .toLowerCase(java.util.Locale.ROOT)
+                                                + ". Recap: " + endedGoal.getRecap() + ")");
+                                    }
+                                }
+                            }
 
                             // Capture usage stats for /status command
                             try {
@@ -467,9 +560,6 @@ public class AgentLoop {
                             } catch (Exception e) {
                                 log.debug("Could not capture usage stats", e);
                             }
-
-                            // Convert to legacy response format
-                            outcome = result.toAgentResponse();
                         }
                         // 终态（try 尾，正常路径）：必须先于 finally 的 re-publish（垂死回合
                         // 孤子的 STARTED 不得插进本回合终态之前）与 future.complete（订阅者
@@ -506,6 +596,11 @@ public class AgentLoop {
                             republishLeftovers(activeTurnTokens.cleanup(sessionKey, turn), sessionKey,
                                     turnEpoch, callback, turn.abortFlag().get());
                         }
+                        // 续跑排队点：残留 re-publish 已处理完，注册表行将摘除——续跑
+                        // 回合走 Phase 3 直接开跑，不再落入任何垂死队列
+                        if (goalContinuationPending) {
+                            scheduleGoalContinuation(sessionKey, turnEpoch, turn.abortFlag());
+                        }
                     }
                     if (failure != null) {
                         future.completeExceptionally(failure);
@@ -522,6 +617,15 @@ public class AgentLoop {
                     // 内同步触发该回调，垂死回合任务体尚未走完收尾时 latch 即被摘除计数，
                     // waitForCancellation 谎报「已收尾」。
                     activeTurnTokens.removeIfCurrent(sessionKey, turn);
+                    // 用户停止打断 goal 活跃回合 → 终态自动收敛为 PAUSED。挂外层
+                    // finally：guard return（[armFuture→pickup] 窗口被 future.cancel 预检
+                    // 作废的回合，其 abortFlag/cancelCause 已正确标记 USER_STOP）/正常尾/
+                    // 异常全部退出路径都收敛；与 ⏸ 直写幂等；RESET/SILENT/TIMEOUT 取消
+                    // 与自然完成不收敛——关窗不是停 goal，静默取消保持 ACTIVE 供下次
+                    // 会话 hydrate。须在 latch 释放<b>之前</b>：waitForCancellation 的
+                    // 调用方以 latch 为「收尾完成、可安全清理」信号，收敛的 jsonl 写盘
+                    // 不得越过该边界
+                    convergeGoalOnUserStop(sessionKey, turn, delegated);
                     turn.completionLatch().countDown();
                 }
             });
@@ -548,12 +652,12 @@ public class AgentLoop {
             turn.completionLatch().countDown();
         }
 
-        // 武装 future（= 旧 activeTasks.put，execute 之后）：signalCancel 据此
+        // future 就位（= 旧 activeTasks.put，execute 之后）：signalCancel 据此
         // future.cancel(true)。早于该时点的取消只能靠 abortFlag，且 [register → 本行]
         // 窗口内的取消任务头预检不可见（isCancelled 恒 false）：任务照常取出、首次
         // 迭代即中止，终态为空内容 TURN_COMPLETED；[本行 → pickup] 才走预检作废 +
-        // TURN_CANCELLED（对抗审查 2026-09-03 核定的两窗口语义）。武装次序见 Turn
-        //「保序武装」。聚合后不再挂 whenComplete 清理：
+        // TURN_CANCELLED（对抗审查 2026-09-03 核定的两窗口语义）。就位次序见 Turn
+        //「保序就位」。聚合后不再挂 whenComplete 清理：
         // 旧三表「future 死亡即摘」的可见性由 signalCancel 以 isDone 派生（已完成回合
         // 跳过置位/取消/认领），条目本身的摘除只在外层 finally（latch 契约，见上）。
         turn.armFuture(future);
@@ -715,6 +819,257 @@ public class AgentLoop {
     }
 
     /**
+     * 回合达到迭代上限而结束时，若会话中还有活跃的 goal，是否自动开一个新
+     * 回合继续推进。以下情况不续跑：委派回合（goal 属于宿主会话，与该任务
+     * 无关）、回合被中止（如用户按 Stop）、运行出错或并非因迭代上限结束、
+     * 回合期间会话被 /new 重置、没有活跃 goal。续跑次数用完且已发过一次
+     * 「强制交回」指令后也不再续跑——交回回合即使再次耗尽也到此为止，
+     * 防止无限循环。
+     */
+    private boolean isGoalContinuationDue(AgentRunResult result, String sessionKey,
+                                          boolean delegated, boolean aborted, long turnEpoch) {
+        if (delegated || aborted) {
+            return false;
+        }
+        if (!result.isSuccess() || !"max_iterations".equals(result.getStopReason())) {
+            return false;
+        }
+        if (turnEpoch != currentEpoch(sessionKey)) {
+            return false; // /new 等重置窗口内不续跑（对齐 republishLeftovers 的 epoch 栅栏）
+        }
+        Session session = sessionManager.get(sessionKey);
+        GoalState goal = session == null ? null : GoalState.load(session);
+        if (goal == null || !goal.isActive()) {
+            return false;
+        }
+        return goal.getContinuationRounds() < AiConfig.getGoalMaxContinuations()
+                || !goal.isHandbackScheduled();
+    }
+
+    /**
+     * 投放 goal 续跑消息（新回合、origin=REPUBLISH——echoText 为 null，续跑触发
+     * 文本不渲染为用户 You 行）。经 executorService 排队：本回合任务体收尾（注册
+     * 表摘除）之后才被取出，续跑回合走 Phase 3 直接开跑。续跑计数以 goal 为单位，
+     * 超限后改为投放「强制结构化交回」指令而非继续续跑。
+     */
+    private void scheduleGoalContinuation(String sessionKey, long turnEpoch,
+            java.util.concurrent.atomic.AtomicBoolean abortFlag) {
+        // 代数复查+状态回写+排队整体在栅栏锁内（对齐 republishLeftovers 的围栏纪律）：
+        // 重置的「取消+代数翻转」无法插进检查与排队之间；Stop 在 [运行返回→排队] 尾窗
+        // 落地（含终态已发、signalCancel 仍置位的中断）由 abortFlag 复查兜住——被中止
+        // 的回合不排续跑
+        synchronized (resetFenceLock) {
+            if (turnEpoch != currentEpoch(sessionKey)) {
+                return; // 分支判定到排队点之间发生重置：不向刚清空的会话续跑
+            }
+            if (abortFlag.get()) {
+                return; // 回合收尾尾窗内 Stop 落地：被中止的回合不续跑
+            }
+            Session session = goalSession(sessionKey);
+            if (session == null) {
+                return;
+            }
+            GoalState goal = GoalState.load(session);
+            if (goal == null || !goal.isActive()) {
+                return;
+            }
+            enqueueGoalSlice(sessionKey, turnEpoch, session, goal, false);
+        }
+    }
+
+    /**
+     * 栅栏锁内调用：按续跑预算投放一片续跑/交回到 loop 执行器。goal 为刚读过或刚
+     * 写回的活跃状态（免重复 load）。正常片递增 {@code continuationRounds}；预算耗尽
+     * 且未发过交回时改投「强制结构化交回」并置终结闸。{@code fromResume} 供 ▶ 恢复
+     * 入口穿透终结闸重投交回片（用户离散动作天然限频，防「预算耗尽+已交回的 PAUSED
+     * goal 恢复成无反馈僵尸 ACTIVE」）。
+     */
+    private void enqueueGoalSlice(String sessionKey, long turnEpoch, Session session,
+            GoalState goal, boolean fromResume) {
+        String text;
+        if (goal.getContinuationRounds() >= AiConfig.getGoalMaxContinuations()) {
+            if (goal.isHandbackScheduled() && !fromResume) {
+                // 终结闸：交回指令已投放过（防御性——isGoalContinuationDue 已拦）；
+                // resume 路径不拦（见方法 javadoc）
+                log.warn("Goal continuation chain ended for session {}", sessionKey);
+                return;
+            }
+            goal.markHandbackScheduled();
+            GoalState.store(session, goal);
+            sessionManager.saveSession(session);
+            text = "The continuation budget for this goal is exhausted ("
+                    + AiConfig.getGoalMaxContinuations() + " slices). Do not continue working. "
+                    + "Produce the structured handback now (objective, what you tried, where it "
+                    + "is stuck, verification results, suggested manual inspection) and terminate "
+                    + "the goal via update_goal with the residual risks in the recap.";
+        } else {
+            goal.incrementContinuationRounds();
+            GoalState.store(session, goal);
+            sessionManager.saveSession(session);
+            text = GoalRuntime.continuationText(goal);
+        }
+        log.info("Scheduling goal continuation slice {} for session {}",
+                goal.getContinuationRounds(), sessionKey);
+        try {
+            executorService.execute(() -> {
+                // 排队→取出的窗口内重置仍可能翻转代数（单线程执行器上排在续跑前
+                // 的 /new 命令任务）：取出时栅栏内复查，过期即弃；直接 startTurn
+                // （Phase 3）而非 processMessage——后者会把续跑文本并进并发后继回合
+                // 的注入队列，以 "[Injected] You:" 泄漏渲染（republishLeftovers
+                // 同款直投先例）；syntheticTrigger=true 供记忆/归档视图跳过标记。
+                // 槽位让位：单线程执行器保证此刻自家回合条目必已摘除（外层 finally
+                // 先于任务结束），hasActiveRun 为真 ⟺ 收尾窗口内有后继回合接管——
+                // 此时无条件 register 会 latest-wins 击穿在跑后继的注册表条目
+                // （Stop/注入路由错位），放弃本次自动续跑，goal 保持活跃待用户
+                // 下一条消息自然续接。
+                // goal 活跃性复查：⏸ 的收敛（commonPool 即时直写）与本切片取出点
+                // 经栅栏互斥——收敛先落地时 goal 已 PAUSED，孤儿续跑回合在此丢弃
+                synchronized (resetFenceLock) {
+                    if (turnEpoch != currentEpoch(sessionKey)) {
+                        return;
+                    }
+                    if (activeTurnTokens.hasActiveRun(sessionKey)) {
+                        log.info("Goal continuation skipped for session {}: "
+                                + "a successor turn owns the slot", sessionKey);
+                        return;
+                    }
+                    Session fresh = sessionManager.get(sessionKey);
+                    GoalState current = fresh == null ? null : GoalState.load(fresh);
+                    if (current == null || !current.isActive()) {
+                        log.info("Goal continuation slice dropped for session {}: "
+                                + "goal no longer active", sessionKey);
+                        return;
+                    }
+                    startTurn(text, text, sessionKey, null, false, TurnOrigin.REPUBLISH,
+                            List.of(), true);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            // executor 已退役（模型切换/关闭）：续跑不出去，goal 保持 active 待用户
+            // 下一条消息自然续接
+            log.warn("Goal continuation dropped: executor retired for session {}", sessionKey);
+        }
+    }
+
+    /**
+     * goal 引擎路径的会话访问：/new 尾部 {@code invalidate} 摘除会话缓存后裸
+     * {@code get} 恒返 null（▶ 恢复曾在此静默失灵——无日志、无状态迁移），必须经
+     * {@code getOrCreate} 触发磁盘重载（goal_state 随会话头行存续；缓存未摘时退化为
+     * 命中缓存）。文件不可读（getOrCreate fail-loud 抛 UncheckedIOException）时返回
+     * null 静默放弃本次 goal 操作——瞬时读盘失败由用户下一次动作自然重试。
+     */
+    private Session goalSession(String sessionKey) {
+        try {
+            return sessionManager.getOrCreate(sessionKey);
+        } catch (RuntimeException e) {
+            log.warn("Goal session load failed for {}: {}", sessionKey, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 重置后的 goal 重新点火（栅栏锁内）：垂死回合的旧代数续跑片已被 epoch 栅栏拦下
+     * （那是旧会话的续跑载荷，拦得对），须以翻转后的新代数给 goal 发新租约，否则活跃
+     * goal 永久 ACTIVE 无 runner（状态条与光晕常亮、无人推进）。缓存刚被 invalidate
+     * 摘除，经 {@link #goalSession} 磁盘重载取 goal。预算耗尽且已交回的 goal 由
+     * {@link #enqueueGoalSlice} 的终结闸拦截（重置不复活已交回目标）；PAUSED/终态不
+     * 自动恢复（暂停语义保持用户掌控）。
+     */
+    private void rearmGoalAfterReset(String sessionKey, long flippedEpoch) {
+        synchronized (resetFenceLock) {
+            Session session = goalSession(sessionKey);
+            if (session == null) {
+                return;
+            }
+            GoalState goal = GoalState.load(session);
+            if (goal == null || !goal.isActive()) {
+                return;
+            }
+            enqueueGoalSlice(sessionKey, flippedEpoch, session, goal, false);
+        }
+    }
+
+    // ---- goal 暂停/恢复（GUI 状态条操作入口；状态直写不经模型，pause/resume 非终态、
+    //      不触 recap 契约） ----
+
+    /**
+     * ⏸ 入口：暂停会话的活跃 goal。忙期（有在跑回合）先发 USER_STOP 取消信号
+     * （非阻塞、EDT 安全；终止行照常渲染、输入区 Stop 按钮经正常终态事件链归位）；
+     * PAUSED 落盘有两处幂等来源——本方法的即时直写与被停回合终态的自动收敛
+     * （{@link #convergeGoalOnUserStop}）。直写不得排队到本 loop 执行器：垂死回合
+     * 挡在前面（中止是协作式的——在跑 LLM 调用/工具批须跑到自然结束，冒烟运行
+     * 可达分钟级），⏸ 会「点了没反应」直到回合收尾；改 commonPool 即时写盘
+     * （深度提炼同载体先例）。终态收敛兜住迟到写：goal 工具批在回合收尾前必然
+     * 跑完（runner 等批），收尾收敛把任何迟到 ACTIVE 再收敛回 PAUSED（isActive
+     * 门幂等）。
+     */
+    public void pauseActiveGoal(String sessionKey) {
+        signalCancel(sessionKey, CancelCause.USER_STOP);
+        CompletableFuture.runAsync(() -> convergeGoalNow(sessionKey));
+    }
+
+    /**
+     * ▶ 入口：恢复暂停的 goal 并投放一片续跑（REPUBLISH、不渲染 You 行、续跑预算
+     * 续算不重置）。在 loop 执行器上执行——EDT 调用方不触碰 session monitor/磁盘；
+     * goal 非 PAUSED 时 no-op。
+     */
+    public void resumePausedGoal(String sessionKey) {
+        try {
+            executorService.execute(() -> {
+                synchronized (resetFenceLock) {
+                    Session session = goalSession(sessionKey);
+                    if (session == null) {
+                        return;
+                    }
+                    GoalState goal = GoalState.load(session);
+                    if (goal == null || goal.getStatus() != GoalState.Status.PAUSED) {
+                        return;
+                    }
+                    goal.resumeFromPaused();
+                    GoalState.store(session, goal);
+                    sessionManager.saveSession(session);
+                    log.info("Goal resumed for session {}", sessionKey);
+                    // fromResume=true：预算耗尽且终结闸已置时重投交回片而非静默丢弃
+                    enqueueGoalSlice(sessionKey, currentEpoch(sessionKey), session, goal, true);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            log.warn("Goal resume dropped: executor retired for session {}", sessionKey);
+        }
+    }
+
+    /**
+     * 回合终态的 goal 自动收敛：用户停止（USER_STOP）打断 goal 活跃回合 → 落盘
+     * PAUSED。委派回合与其它取消原因（RESET/SILENT/TIMEOUT）不收敛——关窗/重置不是
+     * 停 goal，静默取消保持 ACTIVE 供下次会话 hydrate（对齐 dsh「错误与静默路径
+     * 不伪装成用户暂停」的取舍）。
+     */
+    private void convergeGoalOnUserStop(String sessionKey, Turn turn, boolean delegated) {
+        if (delegated || !turn.abortFlag().get() || turn.cancelCause() != CancelCause.USER_STOP) {
+            return;
+        }
+        convergeGoalNow(sessionKey);
+    }
+
+    /** 栅栏锁内幂等直写：goal 活跃 → PAUSED（⏸ 空闲直写与回合终态收敛的公共落点）。 */
+    private void convergeGoalNow(String sessionKey) {
+        synchronized (resetFenceLock) {
+            Session session = goalSession(sessionKey);
+            if (session == null) {
+                return;
+            }
+            GoalState goal = GoalState.load(session);
+            if (goal == null || !goal.isActive()) {
+                return; // ⏸ 已先写 PAUSED / goal 已终结 → no-op
+            }
+            goal.pauseFromActive();
+            GoalState.store(session, goal);
+            sessionManager.saveSession(session);
+            log.info("Goal auto-converged to PAUSED for session {}", sessionKey);
+        }
+    }
+
+    /**
      * Get the memory consolidator.
      */
     public MemoryConsolidator getMemoryConsolidator() {
@@ -839,7 +1194,7 @@ public class AgentLoop {
         Turn turn = activeTurnTokens.find(sessionKey);
 
         // 1. Set abort flag first (signals agent loop to stop) — 豁免调用者自身。
-        //    future 未武装（排队窗口）或未完成 ⟺ 旧 abortFlags 表项存在
+        //    future 未就位（排队窗口）或未完成 ⟺ 旧 abortFlags 表项存在
         //    （[注册 → whenComplete 摘除]），置位与返回值都以该窗口为准。
         //    终态已发的收尾缝隙（emitTerminal → future.complete 之间的内层
         //    finally，见 startTurn）不再置位：中止一个已完成回合是空动作，且
@@ -849,6 +1204,10 @@ public class AgentLoop {
                 && !turn.handle().terminalEmitted()
                 && (turn.future() == null || !turn.future().isDone());
         if (abortVisible && turn != selfTurn) {
+            // 取消原因先于中止位写入：读侧（convergeGoalOnUserStop）以 abortFlag 为
+            // 门槛再读 cause——先 cause 后 flag 的写序保证过门槛必见 cause，无
+            // 「flag=true 而 cause=null」的可见缝隙
+            turn.markCancelCause(cause);
             turn.abortFlag().set(true);
         }
 
@@ -859,8 +1218,8 @@ public class AgentLoop {
         //    --session 键超时自取消不再误伤本地默认会话回合）。目标回合若还在排队
         //    （runnerThread 为 null）：[armFuture → pickup] 由第 3 步 future.cancel(true)
         //    + 任务头取消预检作废；更早的 [register → armFuture]（如 TURN_STARTED 同步
-        //    派发期间）future 未武装、预检不可见，任务取出后首次迭代查 abortFlag 中止
-        //    （空内容 TURN_COMPLETED，见 Turn「保序武装」）。两种窗口均无需 interrupt。
+        //    派发期间）future 未就位、预检不可见，任务取出后首次迭代查 abortFlag 中止
+        //    （空内容 TURN_COMPLETED，见 Turn「保序就位」）。两种窗口均无需 interrupt。
         //    回合任务体在跑期间终态必未发、future 必未完成（complete 在内层
         //    finally 之后），无需 isDone 复查；终态已发的收尾缝隙里 runnerThread
         //    已被内层 finally 置 null，本步判空天然跳过（迟到中断防护即此机制）；
@@ -873,7 +1232,7 @@ public class AgentLoop {
             runner.interrupt();
         }
 
-        // 3. Cancel the future — 豁免调用者自身。future 已武装且未完成 ⟺ 旧
+        // 3. Cancel the future — 豁免调用者自身。future 已就位且未完成 ⟺ 旧
         //    activeTasks 表项存在且可取消；条目不在此摘除，后续取消经 isDone 自然跳过。
         //    终态已发的收尾缝隙不 cancel：cancel 会让任务体随后的 complete 对已取消
         //    future 静默丢弃结果、IpcServer 超时分流误报 504「已取消」而回合实际
@@ -1114,9 +1473,10 @@ public class AgentLoop {
         // 错误回合、击穿重置代数栅栏）；EDT 路径（忙期内联 cmdNew）无当前回合、
         // 跳过的只是 ownResetEpoch 写入（该值本就无人读，与旧 ThreadLocal 净效果
         // 一致），代数翻转不跳。
+        long flipped;
         synchronized (resetFenceLock) {
             signalCancel(sessionKey, CancelCause.RESET);
-            long flipped = markConversationReset(sessionKey);
+            flipped = markConversationReset(sessionKey);
             Turn self = currentTurn.get();
             if (self != null) {
                 self.recordOwnReset(flipped);
@@ -1127,6 +1487,12 @@ public class AgentLoop {
         sessionManager.invalidate(session.getKey());
         if (archiveSnapshot && !snapshot.isEmpty()) {
             memoryConsolidator.archiveMessagesAsync(snapshot);
+        }
+        // 活跃 goal 不因重置停摆：垂死回合的续跑片已被 epoch 栅栏拦下，无人再点火即
+        // 永久 ACTIVE 无 runner。关闭整合清空腿（archiveSnapshot=false，JVM 退出期）
+        // 不重火——退出期不再起回合
+        if (archiveSnapshot) {
+            rearmGoalAfterReset(sessionKey, flipped);
         }
         log.info("Session reset: archived {} message(s)", snapshot.size());
         return snapshot;

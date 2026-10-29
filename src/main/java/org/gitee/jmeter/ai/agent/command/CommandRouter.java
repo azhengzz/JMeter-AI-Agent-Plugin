@@ -7,10 +7,12 @@ import java.util.*;
  * Java equivalent of Nanobot's CommandRouter.
  *
  * Four tiers checked in order:
- *   1. priority  — exact-match commands handled before the dispatch lock
- *   2. exact     — exact-match commands handled inside the dispatch lock
- *   3. prefix    — longest-prefix-first match (e.g. "/team ")
- *   4. interceptors — fallback predicates
+ *   1. priority  — exact-match commands dispatched immediately on the caller
+ *                  thread, before the busy-check (answers even mid-turn)
+ *   2. exact     — exact-match commands dispatched via dispatch(): mid-turn on
+ *                  the caller thread, or idle inside the turn's executor thread
+ *   3. prefix    — longest-prefix-first match (e.g. "/goal ")
+ *   4. interceptors — fallback null-decline handlers (none registered today)
  */
 public class CommandRouter {
 
@@ -24,12 +26,12 @@ public class CommandRouter {
     private final List<AbstractMap.SimpleEntry<String, CommandHandler>> prefixHandlers = new ArrayList<>();
     private final List<CommandHandler> interceptors = new ArrayList<>();
 
-    /** Register a priority command (handled before the session lock). */
+    /** Register a priority command (dispatched on the caller thread, before the busy-check). */
     public void priority(String cmd, CommandHandler handler) {
         priorityHandlers.put(cmd.toLowerCase(), handler);
     }
 
-    /** Register an exact-match command (handled inside the session lock). */
+    /** Register an exact-match command (dispatched via dispatch(): mid-turn on the caller thread, or idle inside the turn). */
     public void exact(String cmd, CommandHandler handler) {
         exactHandlers.put(cmd.toLowerCase(), handler);
     }
@@ -61,7 +63,7 @@ public class CommandRouter {
         return false;
     }
 
-    /** Dispatch a priority command. Called without the session lock. */
+    /** Dispatch a priority command. Called on the caller thread, before the busy-check. */
     public String dispatchPriority(CommandContext ctx) {
         CommandHandler handler = priorityHandlers.get(ctx.getRaw().toLowerCase());
         if (handler != null) {

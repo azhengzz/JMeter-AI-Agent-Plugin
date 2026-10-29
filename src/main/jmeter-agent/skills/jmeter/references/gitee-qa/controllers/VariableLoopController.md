@@ -9,6 +9,7 @@ An enhanced Loop Controller that supports a configurable loop counter variable. 
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| LoopController.continue_forever | Boolean | No | false | Loop infinitely. When true, children repeat forever instead of stopping after `loops` iterations (the "Forever" toggle in the JMeter GUI) |
 | LoopController.loops | Integer | Yes | 1 | Number of loop iterations. Use -1 or empty for infinite loops |
 | LoopController.loop_counter_name | String | No | - | Variable name for the loop counter. The counter value is accessible in child elements |
 | LoopController.loop_counter_start_num | String | No | 1 | Starting number for the loop counter. The counter value equals `loopCount + startNum` |

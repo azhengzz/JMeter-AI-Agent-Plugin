@@ -24,12 +24,15 @@ public class WorkspaceInitializer {
         "AGENTS.md",
         "SOUL.md",
         "USER.md",
-        "TOOLS.md"
+        "TOOLS.md",
+        "goal.md"
     };
 
     // Subdirectories to create
+    private static final String MEMORY_SUBDIR = "memory";
+
     private static final String[] SUBDIRECTORIES = {
-        "memory",
+        MEMORY_SUBDIR,
         "sessions",
         "skills"
     };
@@ -37,6 +40,8 @@ public class WorkspaceInitializer {
     /**
      * Initialize workspace with template files.
      * Only creates missing files - never overwrites existing content.
+     * Per-file sync: safe to call on every startup; a plugin upgrade that
+     * ships a new template gets it seeded into an existing workspace.
      *
      * @param workspace The workspace path
      * @return List of created file paths (relative to workspace)
@@ -87,7 +92,7 @@ public class WorkspaceInitializer {
             }
 
             // Copy memory/MEMORY.md template
-            Path memoryDir = workspace.resolve("memory");
+            Path memoryDir = workspace.resolve(MEMORY_SUBDIR);
             Path memoryFile = memoryDir.resolve("MEMORY.md");
             if (!Files.exists(memoryFile)) {
                 if (copyTemplate("memory/MEMORY.md", memoryFile)) {
@@ -154,19 +159,4 @@ public class WorkspaceInitializer {
         }
     }
 
-    /**
-     * Check if workspace has been initialized.
-     *
-     * @param workspace The workspace path
-     * @return true if workspace contains template files
-     */
-    public static boolean isInitialized(Path workspace) {
-        if (workspace == null || !Files.exists(workspace)) {
-            return false;
-        }
-
-        // Check if key template files exist
-        Path agentsFile = workspace.resolve("AGENTS.md");
-        return Files.exists(agentsFile);
-    }
 }

@@ -461,6 +461,11 @@ public class MemoryConsolidator {
     private String formatMessages(List<Message> messages) {
         StringBuilder sb = new StringBuilder();
         for (Message message : messages) {
+            if (message.getRole() == Message.Role.USER && message.getMetadata() != null
+                    && message.getMetadata().containsKey(ContextBuilder.HOST_SYNTHETIC_META_KEY)) {
+                // 宿主合成消息（goal nudge/续跑触发）不是用户话语：记忆/归档整条跳过
+                continue;
+            }
             String timestamp = message.getTimestamp().format(TIMESTAMP_FORMAT);
             String role = message.getRole().toString().toUpperCase();
             // 公共视图(记忆蒸馏/HISTORY.md)剥离 runtime-context 块——LLM 回放保留,

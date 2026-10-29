@@ -27,13 +27,28 @@ There are three different test elements used to define the samplers:
 | `HTTPSampler.path` | No | — | The path to resource (e.g. `/servlets/myServlet`). If the path starts with `http://` or `https://` then this is used as the full URL. | `"/api/users"` |
 | `HTTPSampler.method` | No | `"GET"` | HTTP method | `"POST"` |
 | `HTTPSampler.contentEncoding` | No | — | Content encoding to be used (for POST, PUT, PATCH and FILE). This is the character encoding, not related to the Content-Encoding HTTP header. | `"utf-8"` |
+| `HTTPSampler.implementation` | No | `"HttpClient4"` | HTTP client implementation: `HttpClient4` (Apache HttpComponents HttpClient 4.x) or `Java` (JVM built-in). Empty relies on HTTP Request Defaults or `jmeter.httpsampler` property. | `"Java"` |
 | `HTTPSampler.connect_timeout` | No | — | Connection timeout in milliseconds. Number of milliseconds to wait for a connection to open. | `"5000"` |
 | `HTTPSampler.response_timeout` | No | — | Response timeout in milliseconds. Number of milliseconds to wait for a response. Applies to each wait for a response. | `"30000"` |
+| `HTTPSampler.image_parser` | No | `false` | Retrieve all embedded resources from HTML files (images, stylesheets, scripts, frames, etc.) | `"true"` |
+| `HTTPSampler.concurrentDwn` | No | `false` | Download embedded resources concurrently (only effective when `image_parser` is `true`) | `"true"` |
+| `HTTPSampler.concurrentPool` | No | `6` | Pool size for concurrent embedded resource downloads | `"6"` |
+| `HTTPSampler.embedded_url_re` | No | — | Regex - only embedded URLs matching this expression are downloaded. Empty means all embedded resources are downloaded. | `".*\\.jpg"` |
+| `HTTPSampler.embedded_url_exclude_re` | No | — | Regex - embedded URLs matching this expression are NOT downloaded. Takes precedence over `embedded_url_re`. | `".*\\.js"` |
+| `HTTPSampler.ipSourceType` | No | `0` | Source address type: `0` (Hostname), `1` (Device), `2` (Device IPv4), `3` (Device IPv6). Determines how `ipSource` is interpreted. | `"0"` |
+| `HTTPSampler.ipSource` | No | — | Source IP address, device name or interface name to bind the request to (interpretation depends on `ipSourceType`). | `"192.168.1.10"` |
+| `HTTPSampler.proxyScheme` | No | — | Proxy server scheme (e.g. `http`, `https`). Empty uses default `http`. | `"http"` |
+| `HTTPSampler.proxyHost` | No | — | Proxy server hostname | `"proxy.example.com"` |
+| `HTTPSampler.proxyPort` | No | — | Proxy server port. Range: 1-65535. | `"8080"` |
+| `HTTPSampler.proxyUser` | No | — | Proxy server login username | `"proxyuser"` |
+| `HTTPSampler.proxyPass` | No | — | Proxy server login password | `"proxypass"` |
 | `HTTPSampler.follow_redirects` | No | `true` | Follow redirects. Only has effect if auto_redirects is not enabled. If set, the JMeter sampler will check if the response is a redirect and follow it. | `"true"` |
 | `HTTPSampler.auto_redirects` | No | — | Sets the underlying HTTP protocol handler to automatically follow redirects, so they are not seen by JMeter. Should only be used for GET and HEAD requests. | `"false"` |
 | `HTTPSampler.use_keepalive` | No | `true` | JMeter sets the `Connection: keep-alive` header. Works with Apache HttpComponents HttpClient implementations. | `"true"` |
 | `HTTPSampler.DO_MULTIPART_POST` | No | — | Use a `multipart/form-data` or `application/x-www-form-urlencoded` post request. | `"true"` |
+| `HTTPSampler.BROWSER_COMPATIBLE_MULTIPART` | No | `false` | Browser-compatible multipart mode - omits Content-Transfer-Encoding and Charset headers on parts. Enable when the server rejects standard multipart headers. | `"true"` |
 | `HTTPSampler.postBodyRaw` | No | `false` | Send raw body content. When true, send the body as raw data instead of form parameters. | `"true"` |
+| `HTTPSampler.md5` | No | `false` | Save response as MD5 hash instead of storing the full response body. | `"false"` |
 | `HTTPsampler.Arguments` | No | — | HTTP request arguments/parameters as an array of HTTPArgument objects. See Nested Arguments below. | See examples |
 | `HTTPsampler.Files` | No | — | File upload parameters for multipart/form-data requests. See File Upload below. | See examples |
 

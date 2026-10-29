@@ -8,6 +8,7 @@ component:
 properties:
   - name: ModuleController.node_path
     type: Array
+    itemType: String
     required: false
     default: "[]"
     description: |

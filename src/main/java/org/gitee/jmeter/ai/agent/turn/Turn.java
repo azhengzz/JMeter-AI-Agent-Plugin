@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.turn;
 
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
+import org.gitee.jmeter.ai.agent.presenter.CancelCause;
 import org.gitee.jmeter.ai.agent.presenter.TurnHandle;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -17,49 +18,37 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 一个回合（turn）的全部生命周期状态。
+ * 一个回合（turn）的全部生命周期状态：身份句柄、中止位、收尾 latch、私有注入
+ * 队列与执行 future 聚合为单一对象，经 {@code TurnRegistry} 按会话登记。Turn 对象
+ * 自身即回合令牌——身份即令牌（{@code SubagentManager.TurnToken} 视图按 Turn
+ * 身份比较）。
  *
- * <p>收敛前同一回合的状态散落在按 sessionKey 索引的 6 张 map 里
- * （activeTasks/abortFlags/completionLatches/activeTurnTokens/drainTimedOut/
- * activeTurnHandles），跨容器一致性靠「按值条件删除」等约定维持；聚合后共享同一
- * Turn 对象，多容器一致性约束消失。Turn 对象自身即回合令牌（原 activeTurnTokens
- * 的 value + {@code Object turnToken}——身份即令牌，{@code SubagentManager.TurnToken}
- * 视图按 Turn 身份比较）。
- *
- * <p><b>保序武装（staggered arming）：</b>字段并非构造时一次武装——后写字段的写入
- * 时机与被收敛的旧 map put 一一对应，不得被单次构造+注册压扁：
- * 压扁会改变 [startTurn 起步 → future 武装] 窗口内 signalCancel 的行为路径与终态
- * 事件 Kind（如排队回合本应走「abortFlag 置位 + 任务头预检作废」，提前武装 future
- * 会让窗口内的取消改走 future.cancel + TURN_CANCELLED）。武装次序：
+ * <p><b>保序就位（staggered readiness）：</b>字段分三步就位而非构造时一次到位；
+ * 写入时机本身承载语义，不可压扁为单次构造+注册（否则取消窗口内的行为路径与
+ * 终态事件 Kind 会改变）。就位次序：
  * <ol>
- *   <li>构造 + {@code TurnRegistry.register}（= 旧 abortFlags/completionLatches
- *       put，startTurn 最前）：sessionKey/handle/callback/delegated/abortFlag/
- *       completionLatch 就位——signalCancel 从此刻起可置中止位，waitForCancellation
- *       从此刻起可等收尾；</li>
- *   <li>{@link #armQueue()}（= 旧 {@code injectionManager.register} 创建队列并占
- *       路由槽）：队列即回合私有字段（容量取 {@code AiConfig.getInjectionQueueSize()}）；
- *       Phase 4 起路由槽 = 注册表条目 + {@code closed} 标志，队列武装
- *       前 offer/hasActiveRun 视为槽未上线（对应旧「槽 map 尚无 put」窗口）；</li>
- *   <li>{@link #armFuture}（= 旧 activeTasks.put，execute 之后）：signalCancel 据此
- *       future.cancel(true)。早于该时点的取消只能靠 abortFlag，且两个窗口语义不同
- *       （对抗审查 2026-09-03 核定）：[register → armFuture] 内 future 尚未武装，
- *       任务头取消预检（isCancelled 恒 false）不可见——任务照常被取出、于首次迭代
- *       检查 abortFlag 中止，终态为空内容 TURN_COMPLETED（无 TURN_CANCELLED）；
- *       [armFuture → pickup] 内才走 future.cancel + 预检作废 + TURN_CANCELLED。</li>
+ *   <li>构造 + {@code TurnRegistry.register}（startTurn 最前）：
+ *       sessionKey/handle/callback/delegated/abortFlag/completionLatch 就位——
+ *       signalCancel 从此刻起可置中止位，waitForCancellation 从此刻起可等收尾；</li>
+ *   <li>{@link #armQueue()}：创建回合私有注入队列（容量取
+ *       {@code AiConfig.getInjectionQueueSize()}）。注入路由槽 = 注册表条目 +
+ *       {@code closed} 标志，队列就位前 offer/hasActiveRun 视为槽未上线；</li>
+ *   <li>{@link #armFuture}（execute 之后）：signalCancel 据此 future.cancel(true)。</li>
  * </ol>
+ * 两个取消窗口语义不同：[register → armFuture] 内 future 尚未就位，任务头取消预检
+ * （isCancelled 恒 false）不可见——任务照常被取出、于首次迭代检查 abortFlag 中止，
+ * 终态为空内容 TURN_COMPLETED（无 TURN_CANCELLED）；[armFuture → pickup] 内才走
+ * future.cancel + 预检作废 + TURN_CANCELLED。
  *
- * <p><b>句柄为何随构造就位（不按旧 activeTurnHandles.put 的时机后写）：</b>旧
- * activeTurnHandles 在垂死→后继交接期间（后继回合创建于垂死回合收尾的 re-publish，
- * 早于其 future 死亡触发的摘除）靠「前驱句柄尚未被摘除」保持非空——activeTurn 轮询方
- * 不会在交接窗口误判空闲。注册表条目在注册瞬间即整条替换为新回合，若句柄晚于此才
- * 武装，activeTurn（= 条目句柄）会在 [注册 → 武装] 窗口误报空，外部「等回合落定」
- * 的轮询将提前放行、把后继消息误判为可注入。signalCancel 的 TURN_CANCELLED 认领
- * 以 future 已武装且未完成为前提，不受句柄提前可见影响。
+ * <p><b>句柄随构造就位：</b>activeTurn 轮询读注册表条目的句柄，而条目在 register
+ * 瞬间整条替换为新回合——若句柄晚于注册才就位，[注册 → 就位] 窗口会误报空闲，
+ * 外部「等回合落定」的轮询将提前放行、把后继消息误判为可注入。句柄提前可见无
+ * 副作用：signalCancel 对 TURN_CANCELLED 的认领以 future 已就位且未完成为前提。
  *
- * <p><b>可见性：</b>构造后写入的字段一律 volatile——写入线程（提交线程 / loop 线程）
- * 与读取线程（EDT、ipc-worker 等取消方）之间不总有 happens-before 边（executor 提交
- * 的 happens-before 只覆盖任务体内部的读写）。仅 loop 线程读写的字段（epoch/
- * drainTimedOut/ownResetEpoch）volatile 为防御性加严。
+ * <p><b>可见性：</b>构造后写入的字段一律 volatile——写入线程（提交线程 / loop
+ * 线程）与读取线程（EDT、ipc-worker 等取消方）之间不总有 happens-before 边
+ * （executor 提交的 happens-before 只覆盖任务体内部的读写）。仅 loop 线程读写的
+ * 字段（epoch/drainTimedOut/ownResetEpoch）volatile 为防御性加严。
  */
 public final class Turn {
 
@@ -68,16 +57,47 @@ public final class Turn {
     /** {@link #ownResetEpoch} 的「未写入」哨兵（代数从 0 起，-1 不与真值冲突）。 */
     public static final long OWN_RESET_EPOCH_UNSET = -1L;
 
-    // ---- 提交时定（构造器），final ----
+    // ---- 提交时定（构造器），final：register 一完成即须可用，不依赖任何后写字段 ----
 
+    /**
+     * 回合归属的会话键：TurnRegistry 按它登记/查找在跑回合，signalCancel、
+     * 注入 offer、hasActiveRun 均靠它路由到本回合。
+     */
     private final String sessionKey;
+
+    /**
+     * 回合身份句柄：进程唯一 id + 来源（TurnOrigin）+ 显示域元数据 +
+     * {@code tryClaimTerminal} 终态去重位。事件流订阅方靠它区分回合，
+     * 终态事件「恰好一次」由它仲裁。
+     */
     private final TurnHandle handle;
+
+    /**
+     * 本回合的进度回调：经 {@code buildProgressHook} 包成 AgentHook 挂进
+     * runner，LLM/工具的进度事件从这里回传。
+     */
     private final AgentLoop.ProgressCallback callback;
+
+    /**
+     * 是否 IPC 委派回合（delegate_to_instance 在对端实例上跑的回合）：
+     * 门控显示域与注入行为（如 goal 提示不注入委派回合）。
+     */
     private final boolean delegated;
+
+    /**
+     * 中止位：signalCancel 置位（回合自身命令触发的取消按回合身份自我豁免），
+     * 回合内各 abort 检查点轮询读取后中止；future 未就位窗口内的取消只能靠它。
+     */
     private final AtomicBoolean abortFlag;
+
+    /**
+     * 收尾信号：任务体外层 finally 先按值摘注册表条目再 countDown，
+     * waitForCancellation 在后台线程等它——signalCancel 得以保持非阻塞
+     * （EDT 可同步调），「等停稳」再异步等 latch。
+     */
     private final CountDownLatch completionLatch;
 
-    // ---- 保序武装的后写字段，volatile（见类 javadoc「保序武装」） ----
+    // ---- 保序就位的后写字段，volatile（见类 javadoc「保序就位」） ----
 
     private volatile LinkedBlockingQueue<InjectionItem> queue;
     private volatile CompletableFuture<AgentResponse> future;
@@ -125,6 +145,14 @@ public final class Turn {
      * 读写，随回合对象消亡，无需显式清理。
      */
     private boolean drainTimedOut;
+
+    /**
+     * 本回合被取消的原因：signalCancel 置中止位时同步记录（写入线程 = 取消方，
+     * EDT/ipc-worker/loop 线程均可能；读取 = 回合终态收尾的 loop 线程，volatile
+     * 跨线程可见）。回合终态的 goal 自动收敛据此区分「用户停止」（USER_STOP →
+     * goal 落盘 PAUSED）与 RESET/SILENT/TIMEOUT（不收敛）。null = 未被取消。
+     */
+    private volatile CancelCause cancelCause;
 
     public Turn(String sessionKey, TurnHandle handle, AgentLoop.ProgressCallback callback,
             boolean delegated) {
@@ -189,7 +217,7 @@ public final class Turn {
         return drainTimedOut;
     }
 
-    /** 武装注入队列（时机 ②，见类 javadoc「保序武装」）：队列即本回合私有，容量取 AiConfig。 */
+    /** 注入队列就位（时机 ②，见类 javadoc「保序就位」）：队列即本回合私有，容量取 AiConfig。 */
     public void armQueue() {
         this.queue = new LinkedBlockingQueue<>(AiConfig.getInjectionQueueSize());
     }
@@ -206,7 +234,7 @@ public final class Turn {
 
     /**
      * 从本回合队列抽走至多 {@code limit} 条（原 {@code InjectionManager.drain} 随
-     * Phase 4 迁入）。按句柄消费——回合只消费自己的队列，null 队列（未武装）返回空表。
+     * Phase 4 迁入）。按句柄消费——回合只消费自己的队列，null 队列（未就位）返回空表。
      */
     public List<InjectionItem> drain(int limit) {
         if (queue == null) {
@@ -265,7 +293,7 @@ public final class Turn {
         return remaining;
     }
 
-    /** 武装 future（时机 ③，见类 javadoc「保序武装」）。 */
+    /** future 就位（时机 ③，见类 javadoc「保序就位」）。 */
     public void armFuture(CompletableFuture<AgentResponse> future) {
         this.future = future;
     }
@@ -297,5 +325,15 @@ public final class Turn {
     /** 子代理等待超时打标（本回合后续检查点不再阻塞等待，见 {@link #drainTimedOut}）。 */
     public void markDrainTimedOut() {
         this.drainTimedOut = true;
+    }
+
+    /** signalCancel 置中止位时记录取消原因（见 {@link #cancelCause}）。 */
+    public void markCancelCause(CancelCause cause) {
+        this.cancelCause = cause;
+    }
+
+    /** 本回合的取消原因；null = 未被取消（见 {@link #cancelCause}）。 */
+    public CancelCause cancelCause() {
+        return cancelCause;
     }
 }

@@ -28,7 +28,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 import javax.swing.JComboBox;
-import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -97,12 +96,11 @@ class AiChatPanelContextRingTest {
 
     @Test
     void usageProgressUpdatesRingWithoutTouchingChatOrLoading() throws Exception {
-        JTextPane chatArea = field(panel, "chatArea");
         TurnHandle turn = new TurnHandle(sessionKey, TurnOrigin.IPC_CLI, "[from cli] hello", false);
         panel.onTurnEvent(TurnEvent.started(turn));
         SwingUtilities.invokeAndWait(() -> { });
-        assertEquals(1, loadingIndicatorCount(chatArea), "前置：回合武装后恰一个 loading 指示");
-        String htmlBefore = chatTextOnEdt(chatArea);
+        assertEquals(1, loadingIndicatorCount(panel), "前置：回合武装后恰一个 loading 指示");
+        String htmlBefore = chatTextOnEdt(panel);
 
         panel.onTurnEvent(TurnEvent.progress(turn,
                 ProgressUpdate.usage(Map.of("prompt_tokens", 12_345, "completion_tokens", 30))));
@@ -113,9 +111,9 @@ class AiChatPanelContextRingTest {
         int pct = (int) (12_345 / (double) total * 100);
         assertEquals("Context: 12k / " + (total / 1024) + "k (" + pct + "%)", ring.getToolTipText(),
                 "tooltip 反映最近一次调用的输入 tokens 与窗口配置（百分比随分母动态推导，防配置默认值变更假红）");
-        assertEquals(1, loadingIndicatorCount(chatArea),
+        assertEquals(1, loadingIndicatorCount(panel),
                 "USAGE 进度不得清除回合的 loading 指示（loading 只由回合生命周期规则管理）");
-        assertEquals(htmlBefore, chatTextOnEdt(chatArea),
+        assertEquals(htmlBefore, chatTextOnEdt(panel),
                 "USAGE 进度不得在聊天转录渲染任何文本行");
     }
 
@@ -174,19 +172,23 @@ class AiChatPanelContextRingTest {
 
     // ---- helpers（接线模式同 AiChatPanelIpcTurnPresenterTest）----
 
-    private static int loadingIndicatorCount(JTextPane chatArea) {
-        return chatTextOnEdt(chatArea).split("AI is thinking", -1).length - 1;
+    private static int loadingIndicatorCount(AiChatPanel panel) {
+        return chatTextOnEdt(panel).split("AI is thinking", -1).length - 1;
     }
 
-    private static String chatTextOnEdt(JTextPane chatArea) {
+    private static String chatTextOnEdt(AiChatPanel panel) {
         try {
             java.util.concurrent.atomic.AtomicReference<String> ref =
                     new java.util.concurrent.atomic.AtomicReference<>();
-            SwingUtilities.invokeAndWait(() -> ref.set(chatArea.getText()));
+            SwingUtilities.invokeAndWait(() -> ref.set(transcriptOf(panel).visibleTextForTests()));
             return ref.get();
         } catch (Exception e) {
-            throw new IllegalStateException("cannot read chatArea on EDT", e);
+            throw new IllegalStateException("cannot read transcript on EDT", e);
         }
+    }
+
+    private static TranscriptView transcriptOf(AiChatPanel panel) {
+        return field(panel, "transcript");
     }
 
     @SuppressWarnings("unchecked")

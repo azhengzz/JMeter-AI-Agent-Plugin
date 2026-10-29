@@ -170,11 +170,34 @@ public class GetTestResultsTool extends AbstractTool {
                 sb.append("- **Response Time**: ").append(s.responseTime).append(" ms\n");
                 sb.append("- **Latency**: ").append(s.latency).append(" ms\n");
 
+                appendFailedAssertions(sb, s);
                 appendSection(sb, "Request Headers", s.requestHeaders);
                 appendSection(sb, "Request Body", s.requestData);
                 appendSection(sb, "Response Headers", s.responseHeaders);
                 appendSection(sb, "Response Body", s.responseData);
             }
+        }
+    }
+
+    /**
+     * Render failed assertions for a sample. Only failures are shown — passing assertions
+     * are noise, and samples without assertion failures keep the exact pre-existing output
+     * shape (no empty assertion block).
+     */
+    private void appendFailedAssertions(StringBuilder sb, AgentResultCollector.SampleSnapshot s) {
+        if (s.assertions == null) return;
+        boolean headerWritten = false;
+        for (AgentResultCollector.AssertionSnapshot a : s.assertions) {
+            if (a == null || !a.failed) continue;
+            if (!headerWritten) {
+                sb.append("\n**Failed Assertions:**\n");
+                headerWritten = true;
+            }
+            sb.append("- ").append(a.name != null && !a.name.isEmpty() ? a.name : "(unnamed)")
+                    .append(": ")
+                    .append(a.failureMessage != null && !a.failureMessage.isEmpty()
+                            ? a.failureMessage : "(no failure message)")
+                    .append("\n");
         }
     }
 

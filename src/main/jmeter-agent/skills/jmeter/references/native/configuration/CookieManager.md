@@ -29,7 +29,7 @@ Cookies with `null` values are ignored by default. This can be changed by settin
 | `CookieManager.cookies` → `Cookie.domain` | No | — | Cookie domain (hostname of the server without http://) | `"example.com"` |
 | `CookieManager.cookies` → `Cookie.path` | No | `"/"` | Cookie path | `"/"` |
 | `CookieManager.cookies` → `Cookie.secure` | No | `false` | Whether cookie is secure (HTTPS only) | `"false"` |
-| `CookieManager.cookies` → `Cookie.expires` | No | `0` | Cookie expiration time (timestamp, 0 = session cookie) | `"0"` |
+| `CookieManager.cookies` → `Cookie.expires` | — | `0` | NOT settable via tools (rejected as unknown). JMeter's GUI offers no entry for it either — cookies are always created non-expiring (`0`). Omit this field. | — |
 | `CookieManager.cookies` → `Cookie.path_specified` | No | `true` | Whether path was explicitly specified | `"true"` |
 | `CookieManager.cookies` → `Cookie.domain_specified` | No | `true` | Whether domain was explicitly specified | `"true"` |
 

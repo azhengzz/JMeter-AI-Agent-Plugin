@@ -29,10 +29,11 @@ properties:
     required: true
     min: 1
     max: 52
-    description: "Type of comparison (2=Contains, 1=Match, 8=Equals, 16=Substring, 4=Not, 32=Or, combinations with bitwise OR)"
+    description: "Bitmask of comparison mode (1=Matches whole-text regex, 2=Contains regex, 8=Equals literal, 16=Substring literal, 4=Not, 32=Or); combine with bitwise OR. Multiple patterns are AND-ed unless 32 (Or) is set - e.g. 34=Contains+Or or 40=Equals+Or for any-pattern-passes, or a single regex 200|201 with Contains(2). Only 1/2 treat patterns as regex."
 
   - name: Asserion.test_strings
     type: Array
+    itemType: String
     required: false
     description: "Multiple patterns to match (collection of strings)"
 

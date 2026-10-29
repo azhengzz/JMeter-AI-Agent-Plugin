@@ -8,8 +8,11 @@ import org.gitee.jmeter.ai.agent.hooks.AgentHook;
 import org.gitee.jmeter.ai.agent.hooks.AgentHookContext;
 import org.gitee.jmeter.ai.agent.memory.MemoryConsolidator;
 import org.gitee.jmeter.ai.agent.model.*;
+import org.gitee.jmeter.ai.agent.session.GoalRuntime;
+import org.gitee.jmeter.ai.agent.session.GoalState;
 import org.gitee.jmeter.ai.agent.session.Session;
 import org.gitee.jmeter.ai.agent.session.SessionManager;
+import org.gitee.jmeter.ai.agent.snapshot.TurnPlanSnapshotService;
 import org.gitee.jmeter.ai.agent.tools.Tool;
 import org.gitee.jmeter.ai.agent.tools.ToolRegistry;
 import org.gitee.jmeter.ai.ipc.InstanceRegistry.InstanceInfo;
@@ -111,8 +114,19 @@ public class AgentRunner {
         // signalCancel 先置 abort flag 再 interrupt,flag 才是取消的唯一事实来源。
         Thread.interrupted();
 
-        // Bind the run identity so tools (e.g. spawn) can learn their session.
-        AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId));
+        // 回合快照·起点：同步克隆计划树为内存基线（EDT 克隆 + 异步序列化），必须先于
+        // 本回合任何工具对树的修改。turnId 缺席（子代理/直构测试运行）或无 GUI 时
+        // 返回 null，终态侧对 null 安全 no-op。克隆经「清位执行、结束回置」保护：入口
+        // 清扫与 EDT 等待之间落进的上一回合 Stop 迟到中断不会击穿克隆，中断位事后
+        // 原样回置，isAborted 语义不变。
+        TurnPlanSnapshotService.TurnSnapshotScope snapshotScope = TurnPlanSnapshotService.get()
+                .beginTurn(spec.getTurnId(), spec.getOrigin());
+
+        // Bind the run identity so tools (e.g. spawn) can learn their session. The
+        // goal-requested flag rides the same channel: GoalTools read it as their
+        // permission gate (create_goal / update_goal replace only on /goal turns),
+        // and ToolRegistry replays it onto pooled tool-executor threads.
+        AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId, spec.isGoalRequested()));
         // isDelegated() == true 标识"当前这一个 Agent 回合是被别的实例委派过来的"，
         // DelegationGuard.begin() 在这个回合的执行线程上做一个 ThreadLocal 标记，
         // 用于禁止这个回合里再往别的实例委派（深度 1 硬阻断）。
@@ -173,12 +187,36 @@ public class AgentRunner {
                 // 历史快照必须先于早落盘：刚落盘的触发消息不得经 getHistory 再入
                 // 上下文（否则 LLM 上下文中触发消息出现两次）
                 List<Message> history = session.getHistory(AiConfig.getMaxHistorySize());
+                // goal 块（/goal 请求态或活跃 goal 的验证纪律）：委派回合不注入——
+                // 委派任务是宿主会话外的独立任务，不承载 goal 语境
+                String goalContext = spec.isDelegated() ? ""
+                        : GoalRuntime.buildGoalContext(spec.isGoalRequested(), GoalState.load(session));
                 messages = contextBuilder.buildMessages(
                     history,
                     spec.getUserMessage(),
                     toolRegistry.getToolDefinitions(),
-                    spec.getInstanceMentions()
+                    null,
+                    null,
+                    spec.getInstanceMentions(),
+                    goalContext
                 );
+                if (spec.isHostSyntheticTrigger()) {
+                    // 宿主合成触发（goal 续跑/交回切片）创建点即挂标记：
+                    // 三条落盘路径（早落盘/终局/中止）写出的均为标记版，
+                    // 记忆/归档据此跳过，永不当作用户话语；LLM 回放不受影响
+                    Message triggerMsg = messages.get(messages.size() - 1);
+                    Map<String, Object> syntheticMeta = new java.util.LinkedHashMap<>();
+                    if (triggerMsg.getMetadata() != null) {
+                        syntheticMeta.putAll(triggerMsg.getMetadata());
+                    }
+                    syntheticMeta.put(ContextBuilder.HOST_SYNTHETIC_META_KEY, "goal");
+                    messages.set(messages.size() - 1, Message.builder()
+                            .role(triggerMsg.getRole())
+                            .content(triggerMsg.getContent())
+                            .metadata(syntheticMeta)
+                            .timestamp(triggerMsg.getTimestamp())
+                            .build());
+                }
                 // 早落盘：回合开始即把触发 user 消息（含 Runtime Context 块 +
                 // 标记，与终局同一变换）写入 jsonl——Stop/取消/崩溃后刚发的消息不再丢失
                 if (spec.isPersistSession()) {
@@ -234,6 +272,12 @@ public class AgentRunner {
                 .endTime(Instant.now())
                 .build();
         } finally {
+            // 回合快照·终态：完成/Stop 取消/异常中止/会话重置四条终态路径都流经本
+            // finally——在调用线程上同步采样终点克隆（Stop 回合此际仍带中断位，克隆
+            // 内部清位执行、结束回置，下方 Thread.interrupted() 清扫的次序不变量保持），
+            // 随后提交 EDT-free 异步任务做比对与条件落盘（EDT-free 是关闭冲刷可达的
+            // 前提：System.exit 期间 EDT 不泵事件）。
+            TurnPlanSnapshotService.get().completeTurn(snapshotScope);
             // The run thread is reused (agent-loop dedicated thread across turns /
             // pooled subagent thread): clear the guard so a later run on this
             // thread is not wrongly blocked from delegating.
@@ -281,7 +325,7 @@ public class AgentRunner {
         }
 
         injectionCycle++;
-        appendInjectedMessages(currentMessages, items);
+        appendInjectedMessages(currentMessages, items, goalContextFor(spec));
 
         log.info("Injected {} messages at cycle {}/{}",
             items.size(), injectionCycle, MAX_INJECTION_CYCLES);
@@ -303,6 +347,11 @@ public class AgentRunner {
      * Package-private for testability.
      */
     void appendInjectedMessages(List<Message> currentMessages, List<InjectionItem> items) {
+        appendInjectedMessages(currentMessages, items, "");
+    }
+
+    void appendInjectedMessages(List<Message> currentMessages, List<InjectionItem> items,
+                                 String goalContextForInjection) {
         List<String> texts = new ArrayList<>(items.size());
         Map<String, InstanceInfo> mentions = new LinkedHashMap<>();
         for (InjectionItem item : items) {
@@ -312,7 +361,8 @@ public class AgentRunner {
             }
         }
         String block = contextBuilder.buildInjectionRuntimeContext(
-                List.copyOf(mentions.values()), toolRegistry.getToolDefinitions());
+                List.copyOf(mentions.values()), toolRegistry.getToolDefinitions(),
+                goalContextForInjection);
         String joined = String.join("\n\n", texts);
         if (currentMessages.isEmpty()
                 || currentMessages.get(currentMessages.size() - 1).getRole() != Message.Role.USER) {
@@ -352,6 +402,8 @@ public class AgentRunner {
         int iteration;
         int injectionCycles;
         boolean hadInjections;
+        /** 连续「无工具调用收工」计数（goal nudge 的防死循环阀：连续两次放行）。 */
+        int consecutivePlainFinals;
         final List<String> toolsUsed = new ArrayList<>();
         final AgentHook hook;
         final LlmCallOptions llmOptions;
@@ -490,6 +542,12 @@ public class AgentRunner {
         // Check max iterations
         if (state.finalContent == null && state.iteration >= state.maxIterations) {
             log.warn("Max iterations reached: {}", state.maxIterations);
+            // goal 活跃的回合不在此收尾——stopReason 交给 AgentLoop 的续跑机制判定。
+            // 被 Stop/取消打断在最后一迭代的运行不是干净的迭代耗尽：abort 置位时
+            // 不打 max_iterations 标（否则 AgentLoop 会为一次被显式停止的回合排续跑）
+            if (!isAborted(spec)) {
+                context.setStopReason("max_iterations");
+            }
 
             // Injection drain 6: after max iterations (drain only, don't continue loop).
             // 手写保留、不走 checkpoint:此处绕过 MAX_INJECTION_CYCLES 上限、
@@ -498,7 +556,7 @@ public class AgentRunner {
                 List<InjectionItem> remaining = spec.getInjectionCallback().apply(MAX_INJECTIONS_PER_TURN);
                 if (remaining != null && !remaining.isEmpty()) {
                     state.hadInjections = true;
-                    appendInjectedMessages(state.currentMessages, remaining);
+                    appendInjectedMessages(state.currentMessages, remaining, goalContextFor(spec));
                     log.info("Drained {} remaining injected messages after max iterations", remaining.size());
                 }
             }
@@ -571,6 +629,9 @@ public class AgentRunner {
         );
 
         if (state.hook != null) state.hook.beforeExecuteTools(response.getToolCalls(), context);
+
+        // 工具活动重置 goal nudge 的连续收工计数
+        state.consecutivePlainFinals = 0;
 
         // Check abort before executing tools
         if (isAborted(spec)) {
@@ -692,7 +753,76 @@ public class AgentRunner {
             return true;
         }
 
+        // Goal nudge（防收工）：goal 活跃且未被终结时，把无工具的最终回复顶回去。
+        // 优先级低于真实用户注入（inj2 已先消费完队列）。冒烟上限已达时注入的
+        // 是「结构化交回」指令而非普通 nudge。连续两次无工具调用则放行（防死
+        // 循环），放行的回复附带 goal 未终结说明。
+        if (tryGoalNudge(state, spec, context)) {
+            if (state.hook != null) {
+                state.hook.onIntermediateResponse(state.finalContent, context);
+            }
+            state.finalContent = null;
+            if (state.hook != null) state.hook.afterIteration(context);
+            return true;
+        }
+
         return false;
+    }
+
+    /**
+     * 注入合并用的 goal 块：委派/子代理/无会话路径为空串；否则按回合的
+     * goalRequested/活跃 goal 态重建（与回合起点同构），使中途注入的用户消息与
+     * 回合触发消息携带同一 goal 语境（合并基线剥离了原 Runtime Context，不重建则
+     * 本回合后续迭代丢失 goal 块——含 /goal 首迭代的请求态 guidance）。
+     */
+    private String goalContextFor(AgentRunSpec spec) {
+        if (spec == null || spec.isDelegated() || !spec.isPersistSession()) {
+            return "";
+        }
+        Session session = sessionManager.get(spec.getSessionKey());
+        GoalState goal = session == null ? null : GoalState.load(session);
+        return GoalRuntime.buildGoalContext(spec.isGoalRequested(), goal);
+    }
+
+    /**
+     * @return true = 已注入 goal 顶回消息、回合应继续；false = 放行收工（第二次
+     * 连续无工具收工时附未终结说明）。
+     */
+    private boolean tryGoalNudge(LoopState state, AgentRunSpec spec, AgentHookContext context) {
+        if (spec.isDelegated() || !spec.isPersistSession()) {
+            return false;
+        }
+        GoalState goal = GoalState.load(context.getSession());
+        if (goal == null || !goal.isActive()) {
+            return false;
+        }
+        state.consecutivePlainFinals++;
+        if (state.consecutivePlainFinals >= 2) {
+            state.finalContent = (state.finalContent == null || state.finalContent.isEmpty()
+                    ? "" : state.finalContent + "\n\n")
+                    + "[Goal still active and not terminated. "
+                    + "Ask the agent to continue it, or to call update_goal to finish/cancel it.]";
+            return false;
+        }
+        // 预算耗尽且证据缺失才切「结构化交回」：第 3 次冒烟+静态双 PASS 的 goal 用普通
+        // nudge——handback 的「still failing」口径对证据已齐的 goal 是误报。门禁点
+        // 仲裁联动：预算虽尽但最近一次（超时的）冒烟已事后完成且通过，交回口径
+        // 同样是误报——回落普通 nudge（complete 门禁会经仲裁补章放行）
+        String message = goal.getSmokeAttempts() >= AiConfig.getGoalSmokeLimit()
+                && !goal.hasVerificationEvidence()
+                && !org.gitee.jmeter.ai.agent.tools.jmeter.execution.AgentResultCollector
+                        .completedAgentSmokePassed()
+                ? GoalRuntime.handbackText(goal)
+                : GoalRuntime.nudgeText(goal);
+        state.currentMessages.add(Message.builder()
+                .role(Message.Role.USER)
+                .content(message)
+                .metadata(java.util.Map.of(ContextBuilder.HOST_SYNTHETIC_META_KEY, "goal"))
+                .build());
+        state.hadInjections = true;
+        log.info("Goal nudge injected for session {} (smoke attempts {}/{})",
+                spec.getSessionKey(), goal.getSmokeAttempts(), AiConfig.getGoalSmokeLimit());
+        return true;
     }
 
     /**
@@ -915,6 +1045,8 @@ public class AgentRunner {
             if (persistable == null) {
                 return false;
             }
+            // 宿主合成标记已在消息创建点挂上（run 入口对末位触发消息），
+            // toPersistableMessage 原样保留 metadata——此处无需再补
             session.addMessage(persistable);
             if (!resetEpochUnchanged(spec, epochAtStart)) {
                 return false;

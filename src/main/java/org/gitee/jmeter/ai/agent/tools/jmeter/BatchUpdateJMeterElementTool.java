@@ -5,6 +5,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.gitee.jmeter.ai.agent.model.ToolResult;
 import org.gitee.jmeter.ai.agent.tools.ValidationResult;
+import org.gitee.jmeter.ai.agent.tools.jmeter.property.SchemaBasedPropertyHandler;
 import org.gitee.jmeter.ai.agent.tools.jmeter.utils.JMeterTreeUtils;
 import org.gitee.jmeter.ai.agent.validation.ComponentSchema;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
@@ -154,7 +155,10 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
             deselectCurrentNode(guiPackage);
 
             List<ElementResult> results = new ArrayList<>();
-            applyBatchUpdateOnEdt(guiPackage, nodeMap, universalProps, schemaProps, schema, results);
+            String guardError = applyBatchUpdateOnEdt(guiPackage, nodeMap, universalProps, schemaProps, schema, results);
+            if (guardError != null) {
+                return ToolResult.error(guardError);
+            }
 
             // Step 7: Build aggregated result (type + updated-properties block as header extra)
             StringBuilder headerExtra = new StringBuilder();
@@ -170,13 +174,30 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
         }
     }
 
-    private void applyBatchUpdateOnEdt(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap,
+    private String applyBatchUpdateOnEdt(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap,
                                         Map<String, String> universalProps, Map<String, Object> schemaProps,
                                         ComponentSchema schema, List<ElementResult> results) {
         // Property writes + GUI refresh run atomically on EDT (mirrors the single-element
         // UpdateJMeterElementTool pattern); this serializes TestElement writes with any
         // concurrent EDT configure() call and prevents the half-written-TestElement race.
+        final String[] guardError = new String[1];
         Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
+            // Non-scalar guard: pre-scan ALL target elements before any write — one
+            // violation refuses the whole call (up-front, mirroring Step 4 validation),
+            // so no element is left partially updated
+            List<SchemaBasedPropertyHandler.PropertyGuardViolation> guardViolations = new ArrayList<>();
+            for (JMeterTreeNode node : nodeMap.values()) {
+                guardViolations.addAll(propertyHandler.scanGuardViolations(node.getTestElement(), schemaProps, schema));
+            }
+            if (!guardViolations.isEmpty()) {
+                for (SchemaBasedPropertyHandler.PropertyGuardViolation violation : guardViolations) {
+                    log.warn("Refusing to overwrite non-scalar property '{}' ({}) with a plain scalar on {}",
+                            violation.getPropertyName(), violation.getStructuredKind(), violation.getElementDescription());
+                }
+                guardError[0] = SchemaBasedPropertyHandler.buildGuardErrorMessage(guardViolations);
+                return; // no writes, no refresh
+            }
+
             // Per-element property writes (each try/catch so one failure doesn't stop the rest)
             for (Map.Entry<Integer, JMeterTreeNode> entry : nodeMap.entrySet()) {
                 int id = entry.getKey();
@@ -213,6 +234,7 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
         if (edtError != null) {
             log.error("Failed to batch update elements on EDT", edtError);
         }
+        return guardError[0];
     }
 
 }

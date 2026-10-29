@@ -20,6 +20,7 @@ import java.util.*;
 public class Session {
     private final String key;
     private final List<Message> messages;
+    private final Map<String, Object> metadata = new LinkedHashMap<>();
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private int lastConsolidatedIndex;
@@ -162,12 +163,46 @@ public class Session {
     }
 
     /**
-     * Clear all messages from the session
+     * Clear all messages from the session. Metadata survives the clear by design
+     * (Nanobot parity: a sustained goal outlives a conversation reset — only
+     * update_goal terminates it).
      */
     public synchronized void clear() {
         messages.clear();
         lastConsolidatedIndex = 0;
         updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Read a session-metadata value (e.g. the goal state blob). Null when absent.
+     */
+    public synchronized Object getMetadataValue(String name) {
+        return metadata.get(name);
+    }
+
+    /**
+     * Write a session-metadata value. Pass null to remove the key.
+     */
+    public synchronized void putMetadataValue(String name, Object value) {
+        if (value == null) {
+            metadata.remove(name);
+        } else {
+            metadata.put(name, value);
+        }
+        updatedAt = LocalDateTime.now();
+    }
+
+    /** Copy of the metadata map for persistence (iterable outside the monitor). */
+    public synchronized Map<String, Object> getMetadataSnapshot() {
+        return new LinkedHashMap<>(metadata);
+    }
+
+    /** Replace metadata wholesale (load path). */
+    public synchronized void setMetadata(Map<String, Object> loaded) {
+        metadata.clear();
+        if (loaded != null) {
+            metadata.putAll(loaded);
+        }
     }
 
     /**

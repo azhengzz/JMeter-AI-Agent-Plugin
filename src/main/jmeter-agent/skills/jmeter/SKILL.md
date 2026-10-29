@@ -191,6 +191,12 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `aggregatereport` | Native | Aggregate Report | [Aggregate Report](./references/native/listeners/AggregateReport.md) | [Schema](./references/native/listeners/AggregateReport.schema.yaml) |
 | `backendlistener` | Native | Send results to backend | [Backend Listener](./references/native/listeners/BackendListener.md) | [Schema](./references/native/listeners/BackendListener.schema.yaml) |
 
+### Workflow References
+
+| Reference | Description |
+|-----------|-------------|
+| [Browser Recording Workflow](./references/recording-workflow.md) | Recorded-session data format (events.jsonl/cookies.json) and the enhancement playbook (business grouping, correlation, parameterization, assertions) |
+
 ## Important: HTTP Arguments Format
 
 When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`, `graphqlhttprequest`, etc.), the tool automatically initializes an empty `HTTPsampler.Arguments` if not provided.
@@ -412,6 +418,13 @@ JSR223 PostProcessor: ${__setProperty(token, ${token},)}
 // In Thread Group 2 - Read from property
 HTTP Header Manager: Authorization: Bearer ${__P(token,)}
 ```
+
+## Plan Snapshots (Turn Rollback Baselines)
+
+Every agent turn that changes the test plan leaves a pre-turn baseline `.jmx` in the
+workspace `autosave/` directory — to undo a bad turn, open the newest snapshot that
+precedes it with `open_jmx_file`. Naming, directory resolution and the restore procedure:
+[references/plan-snapshots.md](references/plan-snapshots.md).
 
 ## JMeter Functions
 

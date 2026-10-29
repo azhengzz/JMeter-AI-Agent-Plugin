@@ -43,6 +43,8 @@ public class SelectionInitCommand implements Command {
 
     private static final Logger log = LoggerFactory.getLogger(SelectionInitCommand.class);
     private static final AtomicBoolean INSTALLED = new AtomicBoolean(false);
+    /** 回合快照关闭冲刷的有界等待上限（毫秒）。 */
+    private static final long SNAPSHOT_FLUSH_TIMEOUT_MS = 2_000L;
 
     public SelectionInitCommand() {
         // 构造时打日志，证明 ServiceLoader 已经发现并实例化本类
@@ -71,10 +73,9 @@ public class SelectionInitCommand implements Command {
             // 保证进程启动只执行一次,不随 provider 切换 / 关闭整合 / 每次 IPC 解析重复触发。
             org.gitee.jmeter.ai.utils.AiConfig.logConfiguration();
             java.nio.file.Path workspacePath = org.gitee.jmeter.ai.utils.AiConfig.getWorkspacePath();
-            if (!org.gitee.jmeter.ai.utils.WorkspaceInitializer.isInitialized(workspacePath)) {
-                log.info("Initializing workspace: {}", workspacePath);
-                org.gitee.jmeter.ai.utils.WorkspaceInitializer.initialize(workspacePath);
-            }
+            // 逐文件同步 workspace 模板：initialize 内部按文件存在性补充（缺哪个拷哪个，
+            // 绝不覆盖已有内容），每次启动幂等执行，升级新增的模板由此落进存量 workspace
+            org.gitee.jmeter.ai.utils.WorkspaceInitializer.initialize(workspacePath);
             SelectionTracker.install();
             registerRunCaptureListeners();
             registerCloseConsolidationHooks();
@@ -167,6 +168,12 @@ public class SelectionInitCommand implements Command {
             Runtime.getRuntime().addShutdownHook(new Thread(
                     org.gitee.jmeter.ai.agent.memory.CloseConsolidationCoordinator::archiveSilently,
                     "ai-close-consolidation"));
+            // 回合快照关闭冲刷：有界排空未落盘的快照任务（约 2s），防「回合刚结束就
+            // 关 JMeter」丢最后一份基线；超窗放弃不阻断退出
+            Runtime.getRuntime().addShutdownHook(new Thread(
+                    () -> org.gitee.jmeter.ai.agent.snapshot.TurnPlanSnapshotService.get()
+                            .flushPending(SNAPSHOT_FLUSH_TIMEOUT_MS),
+                    "ai-turn-snapshot-flush"));
             log.info("Close-consolidation hooks registered (ExitCommand pre-listener + shutdown hook)");
         } catch (Throwable t) {
             log.error("Failed to register close-consolidation hooks", t);

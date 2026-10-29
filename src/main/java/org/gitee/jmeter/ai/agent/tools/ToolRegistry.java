@@ -279,8 +279,8 @@ public class ToolRegistry {
         // Check if tool has custom timeout
         Tool tool = tools.get(name);
         long effectiveTimeout = timeoutMs;
-        if (tool != null && tool.getTimeoutMs() > 0) {
-            effectiveTimeout = tool.getTimeoutMs();
+        if (tool != null && tool.getTimeoutMs(parameters) > 0) {
+            effectiveTimeout = tool.getTimeoutMs(parameters);
         }
 
         final long finalTimeout = effectiveTimeout;

@@ -17,6 +17,12 @@ properties:
     required: false
     description: Default domain name or IP address
 
+  - name: HTTPSampler.implementation
+    type: String
+    required: false
+    enum: ["", "HttpClient4", "Java"]
+    description: HTTP client implementation used by samplers that take this default (empty = JMeter picks)
+
   - name: HTTPSampler.port
     type: Integer
     required: false

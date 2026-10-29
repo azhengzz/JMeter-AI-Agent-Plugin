@@ -11,6 +11,8 @@ import javax.swing.JPanel;
 import javax.swing.UIManager;
 
 import org.apache.jmeter.testelement.TestElement;
+import org.gitee.jmeter.ai.gui.theme.ThemeColors;
+import org.gitee.jmeter.ai.gui.theme.UiTokens;
 import org.gitee.jmeter.ai.selection.SelectionSnapshot;
 import org.gitee.jmeter.ai.utils.JMeterElementManager;
 
@@ -36,22 +38,16 @@ public class SelectionContextBar extends JPanel {
     private static final int ROW_COUNT = 2;
 
     private final Line[] lines;
-    private final Font plainFont;
-    private final Font boldFont;
-    private final Color defaultColor;
-    private final Color secondaryColor;
-    private final Color focusColor = new Color(70, 130, 180);
+    private Font plainFont;
+    private Font boldFont;
+    private Color defaultColor;
+    private Color secondaryColor;
+    private Color focusColor;
     private String lastKey = "";
 
     public SelectionContextBar() {
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(0, PADDING_X, 0, 0));
-
-        Font baseFont = UIManager.getFont("Label.font");
-        plainFont = baseFont != null ? baseFont.deriveFont(11f) : new Font(Font.SANS_SERIF, Font.PLAIN, 11);
-        boldFont = plainFont.deriveFont(Font.BOLD);
-        defaultColor = getThemeColor("Label.foreground", new Color(60, 60, 60));
-        secondaryColor = getThemeColor("Label.disabledForeground", new Color(130, 130, 130));
 
         lines = new Line[ROW_COUNT];
         for (int i = 0; i < ROW_COUNT; i++) {
@@ -64,7 +60,24 @@ public class SelectionContextBar extends JPanel {
         setMinimumSize(fixed);
         setMaximumSize(fixed);
 
+        applyTheme();
         update(SelectionSnapshot.empty());
+    }
+
+    /**
+     * 按当前主题重新派生颜色与字体（Look and Feel 切换时由聊天面板调用）。
+     * 依旧只 repaint、不 revalidate —— 不破坏本组件的核心约束。
+     */
+    public void applyTheme() {
+        Font baseFont = UIManager.getFont("Label.font");
+        plainFont = baseFont != null
+                ? UiTokens.caption(baseFont)
+                : new Font(Font.SANS_SERIF, Font.PLAIN, 11);
+        boldFont = plainFont.deriveFont(Font.BOLD);
+        defaultColor = ThemeColors.foreground();
+        secondaryColor = ThemeColors.secondaryText();
+        focusColor = ThemeColors.info();
+        repaint();
     }
 
     /**
@@ -189,11 +202,6 @@ public class SelectionContextBar extends JPanel {
               .append(snapshot.focusControl.value == null ? "" : snapshot.focusControl.value);
         }
         return sb.toString();
-    }
-
-    private static Color getThemeColor(String key, Color fallback) {
-        Color c = UIManager.getColor(key);
-        return c != null ? c : fallback;
     }
 
     private static String pickIcon(String elementType, String modelClass) {

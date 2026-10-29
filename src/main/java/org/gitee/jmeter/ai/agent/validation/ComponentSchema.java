@@ -90,6 +90,26 @@ public class ComponentSchema {
     }
 
     /**
+     * Map a caller-supplied property name to the key JMeter actually stores it
+     * under. JMeter keeps some historically misspelled keys for jmx backward
+     * compatibility (e.g. ResponseAssertion's "Asserion.test_strings"), while
+     * callers naturally send the correct spelling. Every schema-facing boundary
+     * (validation and property writing) normalizes through this single mapping.
+     *
+     * @param propName The property name as supplied by the caller
+     * @return The name under which JMeter stores the property
+     */
+    public static String normalizePropertyName(String propName) {
+        if (propName == null) {
+            return null;
+        }
+        if ("Assertion.test_strings".equals(propName)) {
+            return "Asserion.test_strings";
+        }
+        return propName;
+    }
+
+    /**
      * Get all required properties.
      *
      * @return List of required property definitions
@@ -120,6 +140,7 @@ public class ComponentSchema {
         private List<PropertyDefinition> nestedProperties;  // Nested properties for Object type
         private String itemClass;  // Fully qualified class name for collection item (e.g., "com.gitee.qa.jmeter.assertions.ValueAssertionTableElement")
         private List<PropertyDefinition> itemProperties;  // Item property definitions for collection properties
+        private PropertyType itemType;  // Scalar element type for Array (e.g., STRING for flat string collections like Asserion.test_strings)
         private PropertyType innerItemType;  // Inner element type for ARRAY_2D (e.g., STRING for UserParameters.thread_values)
         private MountMode mountMode;  // How container is mounted to parent element
         private String containerAddMethod;  // Container's add method name (e.g., addArgument / addHTTPFileArg / add)
@@ -270,6 +291,22 @@ public class ComponentSchema {
 
         public PropertyType getInnerItemType() {
             return innerItemType;
+        }
+
+        public PropertyType getItemType() {
+            return itemType;
+        }
+
+        public void setItemType(PropertyType itemType) {
+            this.itemType = itemType;
+        }
+
+        public void setItemType(String itemTypeStr) {
+            this.itemType = PropertyType.fromString(itemTypeStr);
+        }
+
+        public boolean hasItemType() {
+            return itemType != null;
         }
 
         public void setInnerItemType(PropertyType innerItemType) {

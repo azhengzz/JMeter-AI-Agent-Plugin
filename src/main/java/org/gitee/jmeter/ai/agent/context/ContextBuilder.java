@@ -32,8 +32,11 @@ import java.util.Map;
 public class ContextBuilder {
     private static final Logger log = LoggerFactory.getLogger(ContextBuilder.class);
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]";
-    private static final String RUNTIME_CONTEXT_END = "[/Runtime Context]";
+    public static final String RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]";
+    public static final String RUNTIME_CONTEXT_END = "[/Runtime Context]";
+    /** goal 纪律（指令性内容）的独立包裹标签——对齐 Nanobot goal_runtime.md 模板自带包裹。 */
+    public static final String GOAL_GUIDANCE_TAG = "[Goal Runtime Guidance — host instructions]";
+    public static final String GOAL_GUIDANCE_END = "[/Goal Runtime Guidance]";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public static final String RUNTIME_CONTEXT_META_KEY = "_runtime_context";
@@ -54,6 +57,14 @@ public class ContextBuilder {
      * 而是为了让残缺记录在协议上合法（provider 不接受悬空 tool_call）而伪造的占位。
      */
     public static final String RECOVERY_INTERRUPTED_META_KEY = "_recovery_interrupted";
+
+    /**
+     * 宿主合成消息标记：goal 防收工 nudge、冒烟交回、续跑/交回触发等由宿主代码合成
+     * 并以 USER 角色入转录的文本（非真实用户输入）。落为 jsonl 顶层布尔字段；记忆蒸馏
+     * 与 HISTORY 归档的公共视图据此整条跳过——宿主指令不得被当成用户话语归档。
+     * LLM 回放不受影响（getHistory 清洗丢弃 metadata）。
+     */
+    public static final String HOST_SYNTHETIC_META_KEY = "_host_synthetic";
 
     // Bootstrap files to load from workspace (similar to Nanobot's BOOTSTRAP_FILES)
     private static final String[] BOOTSTRAP_FILES = {
@@ -205,12 +216,28 @@ public class ContextBuilder {
             String channel,
             String chatId,
             List<InstanceInfo> instanceMentions) {
+        return buildMessages(history, currentMessage, tools, channel, chatId, instanceMentions, "");
+    }
+
+    /**
+     * Full overload: {@code goalContext} carries the goal block (goal-requested /
+     * active-goal discipline, see GoalRuntime) appended into the runtime context;
+     * empty string when goal mode does not apply for this turn.
+     */
+    public List<Message> buildMessages(
+            List<Message> history,
+            String currentMessage,
+            List<Map<String, Object>> tools,
+            String channel,
+            String chatId,
+            List<InstanceInfo> instanceMentions,
+            String goalContext) {
 
         List<Message> messages = new ArrayList<>();
 
         // User content first for prompt-cache stability; runtime context appended at the end.
         // Persistence layer (AgentRunner.saveMessagesToSession) strips the runtime block before writing to jsonl.
-        String runtimeContext = buildRuntimeContext(channel, chatId, instanceMentions, tools);
+        String runtimeContext = buildRuntimeContext(channel, chatId, instanceMentions, tools, goalContext);
         String mergedUserContent = currentMessage + "\n\n" + runtimeContext;
 
         // Build system prompt
@@ -300,12 +327,15 @@ public class ContextBuilder {
     // }
 
     /**
-     * Build runtime metadata block for injection before the user message.
-     * Based on Nanobot's _build_runtime_context.
+     * Build the runtime metadata block appended after the user message text.
+     * The goal composite (guidance in its own host-instructions wrapper + state
+     * in a metadata wrapper, see GoalRuntime) trails the environment block —
+     * instructions and data stay in separately labeled regions.
      */
     private String buildRuntimeContext(String channel, String chatId,
                                        List<InstanceInfo> instanceMentions,
-                                       List<Map<String, Object>> tools) {
+                                       List<Map<String, Object>> tools,
+                                       String goalContext) {
         StringBuilder lines = new StringBuilder();
         lines.append(RUNTIME_CONTEXT_TAG).append("\n");
         lines.append("Current Time: ").append(LocalDateTime.now().format(TIME_FORMAT));
@@ -322,6 +352,9 @@ public class ContextBuilder {
         appendInstanceMentions(lines, instanceMentions, tools);
 
         lines.append("\n").append(RUNTIME_CONTEXT_END);
+        if (goalContext != null && !goalContext.isBlank()) {
+            lines.append("\n\n").append(goalContext.strip());
+        }
         return lines.toString();
     }
 
@@ -403,24 +436,69 @@ public class ContextBuilder {
      */
     public String buildInjectionRuntimeContext(List<InstanceInfo> instanceMentions,
                                                List<Map<String, Object>> tools) {
-        return buildRuntimeContext(null, null, instanceMentions, tools);
+        return buildRuntimeContext(null, null, instanceMentions, tools, "");
+    }
+
+    /** Overload carrying the goal block so mid-turn injections keep the turn's goal context. */
+    public String buildInjectionRuntimeContext(List<InstanceInfo> instanceMentions,
+                                               List<Map<String, Object>> tools,
+                                               String goalContext) {
+        return buildRuntimeContext(null, null, instanceMentions, tools, goalContext);
     }
 
     /**
-     * Strip the trailing runtime-context block from a user message.
-     * 尾随精确语义(与 {@link #runtimeContextMarker} 同口径):取最后一个块起点且内容以
-     * END 收尾才剥离——正文含字面 tag(如粘贴的块原文)不被误截;无合法尾随块原样返回。
+     * Strip the trailing runtime-context composite (environment metadata block
+     * and/or goal guidance block, any trailing combination) from a user message.
+     * 尾随精确语义(与 {@link #runtimeContextMarker} 同口径):从内容结尾向前逐块认领——
+     * 内容恰以某区域的 END 收尾才剥该块(起点取该区域 TAG 的最后出现,块间空白随块剥离);
+     * 正文含字面 tag(如粘贴的块原文)不被误截;无合法尾随块原样返回。
      * 作为无标记内容的回退(旧 jsonl、in-run 消息)。
      */
     public static String stripRuntimeContext(String content) {
+        if (content == null) {
+            return content;
+        }
+        int start = trailingRuntimeContextStart(content);
+        return start < 0 ? content : content.substring(0, start).strip();
+    }
+
+    /**
+     * 尾随运行时复合块的起点下标（最左尾随块自身 TAG 的位置,不含块间前导空白——
+     * marker suffix 与 {@code stripRuntimeContext(Message)} 的 {@code "\n\n"+suffix}
+     * 精确匹配都依赖这一点）;无合法尾随块返回 -1。
+     */
+    private static int trailingRuntimeContextStart(String content) {
         if (content == null || content.isEmpty()) {
-            return content;
+            return -1;
         }
-        int tagPos = content.lastIndexOf(RUNTIME_CONTEXT_TAG);
-        if (tagPos < 0 || !content.endsWith(RUNTIME_CONTEXT_END)) {
-            return content;
+        int end = content.length();
+        int start = -1;
+        while (end > 0) {
+            String rest = content.substring(0, end);
+            int tagPos;
+            if (rest.endsWith(RUNTIME_CONTEXT_END)) {
+                tagPos = rest.lastIndexOf(RUNTIME_CONTEXT_TAG);
+            } else if (rest.endsWith(GOAL_GUIDANCE_END)) {
+                tagPos = rest.lastIndexOf(GOAL_GUIDANCE_TAG);
+            } else {
+                break;
+            }
+            if (tagPos < 0) {
+                break;
+            }
+            start = tagPos;
+            end = trimTrailingWhitespace(content, tagPos);
         }
-        return content.substring(0, tagPos).strip();
+        return start;
+    }
+
+    /** content[0,exclusiveEnd) 尾部空白回退后的下标。 */
+    private static int trimTrailingWhitespace(String content, int exclusiveEnd) {
+        int i = exclusiveEnd;
+        while (i > 0 && Character.isWhitespace(content.charAt(i - 1))) {
+            i--;
+        }
+        return i;
     }
 
     /**
@@ -448,21 +526,22 @@ public class ContextBuilder {
     }
 
     /**
-     * 从含<b>尾随</b>块的内容派生标记 {@code {version:1, suffix:<块原文>}};无尾随块返回 null。
-     * 取最后一个块起点并以 END 收尾校验——正文中出现字面 tag 也不影响标记精确性。
-     * 持久化时随消息存入 metadata(经 SessionManager 落为 jsonl 顶层 {@code _runtime_context})。
+     * 从含<b>尾随</b>复合块的内容派生标记 {@code {version:1, suffix:<复合块原文>}};无尾随块返回 null。
+     * 尾随判定与 {@link #stripRuntimeContext} 同口径(逐块回退)——正文中出现字面 tag
+     * 也不影响标记精确性。持久化时随消息存入 metadata(经 SessionManager 落为 jsonl
+     * 顶层 {@code _runtime_context})。
      */
     public static Map<String, Object> runtimeContextMarker(String content) {
         if (content == null) {
             return null;
         }
-        int tagPos = content.lastIndexOf(RUNTIME_CONTEXT_TAG);
-        if (tagPos < 0 || !content.endsWith(RUNTIME_CONTEXT_END)) {
+        int start = trailingRuntimeContextStart(content);
+        if (start < 0) {
             return null;
         }
         Map<String, Object> marker = new LinkedHashMap<>();
         marker.put("version", 1);
-        marker.put("suffix", content.substring(tagPos));
+        marker.put("suffix", content.substring(start));
         return marker;
     }
 

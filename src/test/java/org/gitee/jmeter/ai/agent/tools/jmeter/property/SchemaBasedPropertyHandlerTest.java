@@ -3,6 +3,7 @@ package org.gitee.jmeter.ai.agent.tools.jmeter.property;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.protocol.http.control.Cookie;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
@@ -12,6 +13,7 @@ import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.SampleSaveConfiguration;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.ObjectProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
@@ -34,6 +36,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -165,9 +168,13 @@ class SchemaBasedPropertyHandlerTest {
         assertEquals("Authorization", hm.get(1).getName());
     }
 
-    // ===== Case 4: CookieManager.cookies with long expires =====
+    // ===== Case 4: CookieManager.cookies — expires not settable, stays 0 (GUI parity) =====
+    // Cookie.expires was removed from the schema: the tool layer rejects it as an
+    // unknown item property, and the handler assembly ignores any stray key.
+    // JMeter's GUI offers no expires entry either (CookiePanel hardcodes 0),
+    // so cookies are always created non-expiring.
     @Test
-    void case4_cookieManager_longExpiresTypeConversion() {
+    void case4_cookieManager_expiresNotSettable_staysZero() {
         ComponentSchema schema = schemaLoader.loadSchema("cookiemanager");
         CookieManager cm = new CookieManager();
 
@@ -182,17 +189,60 @@ class SchemaBasedPropertyHandlerTest {
         c.put("Cookie.path_specified", true);
         c.put("Cookie.domain_specified", true);
         cookies.add(c);
+        Map<String, Object> c2 = new HashMap<>();
+        c2.put("Cookie.name", "session2");
+        c2.put("Cookie.value", "v2");
+        c2.put("Cookie.expires", "${expiry}");
+        cookies.add(c2);
 
         Map<String, Object> properties = new HashMap<>();
         properties.put("CookieManager.cookies", cookies);
 
         handler.setProperties(cm, properties, schema);
 
-        assertEquals(1, cm.getCookieCount(), "one cookie added");
+        assertEquals(2, cm.getCookieCount(), "both cookies added");
         Cookie cookie = cm.get(0);
         assertEquals("session", cookie.getName());
-        assertEquals(1700000000L, cookie.getExpires(), "long expires must round-trip");
         assertTrue(cookie.getSecure(), "secure=true");
+        assertEquals(0L, cookie.getExpires(), "expires not in schema — constructor default 0 (non-expiring) retained");
+        assertEquals(0L, cm.get(1).getExpires(), "string form equally ignored");
+    }
+
+    // ===== itemType defense: object items are not stringified (real modulecontroller schema) =====
+    @Test
+    void genericCollection_objectItemsNotStringified() {
+        ComponentSchema schema = schemaLoader.loadSchema("modulecontroller");
+        ModuleController mc = new ModuleController();
+
+        Map<String, Object> bad = new HashMap<>();
+        bad.put("ModuleController.node_path", List.of(Map.of("TestElement.name", "x")));
+        handler.setProperties(mc, bad, schema);
+        JMeterProperty afterBad = mc.getProperty("ModuleController.node_path");
+        assertTrue(!(afterBad instanceof CollectionProperty) || ((CollectionProperty) afterBad).size() == 0,
+                "object items must not be stringified into node path entries");
+
+        Map<String, Object> good = new HashMap<>();
+        good.put("ModuleController.node_path", List.of("Test Plan", "Thread Group"));
+        handler.setProperties(mc, good, schema);
+        JMeterProperty afterGood = mc.getProperty("ModuleController.node_path");
+        assertTrue(afterGood instanceof CollectionProperty);
+        assertEquals(2, ((CollectionProperty) afterGood).size(), "flat strings write as before");
+    }
+
+    // ===== schema default "[]" is injected as a plain string by applyDefaultValues;
+    // non-iterable input yields zero items — anchor current behavior (empty collection) =====
+    @Test
+    void genericCollection_stringDefaultWritesEmptyCollection() {
+        ComponentSchema schema = schemaLoader.loadSchema("modulecontroller");
+        ModuleController mc = new ModuleController();
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("ModuleController.node_path", "[]");
+        handler.setProperties(mc, props, schema);
+
+        JMeterProperty p = mc.getProperty("ModuleController.node_path");
+        assertTrue(p instanceof CollectionProperty);
+        assertEquals(0, ((CollectionProperty) p).size(), "string default lands as an empty collection");
     }
 
     // ===== Case 5: ThreadGroup.main_controller → setSamplerController =====
@@ -657,5 +707,157 @@ class SchemaBasedPropertyHandlerTest {
         assertNotNull(container, "container must be non-null");
         assertEquals(0, container.getArguments().size(),
                 "container must be empty (no items added)");
+    }
+
+    // ===== Non-scalar guard: refuse unknown-property writes over structured values =====
+
+    @Test
+    void guard_refusesTestPlanUserDefinedVariablesOverwriteAndKeepsElementIntact() {
+        org.apache.jmeter.testelement.TestPlan tp = new org.apache.jmeter.testelement.TestPlan();
+        tp.setName("Guard Test Plan");
+        // Materialize the UDV container the way a loaded plan has it (TestPlan's ctor is empty)
+        tp.setProperty(new TestElementProperty("TestPlan.user_defined_variables", new Arguments()));
+        Object udvBefore = tp.getProperty("TestPlan.user_defined_variables").getObjectValue();
+        String commentsBefore = tp.getPropertyAsString("TestPlan.comments");
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("TestPlan.user_defined_variables", "abc");
+        props.put("TestPlan.comments", "should-not-be-written");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(tp, props, null);
+
+        assertEquals(1, violations.size(), "one violation reported");
+        assertEquals("TestPlan.user_defined_variables", violations.get(0).getPropertyName());
+        assertEquals("a nested test element", violations.get(0).getStructuredKind());
+        // property unchanged (fail-fast: nothing written)
+        assertTrue(tp.getProperty("TestPlan.user_defined_variables") instanceof TestElementProperty,
+                "UDV must remain a TestElementProperty");
+        assertSame(udvBefore, tp.getProperty("TestPlan.user_defined_variables").getObjectValue(),
+                "UDV container must be the same instance");
+        assertEquals(commentsBefore, tp.getPropertyAsString("TestPlan.comments"),
+                "fail-fast: unrelated scalar property must not be written either");
+    }
+
+    @Test
+    void guard_refusesResultCollectorSaveConfigObjectPropertyOverwrite() {
+        ResultCollector rc = new ResultCollector();  // ctor presets saveConfig as ObjectProperty
+        Object saveConfigBefore = rc.getProperty("saveConfig").getObjectValue();
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("saveConfig", "x");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(rc, props, null);
+
+        assertEquals(1, violations.size());
+        assertEquals("saveConfig", violations.get(0).getPropertyName());
+        assertEquals("a configuration object", violations.get(0).getStructuredKind());
+        assertTrue(rc.getProperty("saveConfig") instanceof ObjectProperty,
+                "saveConfig must remain an ObjectProperty");
+        assertSame(saveConfigBefore, rc.getProperty("saveConfig").getObjectValue());
+    }
+
+    @Test
+    void guard_refusesCookieManagerCookiesCollectionOverwriteWithoutSchema() {
+        CookieManager cm = new CookieManager();  // ctor presets cookies as CollectionProperty
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("CookieManager.cookies", "not-a-list");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(cm, props, null);
+
+        assertEquals(1, violations.size());
+        assertEquals("CookieManager.cookies", violations.get(0).getPropertyName());
+        assertEquals("a collection", violations.get(0).getStructuredKind());
+        assertTrue(cm.getProperty("CookieManager.cookies") instanceof CollectionProperty,
+                "cookies must remain a CollectionProperty");
+    }
+
+    @Test
+    void guard_allowsUnknownScalarPropertyOnSchemaLessElement() {
+        org.apache.jmeter.testelement.TestPlan tp = new org.apache.jmeter.testelement.TestPlan();
+
+        Map<String, Object> props = new HashMap<>();
+        props.put("TestPlan.comments", "hello");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(tp, props, null);
+
+        assertTrue(violations.isEmpty(), "unknown scalar property must pass the guard");
+        assertEquals("hello", tp.getPropertyAsString("TestPlan.comments"),
+                "scalar fallback write must still work");
+    }
+
+    @Test
+    void guard_schemaKnownStructuredWriteUnaffectedByGuard() {
+        // CookieManager.cookies IS in the schema as Array → structured path, guard must not fire
+        ComponentSchema schema = schemaLoader.loadSchema("cookiemanager");
+        assertNotNull(schema, "cookiemanager schema must load (fixture precondition)");
+
+        CookieManager cm = new CookieManager();
+        List<Map<String, Object>> cookies = new ArrayList<>();
+        Map<String, Object> c = new HashMap<>();
+        c.put("Cookie.name", "session");
+        c.put("Cookie.value", "abc");
+        cookies.add(c);
+        Map<String, Object> props = new HashMap<>();
+        props.put("CookieManager.cookies", cookies);
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(cm, props, schema);
+
+        assertTrue(violations.isEmpty(), "schema-known structured write must not be guarded");
+        assertEquals(1, cm.getCookieCount(), "cookie written via structured path");
+    }
+
+    @Test
+    void guard_variableReferenceStringOnNumericFieldStillPasses() {
+        // ${...} exemption on numeric schema fields is orthogonal to the guard
+        ComponentSchema schema = schemaLoader.loadSchema("threadgroup");
+        assertNotNull(schema, "threadgroup schema must load (fixture precondition)");
+
+        ThreadGroup tg = new ThreadGroup();
+        Map<String, Object> props = new HashMap<>();
+        props.put("ThreadGroup.num_threads", "${threadNum}");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations = handler.setProperties(tg, props, schema);
+
+        assertTrue(violations.isEmpty());
+        assertEquals("${threadNum}", tg.getPropertyAsString("ThreadGroup.num_threads"));
+    }
+
+    @Test
+    void guard_errorMessageIsTeachingStyle_schemaLessComponent() {
+        ResultCollector rc = new ResultCollector();
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations =
+                handler.scanGuardViolations(rc, Map.of("saveConfig", "x"), null);
+
+        String message = SchemaBasedPropertyHandler.buildGuardErrorMessage(violations);
+        assertTrue(message.contains("'saveConfig'"), "names the property: " + message);
+        assertTrue(message.contains("a configuration object"), "names the structured kind: " + message);
+        assertTrue(message.contains("no parameter schema"), "states the component has no schema: " + message);
+        assertFalse(message.contains("structured form the tools can apply"),
+                "must NOT suggest a structured retry — it is never actionable for guard-fired properties: " + message);
+        assertTrue(message.contains("JMeter GUI"), "offers the GUI fallback: " + message);
+        assertTrue(message.contains("Refused properties: [saveConfig]"), "lists refused properties: " + message);
+        assertTrue(message.contains("No properties were modified"), "states nothing was written: " + message);
+    }
+
+    @Test
+    void guard_errorMessageIsTeachingStyle_schemaKnownButPropertyNotDefined() {
+        // HeaderManager HAS a schema; a structured property it does not declare collides
+        HeaderManager hm = new HeaderManager();
+        hm.setProperty(new CollectionProperty("customStruct", new ArrayList<>()));
+
+        ComponentSchema schema = schemaLoader.loadSchema("headermanager");
+        assertNotNull(schema, "headermanager schema must load (fixture precondition)");
+
+        List<SchemaBasedPropertyHandler.PropertyGuardViolation> violations =
+                handler.scanGuardViolations(hm, Map.of("customStruct", "x"), schema);
+        assertEquals(1, violations.size());
+        assertTrue(violations.get(0).isComponentSchemaKnown(), "schema flag must be recorded");
+
+        String message = SchemaBasedPropertyHandler.buildGuardErrorMessage(violations);
+        assertTrue(message.contains("not defined in the component's schema"),
+                "points at the missing schema definition: " + message);
+        assertTrue(message.contains("Check the exact property name"), "suggests checking the name: " + message);
+        assertTrue(message.contains("JMeter GUI"), "offers the GUI fallback: " + message);
     }
 }

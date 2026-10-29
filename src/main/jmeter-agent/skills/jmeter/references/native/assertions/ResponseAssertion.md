@@ -65,6 +65,11 @@ By default, the pattern is in multi-line mode, which means that the `.` meta-cha
 
 Values can be combined with bitwise OR. For example, `6` (2+4) = Contains + Not, `12` (8+4) = Equals + Not.
 
+**Multiple patterns are AND-ed by default — every pattern must match.** For "any pattern passes"
+semantics (e.g. status code 200 OR 201), add the `32` (Or) bit: `34` = Contains + Or, `40` =
+Equals + Or — or use a single regex pattern such as `200|201` with Contains (`2`), which is
+itself a regex find. Note only `1`/`2` treat patterns as regex; `8`/`16` match literally.
+
 ## Usage Examples
 
 ### Example 1: Check Response Code Equals 200
@@ -128,6 +133,10 @@ create_jmeter_element with:
 - properties:
   - Assertion.test_field: "Assertion.response_code"
   - Assertion.test_type: "40"
+    # 40 = 8(Equals) + 32(Or): passes when the code equals ANY pattern.
+    # Without the 32 bit, multiple patterns are AND-ed and can never all match
+    # (e.g. "2" with ["200","201"] fails on both 200 and 201 responses).
+    # Equivalent: "34" = 2(Contains)+32(Or), or "2" with the single regex "200|201".
   - Asserion.test_strings:
     - "200"
     - "201"
