@@ -34,3 +34,23 @@ This file documents non-obvious constraints and usage patterns.
 - `create_goal` and `update_goal action='replace'` only work on turns the
   user started with `/goal <objective>`; terminal actions (complete/cancel/
   block) work on any turn while a goal is active, and always require a recap.
+
+## Browser Recording Tools
+
+Four tools share the GUI REC button's single session (mutual exclusion, not
+parallel): `open_recording_browser(url?, include_domains?)` → ARMED (nothing
+captured), `begin_recording()` → explicit capture start (a cookie snapshot is
+taken here, so prep-phase login cookies survive), `stop_recording()` →
+finalize/cancel, `get_recording_status()` → state + counters.
+
+- Preparation actions (login, navigation) happen in ARMED and are never
+  recorded — always call `begin_recording` only when the user is ready.
+- `import_recording` converts an existing session dir into a standalone skeleton
+  .jmx (the "import later" path; also usable from goal turns).
+- Control/UI scripts run in a CDP isolated world — page scripts cannot forge
+  start/stop. Data format + enhancement playbook:
+  `skills/jmeter/references/recording-workflow.md` (single source).
+- Credentials stay in plaintext by design; do not redact-and-rewrite them.
+- open/begin/stop are disabled in goal turns (get_recording_status is read-only and
+  allowed); all tools are unregistered when
+  `jmeter.ai.recorder.enabled=false`.

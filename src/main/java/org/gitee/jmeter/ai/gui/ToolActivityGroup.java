@@ -61,6 +61,10 @@ class ToolActivityGroup extends JPanel {
 
         bodyArea = new JTextArea();
         bodyArea.setEditable(false);
+        // Read-only transcript growth must not let DefaultCaret scroll the
+        // enclosing chat viewport back to the caret while the user reads history.
+        ((javax.swing.text.DefaultCaret) bodyArea.getCaret())
+                .setUpdatePolicy(javax.swing.text.DefaultCaret.NEVER_UPDATE);
         bodyArea.setOpaque(false);
         bodyArea.setLineWrap(true);
         bodyArea.setWrapStyleWord(false);

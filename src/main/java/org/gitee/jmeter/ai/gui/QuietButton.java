@@ -34,6 +34,7 @@ public class QuietButton extends JButton {
     private boolean compact;
     private boolean bodyFont;
     private boolean iconOnly;
+    private boolean danger;
     private int iconButtonSize = UiTokens.ICON_BUTTON_SIZE;
 
     public QuietButton(String text) {
@@ -75,6 +76,20 @@ public class QuietButton extends JButton {
 
     Kind kind() {
         return kind;
+    }
+
+    /**
+     * Runtime danger mode (the REC button while recording): red glyph on a soft
+     * red tint instead of the kind-based colors. Derived in {@link #fillFor}
+     * and {@link #foregroundFor}, so a LaF sweep re-pins it via {@link #updateUI}.
+     */
+    public void setDanger(boolean danger) {
+        if (this.danger == danger) {
+            return;
+        }
+        this.danger = danger;
+        setForeground(foregroundFor());
+        repaint();
     }
 
     @Override
@@ -156,7 +171,10 @@ public class QuietButton extends JButton {
 
     private Color fillFor(ButtonModel model) {
         Color fill;
-        if (kind == Kind.PRIMARY) {
+        if (danger) {
+            // persistent soft red tint: reads as "recording active" even at rest
+            fill = ThemeColors.errorSoft();
+        } else if (kind == Kind.PRIMARY) {
             // soft accent tint instead of a solid accent fill: a quiet, light
             // call-to-action that reads well in both themes
             fill = ThemeColors.accentSoft();
@@ -177,6 +195,9 @@ public class QuietButton extends JButton {
             return ThemeColors.blend(ThemeColors.foreground(), fill, 0.10f);
         }
         if (model.isRollover()) {
+            if (danger) {
+                return ThemeColors.blend(ThemeColors.error(), fill, 0.18f);
+            }
             if (kind == Kind.PRIMARY) {
                 return ThemeColors.blend(ThemeColors.foreground(), fill, 0.07f);
             }
@@ -188,6 +209,9 @@ public class QuietButton extends JButton {
     private Color foregroundFor() {
         if (!isEnabled()) {
             return ThemeColors.secondaryText();
+        }
+        if (danger) {
+            return ThemeColors.error();
         }
         if (kind == Kind.PRIMARY) {
             // accent text on the soft tint (a white/black pick would vanish there)

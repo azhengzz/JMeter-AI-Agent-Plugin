@@ -74,8 +74,15 @@ class TranscriptView extends JPanel implements javax.swing.Scrollable {
     /** Adds a small colored system note (errors, cancellations, status). */
     void addSystemMessage(String text, Color color) {
         assert EventQueue.isDispatchThread() : "TranscriptView must be mutated on the EDT";
-        JTextArea note = new JTextArea(text);
+        JTextArea note = new JTextArea();
         note.setEditable(false);
+        // The note never changes after creation. Its caret's queued repaint
+        // runs once the note is inside the transcript and would drag the chat
+        // viewport to the freshly inserted bottom row — disable that here,
+        // BEFORE the text insert queues the repaint.
+        ((javax.swing.text.DefaultCaret) note.getCaret())
+                .setUpdatePolicy(javax.swing.text.DefaultCaret.NEVER_UPDATE);
+        note.setText(text);
         note.setOpaque(true);
         note.setLineWrap(true);
         note.setWrapStyleWord(true);

@@ -55,6 +55,24 @@ class TranscriptCardsTest {
     }
 
     @Test
+    void dangerModeTurnsButtonRedAndSurvivesLafSweep() {
+        // REC 按钮录制中的红色 = error 符号配 errorSoft 浅红底（与 StopButton
+        // 同一对主题色，明暗主题自适应）；取色在组件内派生，宿主 LaF 扫描
+        // （updateUI 重钉）后不褪色，退出 danger 恢复常规正文色
+        QuietButton rec = new QuietButton("■ STOP 3");
+        assertEquals(ThemeColors.foreground(), rec.getForeground());
+        rec.setDanger(true);
+        assertEquals(ThemeColors.error(), rec.getForeground(),
+                "录制中符号用 error 红");
+        rec.updateUI();
+        assertEquals(ThemeColors.error(), rec.getForeground(),
+                "宿主 LaF 扫描后 danger 红仍由 updateUI 重钉");
+        rec.setDanger(false);
+        assertEquals(ThemeColors.foreground(), rec.getForeground(),
+                "录制结束后恢复常规正文色");
+    }
+
+    @Test
     void cardCarriesCopyButtonAndKeepsRawText() {
         MessageCard card = new MessageCard(MessageCard.Role.ASSISTANT, new Font(Font.DIALOG, Font.PLAIN, 14));
         card.setMarkdownContent("# Title");
