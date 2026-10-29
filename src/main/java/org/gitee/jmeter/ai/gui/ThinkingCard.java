@@ -60,6 +60,10 @@ class ThinkingCard extends JPanel {
 
         bodyArea = new JTextArea();
         bodyArea.setEditable(false);
+        // Reasoning streams into this read-only area; its caret must never
+        // drag the transcript away from the user's chosen reading position.
+        ((javax.swing.text.DefaultCaret) bodyArea.getCaret())
+                .setUpdatePolicy(javax.swing.text.DefaultCaret.NEVER_UPDATE);
         bodyArea.setOpaque(false);
         bodyArea.setLineWrap(true);
         bodyArea.setWrapStyleWord(true);

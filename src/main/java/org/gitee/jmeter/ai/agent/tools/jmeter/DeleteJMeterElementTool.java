@@ -108,6 +108,7 @@ public class DeleteJMeterElementTool extends AbstractTool {
             JMeterTreeNode parentNode = (JMeterTreeNode) targetNode.getParent();
             String parentPath = parentNode != null ? JMeterTreeUtils.getNodePath(parentNode) : "Unknown";
 
+            final String[] refreshWarningHolder = new String[1];
             // 8-10. Perform deletion, refresh tree, and refresh GUI on EDT.
             // All JMeterTreeModel and GuiPackage.updateCurrentGui calls must run on EDT
             // (JMeterTreeModel extends DefaultTreeModel, see JMeter source). Running them
@@ -128,7 +129,13 @@ public class DeleteJMeterElementTool extends AbstractTool {
                 }
 
                 // 10. Refresh GUI (configure-only; see MoveJMeterElementTool for why not updateCurrentGui)
-                guiPackage.refreshCurrentGui();
+                try {
+                    guiPackage.refreshCurrentGui();
+                } catch (Exception refreshError) {
+                    log.warn("GUI refresh failed after element deletion (deletion already applied)", refreshError);
+                    refreshWarningHolder[0] = "Warning: element deleted, but GUI refresh failed: "
+                            + refreshError.getMessage();
+                }
             });
             if (edtError != null) {
                 log.error("Failed to delete element: {} ({})", elementName, elementType, edtError);
@@ -149,6 +156,9 @@ public class DeleteJMeterElementTool extends AbstractTool {
             result.append("Successfully deleted element: **").append(elementName).append("** (").append(elementType).append(")");
             result.append("\n\nParent path: ").append(parentPath);
             result.append("\nElement Id: ").append(elementId);
+            if (refreshWarningHolder[0] != null) {
+                result.append("\n\n").append(refreshWarningHolder[0]);
+            }
 
             log.info("Successfully deleted element: {} ({}) with elementId: {}", elementName, elementType, elementId);
             return ToolResult.success(result.toString());

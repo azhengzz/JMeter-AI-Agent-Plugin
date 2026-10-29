@@ -77,3 +77,17 @@
 |--------|------|
 | `spawn` | 将自包含的只读分析任务委派给后台子代理 |
 | `subagent_status` | 查询子代理的进度与结果 |
+
+## 浏览器录制工具
+
+与 GUI ●REC 按钮共用同一录制会话（单会话互斥，工具可接管按钮打开的会话）。`jmeter.ai.recorder.enabled=false` 时不注册；open/begin/stop 在 goal 回合硬阻断（录制须人工驱动；get_recording_status 只读保留）。控制指令与 UI 采集脚本运行在 CDP 隔离世界（页面主世界不可见不可调，防伪造）。
+
+| 工具名 | 说明 |
+|--------|------|
+| `open_recording_browser` | 打开录制浏览器入预备态（零采集；参数：起始 URL、只采域名，均选填） |
+| `begin_recording` | 显式开始采集（此刻取 cookie 基线，预备期登录 cookie 得以保留） |
+| `stop_recording` | 停止收官（落盘 events.jsonl/cookies.json；预备态调用=取消） |
+| `get_recording_status` | 查询会话状态与请求/UI 事件计数、数据目录 |
+| `import_recording` | 把已有录制场次确定性转换为独立骨架 .jmx（「稍后导入」入口，goal 回合可用） |
+
+增强套路（业务分组、`${var}` 关联提取、参数化、断言）见技能参考 `skills/jmeter/references/recording-workflow.md`。

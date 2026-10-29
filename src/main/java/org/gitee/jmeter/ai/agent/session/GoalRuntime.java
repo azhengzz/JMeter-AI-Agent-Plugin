@@ -81,6 +81,10 @@ public final class GoalRuntime {
             state = ContextBuilder.RUNTIME_CONTEXT_TAG + "\n" + statusLines(goal) + "\n"
                     + ContextBuilder.RUNTIME_CONTEXT_END;
         }
+        if (!state.isEmpty()) {
+            // 录制纪律属指令而非状态数据：进 guidance 包裹（AGENTS.md 的指令/数据分离）
+            guidance = guidance.strip() + "\n\n" + recordingGuidance();
+        }
         if (guidance.isBlank()) {
             return state;
         }
@@ -89,11 +93,27 @@ public final class GoalRuntime {
                 + (state.isEmpty() ? "" : "\n\n" + state);
     }
 
+    /** 浏览器录制引用指引（guidance 层；路径以配置为准；功能关闭时不注入）。 */
+    static String recordingGuidance() {
+        if (!org.gitee.jmeter.ai.recorder.RecorderConfig.isEnabled()) {
+            return "";
+        }
+        java.nio.file.Path dir = org.gitee.jmeter.ai.recorder.RecorderConfig.load()
+                .resolveOutputDir(org.gitee.jmeter.ai.utils.WorkspacePaths.resolveWorkspace());
+        return "Browser recordings (if the objective references one): " + dir
+                + " — read the latest rec_* directory's events.jsonl (truncate bodies beyond "
+                + "16KB per event when reading; credentials are plaintext by design, do not "
+                + "redact). Recording is human-driven: do not attempt to drive the browser "
+                + "yourself (open/begin/stop recording tools are disabled in goal turns; "
+                + "get_recording_status is read-only and allowed).";
+    }
+
     // --- synthetic messages ---
 
     /** 防收工顶回（无工具最终回复且 goal 未终结）。 */
     public static String nudgeText(GoalState goal) {
         return "You have an active sustained goal:\n\n" + statusLines(goal)
+                + "\n\n" + recordingGuidance()
                 + "\n\nPlease continue working toward the objective using your tools, "
                 + "or call update_goal with action='complete'/'cancel'/'block' if the work "
                 + "is truly finished or genuinely stuck. Do not end your turn with a plain "
@@ -119,7 +139,7 @@ public final class GoalRuntime {
     /** 迭代预算耗尽后的跨回合续跑（投放为新回合的触发消息）。 */
     public static String continuationText(GoalState goal) {
         return "Continue the active sustained goal after the previous turn reached "
-                + "its tool-call budget.\n\n" + statusLines(goal)
+                + "its tool-call budget.\n\n" + statusLines(goal) + "\n\n" + recordingGuidance()
                 + "\n\nContinue from the saved context. Do not mention the continuation "
                 + "boundary to the user. Use tools as needed, and call update_goal with "
                 + "action='complete' when the objective is truly finished.";

@@ -92,6 +92,11 @@ class MessageCard extends JPanel {
 
         body = new JTextPane();
         body.setEditable(false);
+        // Card content is read-only; its caret's queued repaint (on initial
+        // render and on theme/font re-render) would scroll the chat viewport
+        // to the card even while the user reads history.
+        ((javax.swing.text.DefaultCaret) body.getCaret())
+                .setUpdatePolicy(javax.swing.text.DefaultCaret.NEVER_UPDATE);
         body.setOpaque(false);
         if (font != null) {
             body.setFont(font);

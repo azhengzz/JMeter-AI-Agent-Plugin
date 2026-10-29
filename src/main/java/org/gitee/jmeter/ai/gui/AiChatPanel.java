@@ -101,6 +101,9 @@ public class AiChatPanel extends JPanel
     private final Set<Long> progressiveToolCallTurnIds = new HashSet<>();
     // Separate Stop button (visible during agent processing)
     private JButton stopButton;
+    private JButton recButton;
+    /** 录制编排（按钮态/参数窗/产物落点/延后导入），面板只持有按钮用于布局。 */
+    private RecorderController recorder;
 
     /**
      * 会话渲染代数：/new、"+"、关闭整合清空时 +1（统一经 {@link #advanceRenderEpoch}）。
@@ -535,6 +538,33 @@ public class AiChatPanel extends JPanel
         stopButton = new StopButton(this::stopActiveTask);
         stopButton.setVisible(false);
 
+        // Recording button (browser-recording): the controller direct-drives the
+        // RecorderEngine state machine, bypassing the turn event stream. The
+        // process-level single session lives in RecorderRuntime and survives
+        // panel re-creation (controller hydrates the button from real state).
+        recorder = new RecorderController(new RecorderController.Host() {
+            @Override
+            public void appendSystemMessage(String text, java.awt.Color color) {
+                transcript.addSystemMessage(text, color);
+            }
+
+            @Override
+            public java.awt.Window window() {
+                return SwingUtilities.getWindowAncestor(AiChatPanel.this);
+            }
+
+            @Override
+            public boolean turnActive() {
+                return agentLoop != null && agentLoop.hasActiveRun(InstanceContext.currentSessionKey());
+            }
+
+            @Override
+            public int generation() {
+                return conversationGeneration;
+            }
+        });
+        recButton = recorder.button();
+
         // Controls row below the input box: model selector as the flexible
         // middle, Stop + Send right-aligned. BorderLayout
         // hands WEST/EAST their preferred sizes and all remaining width to CENTER,
@@ -567,6 +597,7 @@ public class AiChatPanel extends JPanel
 
         JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonRow.setOpaque(false);
+        buttonRow.add(recButton);
         buttonRow.add(stopButton);
         buttonRow.add(sendButton);
         controlsRow.add(buttonRow, BorderLayout.EAST);
@@ -632,6 +663,9 @@ public class AiChatPanel extends JPanel
         });
         // 构造末尾冲刷暂存的 goal 快照（hydrate/早期事件可能在 UI 字段就位前到达）
         SwingUtilities.invokeLater(this::flushGoalStrip);
+        // 同点水合录制按钮：面板晚于引擎 RECORDING 构造时（IPC/CLI 工具先驱动录制）
+        // 按引擎真实状态补齐红停止钮，否则非红「● REC」会一直错到停录
+        SwingUtilities.invokeLater(() -> recorder.hydrate());
         messageField.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent e) {
@@ -954,6 +988,7 @@ public class AiChatPanel extends JPanel
                     return; // 未领养的早到/迟到终态：无对应武装，不渲染不复位
                 }
                 handleAgentResponse(event.response(), turn.id());
+                recorder.onTurnTerminal();
             }
             case TURN_CANCELLED -> {
                 if (!liveTurnIds.remove(turn.id())) {
@@ -969,6 +1004,8 @@ public class AiChatPanel extends JPanel
                     setButtonToSendMode();
                 }
                 appendCancelLine(event.cause(), turn.origin());
+                // 取消也是回合终态：延后的录制产物窗必须冲刷（对齐四终态全覆盖纪律）
+                recorder.onTurnTerminal();
             }
             case INJECTED -> {
                 // 本地注入回显统一走事件，不经面板自渲染/嗅探；

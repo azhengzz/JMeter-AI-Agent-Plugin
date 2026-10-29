@@ -191,6 +191,12 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 | `aggregatereport` | Native | Aggregate Report | [Aggregate Report](./references/native/listeners/AggregateReport.md) | [Schema](./references/native/listeners/AggregateReport.schema.yaml) |
 | `backendlistener` | Native | Send results to backend | [Backend Listener](./references/native/listeners/BackendListener.md) | [Schema](./references/native/listeners/BackendListener.schema.yaml) |
 
+### Workflow References
+
+| Reference | Description |
+|-----------|-------------|
+| [Browser Recording Workflow](./references/recording-workflow.md) | Recorded-session data format (events.jsonl/cookies.json) and the enhancement playbook (business grouping, correlation, parameterization, assertions) |
+
 ## Important: HTTP Arguments Format
 
 When creating HTTP-related elements (`httpsampler`, `httpdefaults`, `ajpsampler`, `graphqlhttprequest`, etc.), the tool automatically initializes an empty `HTTPsampler.Arguments` if not provided.

@@ -142,6 +142,15 @@ goal 生命周期的 GUI 呈现与处置（回合事件流之外的独立通道�
 - **GoalGlowPainter + GoalGlowAnimator** - 输入卡外围光环绘制器 + 光晕动画器。绘制器是**零布局**方案：光环由面板 `paintComponent`（子组件之前）画进输入卡外侧的既有静区（页边距 6 + 输入坞上方空隙 8），环带外延 ≤5.5px 恰好放得下，点亮/熄灭**不改任何布局尺寸**（早期壳层动态留边方案在固定像素宽度的分栏下拿不到新像素，多出的边距从卡片身上扣——光晕一点亮输入卡缩小 20px，已废弃；面板持有 `inputCard` 字段换算卡片矩形，`repaintGlowBand` 对外扩 8px 的光晕带做区域 repaint，熄灭沿复用同一卡片矩形清残影）。动画器：ACTIVE「涟漪 + 扫掠」双动画（三圈递减环各圈相位错开成涟漪，80ms 帧、alpha [0.28,0.60]，叠加绕边 6°/帧 ≈ 4.8s 一圈的 LinearGradientPaint 扫掠高亮头亮尾隐）；BLOCKED 静态琥珀环 Timer 停；PAUSED/终态熄灭；面板 SHOWING_CHANGED 暂停/恢复防后台空转
 - **面板接线**（AiChatPanel）- 先订阅后 hydrate（缓存 `lastKnown` 优先、磁盘腿兜底；终态历史不回放）；`/new` 代数翻转不清状态条（goal 跨会话存活锚）；`lastGoalSnapshot` 暂存 + 构造末尾 EDT 冲刷，防「订阅先于 UI 字段就位」窗口丢事件
 
+#### 浏览器录制 (`recorder`，见 `openspec/changes/browser-recording/` 与 `docs/browser-recording.md`)
+CDP 直连 Chrome 的浏览器录制能力（无代理/无 MITM 证书）：两阶段状态机 IDLE→ARMED（预备态零采集）→RECORDING→收官；注入脚本、UI 事件监听与控制 binding 运行在 **CDP 隔离世界**（页面主世界不可见不可调，防伪造）；录制期 Set-Cookie 取自 `Network.responseReceivedExtraInfo`（`responseReceived.headers` 被 Chrome 裁剪）；cookie 三源（基线 ∪ Set-Cookie ∪ 停止刷新）按 domain+path+name 合并。核心类：
+- **RecorderEngine** - 状态机/双通道收官/single-flight 幂等/宽限补拉/JVM 退出钩子/cookie 三源
+- **RecorderConfig / RecorderRuntime / RecorderParams / RecordingStore / EventFilter / RecorderScripts** - 配置（`jmeter.ai.recorder.*`）/进程单会话持有/参数记忆/`rec_{yyyyMMdd-HHmmss}-{instanceId}` jsonl 落盘/过滤与字节截断/注入脚本
+- **recorder.cdp** - 薄 CDP 客户端（JDK WebSocket，onOpen 必须 `request(n)`——否则只收第一条消息）/专用实例启动（attach 模式已移除，进程树杀）/`Browser.getVersion` 预检
+- **recorder.convert** - 确定性骨架转换器（ThreadGroup+事务控制器、query/表单拆 arguments、固有头剥离、Origin 协议一致前缀、cookie 身份含 path 与删除语义）+ `JmeterElementBridge`（registry+schema 管线、原子插入、TestPlan 包裹另存）
+- **RecorderStartDialog / RecorderResultDialog**（gui）- 参数窗（起始 URL/只采域名/资源类型复选/Body 截断上限，后两者按次覆盖配置默认并记忆为下次默认）/产物落点窗（busy 时插入禁用，工具驱动收官在回合终态再弹）
+- 产物目录：`{workspace}/recordings/`（可配）、专用浏览器 profile：`{workspace}/browser-profile/`（跨重启持久、登录态保留；并行录制经**跨进程 FileLock 占用声明**仲裁——被占方不 spawn 进对方 Chrome 单例域、秒级回退临时目录，防单例转交挤进同一浏览器）；均无自动清理
+
 #### 上下文管理 (`agent/context`)
 - **ContextBuilder** - 构建发送给 LLM 的消息上下文
 - **ContextWindowManager** - 管理上下文窗口大小，控制 token 用量
@@ -243,6 +252,11 @@ goal 生命周期的 GUI 呈现与处置（回合事件流之外的独立通道�
 #### Goal 工具 (`tools/goal`)
 - **CreateGoalTool** - 录制持续目标（仅 /goal 回合可用，权限门走 AgentRunContext）
 - **UpdateGoalTool** - 终结/替换 goal（complete 需验证证据或冒烟预算耗尽；终结必带 recap）
+
+#### 浏览器录制工具 (`tools/recorder`)
+与 GUI ●REC 按钮共用同一引擎单会话（互斥、可接管）；`jmeter.ai.recorder.enabled=false` 时不注册；open/begin/stop 在 goal 回合硬阻断（录制须人工驱动；get_recording_status 只读保留）。
+- **OpenRecordingBrowserTool / BeginRecordingTool / StopRecordingTool / GetRecordingStatusTool** - 打开浏览器（预备态）/显式开始/停录收官（并发败者等终态）/查状态
+- **ImportRecordingTool** - 把已有录制场次确定性转换为独立骨架 .jmx（「稍后导入」入口，goal 回合可用）
 
 #### 跨实例协作工具 (`tools/ipc`)
 仅当 `jmeter.ai.ipc.enabled=true` 时注册（IPC 提供传输通道；关闭则不注册）。
@@ -363,7 +377,7 @@ references/
 ### 技能系统 (`src/main/jmeter-agent/skills/`)
 Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` 和可选的 `references/` 目录：
 
-- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 134 个参考文档（含 58 个 JMeter 函数文档与快照恢复指南 plan-snapshots.md）
+- **jmeter/** - JMeter 核心技能，包含 73 个组件 schema 和 135 个参考文档（含 58 个 JMeter 函数文档、快照恢复指南 plan-snapshots.md 与录制增强指南 recording-workflow.md）
   - `SKILL.md` - 主技能定义
   - `references/functions/` - 58 个 JMeter 函数参考文档（覆盖全部内置函数和自定义扩展函数）
   - `references/standards.md` - JMeter 编写规范
@@ -385,6 +399,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 - **agent/validation/** - Schema 加载和类型校验测试
   - `ComponentSchemaTypeTest` / `SchemaLoaderTest` / `YamlDebugTest`
 - **agent/context/** - 上下文管理测试
+- **recorder/** - 浏览器录制测试（engine/cdp/convert/tools，含 Adversarial 三件套与需本机 Chrome 的 RealBrowserSmokeTest，RealBrowserSmokeTest 为 opt-in：`-Drecorder.run.real.browser=true` 且本机有 Chrome 才运行）
   - `ContextWindowManagerTest`
 - **agent/testsupport/** - 回合事件流测试公共脚手架（跨测试文件共享）
   - `GatedScriptAiService`（脚本化/门控 fake，Stop/Reset 钉子经 `InterruptStrategy.HANG_UNTIL_RELEASED`）/ `RecordingSubscriber` / `NoopTool` / `AwaitUtil`
@@ -452,6 +467,15 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 - `agent.goal.max.continuations` - 单个 goal 的跨回合自动续跑次数上限（默认 `5`；以 goal 为单位，replace 重置；Nanobot 硬编码 12 不可配，此处参数化为有意偏离）
 - `agent.goal.smoke.limit` - 单个 goal 的冒烟修复轮次上限（默认 `3`；`run_test` smoke 尝试按 goal 累计，耗尽后 complete 免证据但 recap 须含遗留风险）
+
+**浏览器录制（`jmeter.ai.recorder.*`，见 `openspec/changes/browser-recording/`）：** 默认开启；Chrome 专用（Edge 不支持）。
+
+- `jmeter.ai.recorder.enabled` - 总开关（默认 `true`；关闭时按钮与 5 个工具均不注册）
+- `jmeter.ai.recorder.browser` - 浏览器（默认 `chrome`，或可执行文件绝对路径；attach 模式 cdp.url/scan 配置已随 attach 移除删除）
+- `jmeter.ai.recorder.resource.types` - resourceType 白名单（默认 `xhr,fetch`；同时是参数窗复选的默认勾选）
+- `jmeter.ai.recorder.max.body.bytes` - 落盘 body 上限（默认 `65536`，按 UTF-8 字节；同时是参数窗截断上限输入的默认值）
+- `jmeter.ai.recorder.output.dir` - 录制数据目录（空 = `{workspace}/recordings`）
+- `jmeter.ai.recorder.start.url` / `jmeter.ai.recorder.include.domains` - 参数窗预填
 
 ## 开发参考
 

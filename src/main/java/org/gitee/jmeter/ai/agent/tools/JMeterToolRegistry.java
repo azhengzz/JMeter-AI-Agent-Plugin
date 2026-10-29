@@ -79,8 +79,28 @@ public class JMeterToolRegistry {
         // Register exec tool if enabled
         registerExecTools(registry);
 
+        // Browser recording tools (open/begin/stop/status) share the GUI engine's
+        // single session; gated by jmeter.ai.recorder.enabled like the GUI button.
+        registerRecorderTools(registry);
+
         // Register cross-instance coordination tools if IPC + coordination enabled
         registerInstanceCoordinationTools(registry);
+    }
+
+    /**
+     * Register browser-recording agent tools when the recorder master switch is on.
+     * Disabled registration mirrors the GUI: no REC button, no tools.
+     */
+    private static void registerRecorderTools(ToolRegistry registry) {
+        if (org.gitee.jmeter.ai.recorder.RecorderConfig.isEnabled()) {
+            registry.register(new org.gitee.jmeter.ai.agent.tools.recorder.OpenRecordingBrowserTool());
+            registry.register(new org.gitee.jmeter.ai.agent.tools.recorder.BeginRecordingTool());
+            registry.register(new org.gitee.jmeter.ai.agent.tools.recorder.StopRecordingTool());
+            registry.register(new org.gitee.jmeter.ai.agent.tools.recorder.GetRecordingStatusTool());
+            registry.register(new org.gitee.jmeter.ai.agent.tools.recorder.ImportRecordingTool());
+        } else {
+            log.info("Browser recording tools are disabled (jmeter.ai.recorder.enabled=false)");
+        }
     }
 
     /**
