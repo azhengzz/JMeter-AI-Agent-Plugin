@@ -58,7 +58,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </ul>
  *
  * <p>安全:默认 {@code jmeter.ai.ipc.enabled=true};仅绑 127.0.0.1(拒绝通配地址);
- * 每端点校验 {@code X-IPC-Token}(常量时间比较);白名单排除 exec/fs/web/测试执行类工具。
+ * 每端点校验 {@code X-IPC-Token}(常量时间比较);白名单为显式允许列表(deny-by-default),
+ * exec/fs/web 及跨实例协作/goal/子代理族工具恒不在列(测试执行类自 2026-07 起已放行)。
  */
 public final class IpcServer {
     private static final Logger log = LoggerFactory.getLogger(IpcServer.class);
@@ -68,23 +69,30 @@ public final class IpcServer {
     private static final int MAX_BODY_BYTES = 1 << 20;
 
     /**
-     * 允许经 IPC 调用的工具(显式允许列表)。放 CRUD + 只读查询 + 测试执行 + 解析/日志类工具;
+     * 允许经 IPC 调用的工具(显式允许列表)。放 CRUD + 只读查询 + 静态校验 + 测试执行 + 解析/日志类工具;
      * 任何未列于此的工具(含未来新增的)一律拒绝。
      * <p>exec/filesystem/web 工具本就默认不注册;即便被开启,也因不在本列表而被拒绝。
      * 测试执行类(run_test 等)与 Agent 同一信任边界(Agent 本就可调),无密钥泄露面。
+     * {@code validate_test_plan} 为只读 lint:经 IPC registry(单参构造,sessionManager=null)
+     * 直调时不记 goal 证据——null 通道旁路是既有语义,非缺陷。
      * <p>⚠ {@code parse_jmx_file} 与 {@code open_jmx_file} 均接受任意 filePath,可回读 .jmx 全部属性
      * (HeaderManager 鉴权头、JDBC 密码等);{@code open_jmx_file} 还会把脚本加载进 GUI(替换当前计划)。
      * 暂未做目录限制 —— TODO:让其校验 {@code agent.tools.filesystem.allowed.dirs} 与 {@code denied.dirs},
      * 复用 read_file 的文件系统沙箱(见 {@code TODO/TODO.md})。
+     * <p>包内可见以便守卫测试断言「白名单 ⊆ 服务端注册表注册名」(防手抖错名)。
      */
-    private static final Set<String> ALLOWED_TOOLS = Set.of(
+    static final Set<String> ALLOWED_TOOLS = Set.of(
             // CRUD(写)
             "create_jmeter_element", "update_jmeter_element", "batch_update_jmeter_elements",
-            "delete_jmeter_element", "move_jmeter_element", "copy_paste_jmeter_element",
-            "toggle_jmeter_element",
+            "delete_jmeter_element", "batch_delete_jmeter_elements",
+            "move_jmeter_element", "batch_move_jmeter_elements",
+            "copy_paste_jmeter_element",
+            "toggle_jmeter_element", "batch_toggle_jmeter_elements",
             // 只读查询(作用于当前 GUI 测试计划树)
             "find_element", "get_selected_element", "get_test_plan_tree",
             "get_script_info", "query_element_properties",
+            // 静态校验(只读 lint,不记 goal 证据)
+            "validate_test_plan",
             // 测试执行(与 Agent 同信任边界,无密钥泄露面)
             "run_test", "get_test_status", "get_test_results",
             // 加载/解析外部脚本 / 读取日志面板
@@ -243,7 +251,8 @@ public final class IpcServer {
             }
             if (!ALLOWED_TOOLS.contains(req.getTool())) {
                 sendError(ex, 400, "tool not allowed over IPC: " + req.getTool()
-                        + " (allowlist: CRUD + read-only query tools only)");
+                        + " (allowlist: element CRUD + read-only query + static validation "
+                        + "+ test execution + jmx load/parse/log)");
                 return;
             }
             Map<String, Object> params = req.getParams() == null ? Map.of() : req.getParams();

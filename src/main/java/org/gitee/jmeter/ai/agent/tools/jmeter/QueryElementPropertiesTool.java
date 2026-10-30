@@ -142,8 +142,12 @@ public class QueryElementPropertiesTool extends AbstractTool {
             return ToolResult.error("Parameter 'limit' must be between 1 and 50, got: " + limit);
         }
 
-        // Scope the query to a parent node's subtree when parentId is provided
-        if (parentId > 0) {
+        // Scope the query to a parent node's subtree when parentId is provided. Explicit
+        // non-positive id is an error (used to silently query the whole plan, find_element 同族).
+        if (parameters.get("parentId") != null) {
+            if (parentId <= 0) {
+                return ToolResult.error("Invalid parentId: " + parentId + ". Must be a positive integer.");
+            }
             JMeterTreeNode parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
             if (parentNode == null) {
                 return ToolResult.error("Could not find parent node with elementId: " + parentId +

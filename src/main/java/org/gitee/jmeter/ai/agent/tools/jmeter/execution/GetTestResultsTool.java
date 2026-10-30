@@ -79,10 +79,26 @@ public class GetTestResultsTool extends AbstractTool {
     @Override
     protected ToolResult executeInternal(Map<String, Object> parameters) {
         String format = getStringParameter(parameters, "format", "summary");
-        int limit = Math.min(getIntParameter(parameters, "limit", 20), 50);
+        int limit = getIntParameter(parameters, "limit", 20);
         int offset = getIntParameter(parameters, "offset", 0);
         boolean includeDetails = getBooleanParameter(parameters, "include_details", false);
         String statusFilter = getStringParameter(parameters, "status_filter", "all");
+
+        // 枚举/边界校验必须先于 "No test results" 早退——否则无运行数据时 usage 错误被
+        // 状态错误掩盖;且未知 format 历史上两分支都不命中,静默返回空成功(exit 0 无输出)。
+        if (!"summary".equals(format) && !"samples".equals(format) && !"both".equals(format)) {
+            return ToolResult.error("Invalid format: '" + format + "'. Must be one of: summary, samples, both.");
+        }
+        if (!"all".equals(statusFilter) && !"success".equals(statusFilter) && !"failure".equals(statusFilter)) {
+            return ToolResult.error("Invalid status_filter: '" + statusFilter
+                    + "'. Must be one of: all, success, failure.");
+        }
+        if (limit <= 0 || limit > 50) {
+            return ToolResult.error("Parameter 'limit' must be between 1 and 50, got: " + limit);
+        }
+        if (offset < 0) {
+            return ToolResult.error("Parameter 'offset' must be >= 0, got: " + offset);
+        }
 
         Predicate<AgentResultCollector.SampleSnapshot> filter = switch (statusFilter) {
             case "success" -> s -> s.success && s.errorCount == 0;

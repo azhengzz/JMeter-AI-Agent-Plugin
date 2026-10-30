@@ -27,9 +27,9 @@ For full command details and raw tool parameters, read [cli-reference.md](refere
 
 2. Inspect the current script before making changes.
    ```bash
-   jmeter-cli tool get_script_info --json
-   jmeter-cli tool get_test_plan_tree --params "{\"includeProperties\":false,\"maxDepth\":2}" --json
-   jmeter-cli find --searchBy elementType --query testplan --json
+   jmeter-cli script-info --json
+   jmeter-cli tree --includeProperties false --maxDepth 2 --json
+   jmeter-cli find --searchBy elementType --query threadgroup --json
    ```
    Capture stable `elementId` values from output. Do not rely on GUI selection unless the user explicitly wants selection-relative behavior.
 
@@ -58,18 +58,19 @@ For full command details and raw tool parameters, read [cli-reference.md](refere
 6. Troubleshoot failures with logs and sample details.
    ```bash
    jmeter-cli results --format samples --statusFilter failure --includeDetails true --limit 10 --json
-   jmeter-cli tool get_log_panel_content --params "{\"maxLines\":100}" --json
+   jmeter-cli log --maxLines 100 --json
    ```
 
 ## Command Choice
 
-- Prefer top-level commands for common operations: `list`, `health`, `open`, `get`, `find`, `create`, `update`, `delete`, `move`, `toggle`, `batch`, `run`, `stop`, `shutdown`, `status`, `results`.
-- Use raw `tool <name> --params <json>` for capabilities without top-level wrappers: `get_script_info`, `get_test_plan_tree`, `query_element_properties`, `parse_jmx_file`, `get_log_panel_content`, `copy_paste_jmeter_element`.
+- Prefer top-level commands for common operations: `list`, `health`, `open`, `parse`, `get`, `find`, `query`, `tree`, `script-info`, `log`, `create`, `copy`, `update`, `delete`, `batch-delete`, `move`, `batch-move`, `toggle`, `batch-toggle`, `batch`, `validate`, `run`, `stop`, `shutdown`, `status`, `results`.
+- Use raw `tool <name> --params <json>` only for capabilities without top-level wrappers (e.g. `parse_jmx_file` query-mode filters `propertyName`/`propertyValue`/`matchMode`).
 - Use `agent "<message>"` only when delegating a natural-language task to the jmeter-agent loop is acceptable. For reproducible automation, prefer explicit CLI commands.
 
 ## Safety Rules
 
 - Always run `list` and `health` first. If multiple instances are listed, require or choose the intended `--pid`; never silently act on an ambiguous GUI.
+- On Windows, quote CLI arguments containing cmd metacharacters (`& | < > ^ !`): the `jmeter-cli.bat` launcher passes `%*` through cmd, and unquoted metacharacters are re-interpreted (a cmd.exe limitation). Prefer `jmeter-cli.sh` or direct `java` invocation in scripted environments.
 - Pass `--parentId` to `create`. Omitting it uses the current GUI selection and is non-deterministic.
 - Keep updates surgical. `update` and `batch` touch only listed properties; use them instead of rebuilding whole subtrees.
 - Do not call IPC-blocked tools through `tool`; filesystem, exec, and web tools are intentionally unavailable over IPC.

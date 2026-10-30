@@ -20,8 +20,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * CLI 客户端:发现并驱动运行中的 JMeter GUI 实例。
@@ -34,7 +36,7 @@ import java.util.Map;
  * <pre>
  *   jmeter-cli list
  *   jmeter-cli health
- *   jmeter-cli find --searchBy elementType --query testplan
+ *   jmeter-cli tree   # 取 TestPlan 根 id
  *   jmeter-cli create --elementType threadgroup --elementName TG1 --parentId &lt;id&gt; [--properties "{\\"ThreadGroup.num_threads\\":10}"]
  *   jmeter-cli update --elementId &lt;id&gt; --properties "{\\"HTTPSampler.domain\\":\\"newdomain.com\\"}"
  *   jmeter-cli delete --elementId &lt;id&gt;
@@ -58,23 +60,36 @@ public final class JmeterCli {
      * 常量,改值只动这里。 */
     static final long DEFAULT_REQUEST_TIMEOUT_MS = 130_000L;
 
+    /**
+     * run --wait 轮询 get_test_status 时判定"仍在运行"的字面标记,来源是 GetTestStatusTool
+     * 输出格式中的状态行。CLI 是 thin client,不能引用工具类常量(会拖入 JMeter 类依赖),
+     * 字面耦合以本常量 + 钉定单测(JmeterCliTest)维护;工具输出格式变更须同步改此处。
+     */
+    static final String RUNNING_STATE_MARKER = "**State**: Running";
+
     private JmeterCli() {
     }
 
     public static void main(String[] args) {
-        // CLI 进程:slf4j 2.x 在 shade jar 内无 2.x provider,首次初始化会向 stderr 打
-        // "No SLF4J providers were found" 等告警。执行前先吞掉这次初始化告警,再恢复 stderr。
+        // 双流抑制窗口:slf4j 初始化(由 InstanceRegistry 静态 logger 触发)既会向 stderr 打
+        // "No SLF4J providers were found",又会经 log4j-api 的 StackLocator.<clinit> 直接
+        // System.out.println 打 "Reflection.getCallerClass" 告警(实测走 stdout,
+        // StatusLogger 属性对它惰性)。窗口内 stdout/stderr 都重定向,保证 --json 输出纯净。
+        // 注意:首个触碰 log4j 的调用必须留在窗口内(JmeterCli 自身勿加静态 logger,
+        // 否则告警会在窗口前打印)。
+        System.setProperty("log4j2.StatusLogger.level", "OFF"); // 仅压制独立的 StatusLogger 输出
         PrintStream realErr = System.err;
+        PrintStream realOut = System.out;
         System.setErr(new PrintStream(OutputStream.nullOutputStream()));
+        System.setOut(new PrintStream(OutputStream.nullOutputStream()));
         try {
-            InstanceRegistry.currentPid(); // 触发 InstanceRegistry 静态 logger → slf4j 初始化
+            InstanceRegistry.currentPid(); // 触发 InstanceRegistry 静态 logger → slf4j/log4j 初始化
         } catch (Throwable ignore) {
             // best-effort
         } finally {
             System.setErr(realErr);
+            System.setOut(realOut);
         }
-        // 同时抑制 log4j2 StatusLogger 告警(若有)
-        System.setProperty("log4j2.StatusLogger.level", "OFF");
         Parsed p = null; // 提升到 try 外:异常兜底文案需回显实际生效的 --timeout
         try {
             if (args.length == 0) {
@@ -95,6 +110,15 @@ public final class JmeterCli {
                 System.exit(0);
             }
             p = parse(args);
+            validateUnknownFlags(p);
+            validateGlobalFlagValues(p.opts);
+            if (p.json) {
+                // JSON 是机器可读模式:按 UTF-8 输出(RFC 8259)——默认 PrintStream 走平台代码页
+                // (如 GBK),非 ASCII 内容(默认计划名「测试计划」)会变成非法 UTF-8 字节序列,
+                // UTF-8 消费者(jq/脚本/外部 Agent)解析失败。纯文本模式保持平台编码,
+                // 本地控制台显示不受影响。
+                System.setOut(new PrintStream(System.out, true, java.nio.charset.StandardCharsets.UTF_8));
+            }
             if (p.help) {
                 // `jmeter-cli <command> -h | --help`
                 if (printCommandHelp(System.out, p.command)) {
@@ -120,20 +144,22 @@ public final class JmeterCli {
      *                           即抛、无从解析时传 null(超时分支此时不可达,仅兜底)
      */
     static String friendly(Throwable e, Long effectiveTimeoutMs) {
+        // 先全链扫描 HttpTimeoutException:连接期超时的异常链根因常落在 ConnectException,
+        // 若先展开根因,会把"用户 --timeout 过小"误判为"服务器不可达"(诱导排查端口文件)。
+        for (Throwable t = e; t != null; t = (t.getCause() == t ? null : t.getCause())) {
+            if (t instanceof HttpTimeoutException) {
+                // 请求超时(--timeout 或其缺省)到点未收到响应。loopback 上连接期也可能超时。
+                // 断开不会中止服务器上的回合(其在 jmeter.ai.ipc.agent.timeout.ms 到点自取消)。
+                // 回显实际生效值:显式传过 --timeout 的用户看到的必须是自己传的数。
+                long timeout = effectiveTimeoutMs != null ? effectiveTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
+                return "timed out waiting for the JMeter IPC response after " + timeout + "ms (--timeout); "
+                        + "the request may still be running server-side (disconnecting does not cancel it). "
+                        + "Retry with a larger --timeout, or lower jmeter.ai.ipc.agent.timeout.ms.";
+            }
+        }
         Throwable root = e;
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();
-        }
-        if (root instanceof HttpTimeoutException) {
-            // HttpTimeoutException: 请求超时(--timeout 或其缺省)到点未收到响应。loopback
-            // 连接恒即时,实际几乎总是 agent 回合耗时超过客户端等待——不得报 "cannot reach"
-            // (服务器可达)。断开不会中止服务器上的回合(其在 jmeter.ai.ipc.agent.timeout.ms
-            // 到点自取消)。回显实际生效值而非写死缺省:显式传过 --timeout 的用户看到的
-            // 必须是自己传的数
-            long timeout = effectiveTimeoutMs != null ? effectiveTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
-            return "timed out waiting for the JMeter IPC response after " + timeout + "ms (--timeout); "
-                    + "the request may still be running server-side (disconnecting does not cancel it). "
-                    + "Retry with a larger --timeout, or lower jmeter.ai.ipc.agent.timeout.ms.";
         }
         if (root instanceof ConnectException) {
             // ConnectException: 端口无监听(进程死/残留文件)
@@ -174,6 +200,26 @@ public final class JmeterCli {
                 return cmdOpen(p.opts, p.json);
             case "batch":
                 return cmdBatch(p.opts, p.json);
+            case "batch-delete":
+                return cmdBatchDelete(p.opts, p.json);
+            case "batch-move":
+                return cmdBatchMove(p.opts, p.json);
+            case "batch-toggle":
+                return cmdBatchToggle(p.opts, p.json);
+            case "validate":
+                return execTool(p.opts, p.json, "validate_test_plan", new HashMap<>());
+            case "copy":
+                return cmdCopy(p.opts, p.json);
+            case "tree":
+                return cmdTree(p.opts, p.json);
+            case "script-info":
+                return execTool(p.opts, p.json, "get_script_info", new HashMap<>());
+            case "query":
+                return cmdQuery(p.opts, p.json);
+            case "parse":
+                return cmdParse(p.opts, p.json);
+            case "log":
+                return cmdLog(p.opts, p.json);
             case "run":
                 return cmdRun(p.opts, p.json);
             case "stop":
@@ -228,7 +274,8 @@ public final class JmeterCli {
         }
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create("http://" + host(inst) + ":" + inst.getPort() + "/health"))
-                .timeout(Duration.ofSeconds(15))
+                // 尊重 --timeout(曾硬编码 15s 静默忽略用户值);缺省保持 15s 快探活语义
+                .timeout(Duration.ofMillis(opts.get("timeout") != null ? timeoutOf(opts) : 15_000L))
                 .header("X-IPC-Token", tokenFor(inst, opts))
                 .GET().build();
         HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
@@ -255,7 +302,7 @@ public final class JmeterCli {
             throw new IllegalArgumentException("tool needs a name: tool <name> --params \"<json>\"");
         }
         Map<String, Object> params = p.opts.get("params") != null
-                ? parseJsonMap(p.opts.get("params")) : new HashMap<>();
+                ? parseJsonMap(p.opts.get("params"), "params") : new HashMap<>();
         IpcRequest req = new IpcRequest();
         req.setOp("tool");
         req.setTool(name);
@@ -268,33 +315,33 @@ public final class JmeterCli {
         params.put("elementType", require(opts, "elementType"));
         params.put("elementName", require(opts, "elementName"));
         if (opts.get("parentId") != null) {
-            params.put("parentId", Integer.parseInt(opts.get("parentId")));
+            params.put("parentId", requireInt(opts, "parentId"));
         } else {
             System.err.println("Warning: --parentId omitted; will use GUI's current selection "
                     + "(non-deterministic). Pass --parentId <elementId> for determinism.");
         }
         if (opts.get("properties") != null) {
-            params.put("properties", parseJsonMap(opts.get("properties")));
+            params.put("properties", parseJsonMap(opts.get("properties"), "properties"));
         }
         return execTool(opts, json, "create_jmeter_element", params);
     }
 
     private static int cmdUpdate(Map<String, String> opts, boolean json) throws Exception {
         Map<String, Object> params = new HashMap<>();
-        params.put("elementId", Integer.parseInt(require(opts, "elementId")));
-        params.put("properties", parseJsonMap(require(opts, "properties")));
+        params.put("elementId", requireInt(opts, "elementId"));
+        params.put("properties", parseJsonMap(require(opts, "properties"), "properties"));
         return execTool(opts, json, "update_jmeter_element", params);
     }
 
     private static int cmdSimple(Map<String, String> opts, boolean json, String tool, String idKey) throws Exception {
         Map<String, Object> params = new HashMap<>();
-        params.put("elementId", Integer.parseInt(require(opts, idKey)));
+        params.put("elementId", requireInt(opts, idKey));
         return execTool(opts, json, tool, params);
     }
 
     private static int cmdToggle(Map<String, String> opts, boolean json) throws Exception {
         Map<String, Object> params = new HashMap<>();
-        params.put("elementId", Integer.parseInt(require(opts, "elementId")));
+        params.put("elementId", requireInt(opts, "elementId"));
         if (opts.get("action") != null) {
             params.put("action", opts.get("action"));
         }
@@ -303,8 +350,8 @@ public final class JmeterCli {
 
     private static int cmdMove(Map<String, String> opts, boolean json) throws Exception {
         Map<String, Object> params = new HashMap<>();
-        params.put("elementId", Integer.parseInt(require(opts, "elementId")));
-        params.put("targetParentId", Integer.parseInt(require(opts, "targetParentId")));
+        params.put("elementId", requireInt(opts, "elementId"));
+        params.put("targetParentId", requireInt(opts, "targetParentId"));
         if (opts.get("position") != null) {
             params.put("position", opts.get("position"));
         }
@@ -351,14 +398,145 @@ public final class JmeterCli {
 
     private static int cmdBatch(Map<String, String> opts, boolean json) throws Exception {
         Map<String, Object> params = new HashMap<>();
-        params.put("elementIds", parseIntList(require(opts, "elementIds")));
-        params.put("properties", parseJsonMap(require(opts, "properties")));
+        params.put("elementIds", parseIntList(require(opts, "elementIds"), "elementIds"));
+        params.put("properties", parseJsonMap(require(opts, "properties"), "properties"));
         return execTool(opts, json, "batch_update_jmeter_elements", params);
+    }
+
+    private static int cmdBatchDelete(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "batch_delete_jmeter_elements", buildBatchDeleteParameters(opts));
+    }
+
+    /** batch-delete 参数:--elementIds CSV → elementIds 数组(工具唯一参数)。 */
+    static Map<String, Object> buildBatchDeleteParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("elementIds", parseIntList(require(opts, "elementIds"), "elementIds"));
+        return params;
+    }
+
+    private static int cmdBatchMove(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "batch_move_jmeter_elements", buildBatchMoveParameters(opts));
+    }
+
+    /** batch-move 参数:--elementIds CSV 与 --targetParentId 必填;--position 可选缺省不投递(工具默认 last)。 */
+    static Map<String, Object> buildBatchMoveParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("elementIds", parseIntList(require(opts, "elementIds"), "elementIds"));
+        params.put("targetParentId", requireInt(opts, "targetParentId"));
+        if (opts.get("position") != null) {
+            params.put("position", opts.get("position"));
+        }
+        return params;
+    }
+
+    private static int cmdBatchToggle(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "batch_toggle_jmeter_elements", buildBatchToggleParameters(opts));
+    }
+
+    /** batch-toggle 参数:--elementIds CSV 必填;--action 可选缺省不投递(工具默认 toggle)。 */
+    static Map<String, Object> buildBatchToggleParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("elementIds", parseIntList(require(opts, "elementIds"), "elementIds"));
+        if (opts.get("action") != null) {
+            params.put("action", opts.get("action"));
+        }
+        return params;
+    }
+
+    private static int cmdCopy(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "copy_paste_jmeter_element", buildCopyParameters(opts));
+    }
+
+    /** copy 参数:--elementId 必填;--targetParentId/--position 可选缺省不投递(工具落为原位复制 + last)。 */
+    static Map<String, Object> buildCopyParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("elementId", requireInt(opts, "elementId"));
+        if (opts.get("targetParentId") != null) {
+            params.put("targetParentId", requireInt(opts, "targetParentId"));
+        }
+        if (opts.get("position") != null) {
+            params.put("position", opts.get("position"));
+        }
+        return params;
+    }
+
+    private static int cmdTree(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "get_test_plan_tree", buildTreeParameters(opts));
+    }
+
+    /** tree 参数:两个可选直传(缺省不投递,工具默认生效)。 */
+    static Map<String, Object> buildTreeParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        putBoolIfPresent(opts, params, "includeProperties");
+        putIntIfPresent(opts, params, "maxDepth");
+        return params;
+    }
+
+    private static int cmdQuery(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = buildQueryParameters(opts);
+        return execTool(opts, json, "query_element_properties", params);
+    }
+
+    /**
+     * query 参数:服务端要求 propertyName/propertyValue 至少其一(无过滤列举由 tree/find 承担),
+     * 其余可选、缺省不投递;约束在工具层校验,CLI 帮助如实描述。
+     */
+    static Map<String, Object> buildQueryParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        putStrIfPresent(opts, params, "elementType");
+        putStrIfPresent(opts, params, "propertyName");
+        putStrIfPresent(opts, params, "propertyValue");
+        putStrIfPresent(opts, params, "matchMode");
+        putIntIfPresent(opts, params, "parentId");
+        putBoolIfPresent(opts, params, "includeProperties");
+        putIntIfPresent(opts, params, "maxDepth");
+        putIntIfPresent(opts, params, "offset");
+        putIntIfPresent(opts, params, "limit");
+        return params;
+    }
+
+    private static int cmdParse(Map<String, String> opts, boolean json) throws Exception {
+        Map<String, Object> params = buildParseParameters(opts);
+        return execTool(opts, json, "parse_jmx_file", params);
+    }
+
+    /**
+     * parse 参数:--file(→filePath)必填,旗标名对齐 open --file;--limit/--offset 仅 query 模式可用
+     * (须伴 --elementType)——无 elementType 时这两个旗标会被工具的树模式静默忽略,须客户端拒绝。
+     */
+    static Map<String, Object> buildParseParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("filePath", require(opts, "file"));
+        putStrIfPresent(opts, params, "elementType");
+        putBoolIfPresent(opts, params, "includeProperties");
+        putIntIfPresent(opts, params, "maxDepth");
+        if (opts.get("limit") != null || opts.get("offset") != null) {
+            if (opts.get("elementType") == null) {
+                throw new IllegalArgumentException(
+                        "--limit/--offset require --elementType (parse switches to query mode only with --elementType)");
+            }
+            putIntIfPresent(opts, params, "limit");
+            putIntIfPresent(opts, params, "offset");
+        }
+        return params;
+    }
+
+    private static int cmdLog(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "get_log_panel_content", buildLogParameters(opts));
+    }
+
+    /** log 参数:行区间三可选直传,缺省尾读(工具默认最近 50 行)。 */
+    static Map<String, Object> buildLogParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        putIntIfPresent(opts, params, "startLine");
+        putIntIfPresent(opts, params, "endLine");
+        putIntIfPresent(opts, params, "maxLines");
+        return params;
     }
 
     private static int cmdRun(Map<String, String> opts, boolean json) throws Exception {
         Map<String, Object> params = buildRunParameters(opts);
-        if (!opts.containsKey("wait")) {
+        if (!waitRequested(opts)) {
             return execTool(opts, json, "run_test", params);
         }
         // --wait: start without printing, then poll get_test_status until the test finishes.
@@ -369,6 +547,8 @@ public final class JmeterCli {
         if (!start.isSuccess()) {
             return printOne(start, json);
         }
+        // run_test 的响应内容(smoke 判定/启动详情)不能被轮询终态吞掉——先记下,终态时一并输出
+        String startContent = start.getContent() == null ? "" : start.getContent();
         long deadline = System.currentTimeMillis() + timeoutOf(opts);
         System.err.println("Test started; waiting for completion (polling status)...");
         while (true) {
@@ -378,16 +558,19 @@ public final class JmeterCli {
                 return 1;
             }
             if (!st.isSuccess()) {
+                printStartContent(startContent);
                 return printOne(st, json);
             }
             String c = st.getContent() == null ? "" : st.getContent();
-            if (!c.contains("**State**: Running")) {
+            if (!c.contains(RUNNING_STATE_MARKER)) {
                 System.err.println();
+                printStartContent(startContent);
                 return printOne(st, json);
             }
             if (System.currentTimeMillis() > deadline) {
                 System.err.println();
                 System.err.println("Timeout waiting for test to finish. Last status:");
+                printStartContent(startContent);
                 printOne(st, json);
                 return 1;
             }
@@ -395,15 +578,43 @@ public final class JmeterCli {
         }
     }
 
-    static Map<String, Object> buildRunParameters(Map<String, String> opts) throws Exception {
+    /**
+     * --wait 是存在型布尔:缺席 = 不等待(文档语义「Returns once the engine confirms start;
+     * does NOT block unless --wait is given」);提供时严格解析(裸旗标=true,=true/=false 显式,
+     * 垃圾值 exit 2)。注意 parseStrictBool 的 blankMeansTrue 只对「提供了旗标但无值」生效——
+     * 缺席必须经 containsKey 短路,否则裸 run 会反转成恒等待。
+     */
+    static boolean waitRequested(Map<String, String> opts) {
+        return opts.containsKey("wait") && parseStrictBool("wait", opts.get("wait"), true);
+    }
+
+    /** 输出 run_test 的响应内容(smoke 判定等),--wait 轮询终态时一并呈现。 */
+    private static void printStartContent(String startContent) {
+        if (!startContent.isEmpty()) {
+            System.out.println(startContent);
+        }
+    }
+
+    static Map<String, Object> buildRunParameters(Map<String, String> opts) {
         Map<String, Object> params = new HashMap<>();
         params.put("action", "start");
+        if (opts.get("mode") != null) {
+            // 枚举值属旗标值校验(与工具端大小写敏感口径一致);组合语义(仅随 start、恒跳定时器)
+            // 仍由工具端把关(设计 D7)。
+            String mode = opts.get("mode");
+            if (!"normal".equals(mode) && !"smoke".equals(mode)) {
+                throw new IllegalArgumentException(
+                        "Invalid value for --mode: '" + mode + "' (expected normal|smoke)");
+            }
+            params.put("mode", mode);
+        }
         if (opts.get("ignoreTimers") != null) {
-            // CLI flag is camelCase; the tool param is snake_case.
-            params.put("ignore_timers", Boolean.parseBoolean(opts.get("ignoreTimers")));
+            // CLI flag is camelCase; the tool param is snake_case. Strict parse: 'yes'/'1' must not
+            // silently mean false (that would honor full timers in a "quick validation" run).
+            params.put("ignore_timers", parseStrictBool("ignoreTimers", opts.get("ignoreTimers"), false));
         }
         if (opts.get("properties") != null) {
-            params.put("properties", parseJsonMap(opts.get("properties")));
+            params.put("properties", parseJsonMap(opts.get("properties"), "properties"));
         }
         return params;
     }
@@ -432,7 +643,7 @@ public final class JmeterCli {
         putIntIfPresent(opts, params, "limit");
         putIntIfPresent(opts, params, "offset");
         if (opts.get("includeDetails") != null) {
-            params.put("include_details", Boolean.parseBoolean(opts.get("includeDetails")));
+            params.put("include_details", parseStrictBool("includeDetails", opts.get("includeDetails"), false));
         }
         if (opts.get("statusFilter") != null) {
             params.put("status_filter", opts.get("statusFilter"));
@@ -440,17 +651,57 @@ public final class JmeterCli {
         return execTool(opts, json, "get_test_results", params);
     }
 
-    /** Passes an optional boolean opt through to the tool params under the same key. */
-    private static void putBoolIfPresent(Map<String, String> opts, Map<String, Object> params, String key) {
-        if (opts.get(key) != null) {
-            params.put(key, Boolean.parseBoolean(opts.get(key)));
+    /**
+     * 严格布尔解析:仅接受 true/false(忽略大小写)。存在型旗标(--wait/--json)无值形态视为 true;
+     * 值型旗标(includeProperties/exactMatch/merge/ignoreTimers/includeDetails 等)无值或垃圾值必须
+     * 报 usage 错误(exit 2)——Boolean.parseBoolean 把一切未知静默当 false,历史上导致
+     * --exactMatch yes 静默变模糊匹配、--merge yes 静默替换整个计划。
+     */
+    static boolean parseStrictBool(String key, String raw, boolean blankMeansTrue) {
+        if (raw == null || raw.isEmpty()) {
+            if (blankMeansTrue) {
+                return true;
+            }
+            throw new IllegalArgumentException(
+                    "Invalid boolean for --" + key + ": '' (expected true|false)");
+        }
+        if (raw.equalsIgnoreCase("true")) {
+            return true;
+        }
+        if (raw.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new IllegalArgumentException(
+                "Invalid boolean for --" + key + ": '" + raw + "' (expected true|false)");
+    }
+
+    /** 严格整数解析:报错带旗标名(裸 NumberFormatException 的 "For input string" 不指明参数)。 */
+    static int parseStrictInt(String key, String raw) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid integer for --" + key + ": '" + raw + "'");
         }
     }
 
-    /** Passes an optional integer opt through to the tool params under the same key. */
+    /** Passes an optional boolean opt through under the same key, strictly parsed (garbage → exit 2). */
+    private static void putBoolIfPresent(Map<String, String> opts, Map<String, Object> params, String key) {
+        if (opts.get(key) != null) {
+            params.put(key, parseStrictBool(key, opts.get(key), false));
+        }
+    }
+
+    /** Passes an optional integer opt through under the same key; errors carry the flag name. */
     private static void putIntIfPresent(Map<String, String> opts, Map<String, Object> params, String key) {
         if (opts.get(key) != null) {
-            params.put(key, Integer.parseInt(opts.get(key)));
+            params.put(key, parseStrictInt(key, opts.get(key)));
+        }
+    }
+
+    /** Passes an optional string opt through to the tool params under the same key. */
+    private static void putStrIfPresent(Map<String, String> opts, Map<String, Object> params, String key) {
+        if (opts.get(key) != null) {
+            params.put(key, opts.get(key));
         }
     }
 
@@ -518,9 +769,32 @@ public final class JmeterCli {
         return 1;
     }
 
-    private static long timeoutOf(Map<String, String> opts) {
-        return opts.get("timeout") != null
-                ? Long.parseLong(opts.get("timeout")) : DEFAULT_REQUEST_TIMEOUT_MS;
+    static long timeoutOf(Map<String, String> opts) {
+        if (opts.get("timeout") == null) {
+            return DEFAULT_REQUEST_TIMEOUT_MS;
+        }
+        long t;
+        try {
+            t = Long.parseLong(opts.get("timeout"));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid integer for --timeout: '" + opts.get("timeout") + "'");
+        }
+        if (t <= 0) {
+            throw new IllegalArgumentException("Invalid --timeout: must be positive, got: " + t);
+        }
+        return t;
+    }
+
+    /**
+     * 全局旗标值统一校验:list/health 这类不消费 --pid/--timeout 的命令曾静默放过垃圾值
+     * (list --pid abc 照样全量列出实例、health 的 --timeout 被硬编码 15s 忽略)。
+     */
+    static void validateGlobalFlagValues(Map<String, String> opts) {
+        String pid = opts.get("pid");
+        if (pid != null && !pid.matches("\\d+")) {
+            throw new IllegalArgumentException("Invalid integer for --pid: '" + pid + "'");
+        }
+        timeoutOf(opts); // 非数字/非正数 → IAE(带旗标名)
     }
 
     static int printResp(HttpResponse<String> resp, boolean json) throws Exception {
@@ -640,7 +914,15 @@ public final class JmeterCli {
             if (isHelpFlag(a)) {
                 p.help = true;
             } else if ("--json".equals(a)) {
-                p.json = true;
+                // 裸旗标 = true;后随非旗标值形态 "--json true|false" 一并消费并严格解析,
+                // 防止值坠入 positionals(tool 命令会把 "true" 当工具名发到服务端)
+                if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                    p.json = parseStrictBool("json", args[++i], false);
+                } else {
+                    p.json = true;
+                }
+            } else if (a.startsWith("--json=")) {
+                p.json = parseStrictBool("json", a.substring("--json=".length()), false);
             } else if (a.startsWith("--")) {
                 int eq = a.indexOf('=');
                 if (eq > 2) {
@@ -658,7 +940,62 @@ public final class JmeterCli {
                 p.positionals.add(a);
             }
         }
+        // 空格形态 "--json true" 会落入通用 opts;统一消费为严格布尔,防合法旗标名下静默空转。
+        if (p.opts.containsKey("json")) {
+            p.json = parseStrictBool("json", p.opts.remove("json"), true);
+        }
         return p;
+    }
+
+    /** 跨命令全局旗标(任何命令都合法;usage 行不重复收录)。 */
+    private static final Set<String> GLOBAL_FLAGS =
+            Set.of("json", "pid", "token", "jmeter-home", "timeout");
+
+    /** usage 行未收录但命令实际消费的别名旗标。 */
+    private static final Map<String, Set<String>> CMD_ALIAS_FLAGS = Map.of(
+            "agent", Set.of("message"),
+            "tool", Set.of("name"));
+
+    /**
+     * 从命令 usage 行派生合法旗标集(SPECS usage 与命令实现同源维护,是单一事实源)。
+     * 返回 null 表示未知命令(由 dispatch 的 Unknown command 分支处理,不做旗标校验)。
+     * 包内可见以便守卫测试钉定关键旗标不缺席(防 usage 手误导致误拒)。
+     */
+    static Set<String> allowedFlagsFor(String command) {
+        Cmd c = findCmd(command);
+        if (c == null) {
+            return null;
+        }
+        Set<String> flags = new HashSet<>(GLOBAL_FLAGS);
+        // usage 行的旗标形如 "[--flag <v>]"(可选)或 " --flag <v>"(必填,无方括号)——两种前缀都要扫
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?:\\[|\\s)--([a-zA-Z][a-zA-Z0-9-]*)")
+                .matcher(c.usage());
+        while (m.find()) {
+            flags.add(m.group(1));
+        }
+        flags.addAll(CMD_ALIAS_FLAGS.getOrDefault(command, Set.of()));
+        return flags;
+    }
+
+    /**
+     * 未知旗标校验:手误旗标(--modee/--elementld)曾被静默忽略并改变命令语义
+     * (run --modee smoke 实际发起全量正常运行)。未知键一律 exit 2 并指明命令。
+     */
+    private static void validateUnknownFlags(Parsed p) {
+        if (p.help) {
+            return; // help 优先:混入 -h 的调用仍打印帮助而非退出码 2
+        }
+        Set<String> allowed = allowedFlagsFor(p.command);
+        if (allowed == null) {
+            return; // 未知命令:交由 dispatch 报 Unknown command(exit 2)
+        }
+        for (String key : p.opts.keySet()) {
+            if (!allowed.contains(key)) {
+                throw new IllegalArgumentException("unknown option --" + key + " for command '" + p.command
+                        + "' (see 'jmeter-cli help " + p.command + "')");
+            }
+        }
     }
 
     private static String require(Map<String, String> opts, String key) {
@@ -669,15 +1006,34 @@ public final class JmeterCli {
         return v;
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> parseJsonMap(String json) throws Exception {
-        return MAPPER.readValue(json, Map.class);
+    /** require + 严格整数解析;报错带旗标名。 */
+    private static int requireInt(Map<String, String> opts, String key) {
+        return parseStrictInt(key, require(opts, key));
     }
 
-    private static List<Integer> parseIntList(String csv) {
+    /**
+     * 解析 JSON 对象旗标值。坏 JSON 属 usage 类错误:包成 IAE(exit 2 + 带旗标名),
+     * 不让 Jackson 异常落进通用 catch(Exception)(exit 1 + 泄漏 Source/行号内部信息)。
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> parseJsonMap(String json, String flagName) {
+        try {
+            return MAPPER.readValue(json, Map.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "Invalid JSON for --" + flagName + ": " + e.getOriginalMessage());
+        }
+    }
+
+    private static List<Integer> parseIntList(String csv, String key) {
         List<Integer> list = new ArrayList<>();
         for (String s : csv.split(",")) {
-            list.add(Integer.parseInt(s.trim()));
+            try {
+                list.add(Integer.parseInt(s.trim()));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(
+                        "Invalid integer for --" + key + ": '" + s.trim() + "'");
+            }
         }
         return list;
     }
@@ -764,8 +1120,50 @@ public final class JmeterCli {
                 {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
             },
             new String[]{
-                "jmeter-cli find --searchBy elementType --query testplan",
+                "jmeter-cli tree   # 取 TestPlan 根 id",
                 "jmeter-cli find --searchBy name --query \"HTTP Request\" --limit 10"
+            }),
+
+        new Cmd("query",
+            "Query elements by property name/value.",
+            "jmeter-cli query [--elementType <t>] [--propertyName <n>] [--propertyValue <v>] [--matchMode exact|contains] [--parentId <id>] [--includeProperties <bool>] [--maxDepth <n>] [--offset <n>] [--limit <n>]",
+            """
+            Searches elements by property content instead of name/type/path (wraps query_element_properties).
+            Either --propertyName or --propertyValue is REQUIRED (server-enforced; use 'tree' or 'find'
+            for unfiltered listing). --propertyName matches exact property names ('name' / 'comment' are
+            special-cased to the display name / comment); --propertyValue matches values using --matchMode
+            (default 'contains'). Pagination and subtree scoping map 1:1 to the tool params.""",
+            new String[][]{
+                {"--elementType <t>", "secondary filter by type (e.g. httpsampler); still requires --propertyName/--propertyValue"},
+                {"--propertyName <n>", "exact property name (e.g. HTTPSampler.domain; 'name'/'comment' special)"},
+                {"--propertyValue <v>", "property value to search for (matched per --matchMode)"},
+                {"--matchMode <m>", "exact | contains (default)"},
+                {"--parentId <id>", "elementId to scope the query under (inclusive). Omit = whole plan"},
+                {"--includeProperties <bool>", "include element properties (default: true)"},
+                {"--maxDepth <n>", "depth from found node (default: 0)"},
+                {"--offset <n> / --limit <n>", "pagination (limit default 20, max 50)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli query --propertyName HTTPSampler.domain --propertyValue example.com",
+                "jmeter-cli query --elementType httpsampler --matchMode exact --propertyValue \"example.com\""
+            }),
+
+        new Cmd("tree",
+            "Dump the whole test-plan tree.",
+            "jmeter-cli tree [--includeProperties <bool>] [--maxDepth <n>]",
+            """
+            Returns the current GUI test-plan tree (wraps get_test_plan_tree). Use it to discover
+            elementIds before create/move/copy operations. --includeProperties includes element
+            properties (default: true); --maxDepth bounds traversal (-1 = unlimited, default).""",
+            new String[][]{
+                {"--includeProperties <bool>", "include element properties (default: true)"},
+                {"--maxDepth <n>", "tree depth to traverse (-1 = unlimited)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli tree",
+                "jmeter-cli tree --includeProperties false --maxDepth 2"
             }),
 
         new Cmd("open",
@@ -789,6 +1187,31 @@ public final class JmeterCli {
                 "jmeter-cli open --file plan.jmx --merge true --includeProperties false"
             }),
 
+        new Cmd("parse",
+            "Parse an external .jmx WITHOUT loading it into the GUI.",
+            "jmeter-cli parse --file <path> [--elementType <t>] [--includeProperties <bool>] [--maxDepth <n>] [--limit <n>] [--offset <n>]",
+            """
+            Reads a .jmx file and returns its element tree without touching the GUI plan (wraps
+            parse_jmx_file) - unlike 'open', the currently-open plan stays untouched.
+            MODE SWITCH: with --elementType the tool switches to query mode - output becomes a paginated
+            list {total, offset, limit, elements} capped at --limit (default 20, max 50) and --maxDepth
+            then defaults to 0 (matched element only; tree mode defaults to -1 unlimited).
+            --limit/--offset require --elementType. Property-name/value filtering and matchMode are
+            reachable via 'tool parse_jmx_file --params ...' (see cli-reference).""",
+            new String[][]{
+                {"--file <path>", "REQUIRED. path to the .jmx file to parse"},
+                {"--elementType <t>", "switch to query mode, matching elements of one type (e.g. httpsampler)"},
+                {"--includeProperties <bool>", "include element properties (default: true)"},
+                {"--maxDepth <n>", "tree depth (-1 = unlimited, default in tree mode; 0 in query mode)"},
+                {"--limit <n>", "query mode only (requires --elementType): max results (default 20, max 50)"},
+                {"--offset <n>", "query mode only (requires --elementType): results to skip (default 0)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli parse --file /path/to/plan.jmx",
+                "jmeter-cli parse --file plan.jmx --elementType httpsampler --limit 50"
+            }),
+
         new Cmd("create",
             "Create a new test-plan element.",
             "jmeter-cli create --elementType <t> --elementName <n> [--parentId <id>] [--properties \"<json>\"]",
@@ -797,7 +1220,7 @@ public final class JmeterCli {
             is the JMeter element type key (e.g. threadgroup, httpsampler, loopcontroller). --properties is a JSON
             object of element properties keyed by JMeter property names. If --parentId is omitted, the GUI's current
             selection is used (non-deterministic from the CLI) and a warning is printed - pass --parentId for
-            determinism. Get the root id with: jmeter-cli find --searchBy elementType --query testplan""",
+            determinism. Get the root id with: jmeter-cli tree""",
             new String[][]{
                 {"--elementType <t>", "REQUIRED. element type key (threadgroup, httpsampler, ...)"},
                 {"--elementName <n>", "REQUIRED. display name of the new element"},
@@ -808,6 +1231,24 @@ public final class JmeterCli {
             new String[]{
                 "jmeter-cli create --elementType threadgroup --elementName TG1 --parentId 2",
                 "jmeter-cli create --elementType httpsampler --elementName HTTP1 --parentId 5 --properties \"{\\\"HTTPSampler.domain\\\":\\\"example.com\\\"}\""
+            }),
+
+        new Cmd("copy",
+            "Copy-paste an element (deep clone with children).",
+            "jmeter-cli copy --elementId <id> [--targetParentId <id>] [--position first|last|before:<id>|after:<id>]",
+            """
+            Deep-clones an element with all its descendants and pastes it under --targetParentId (wraps
+            copy_paste_jmeter_element). Omit --targetParentId to duplicate in place under the source's own
+            parent. Prints the new clone's elementId.""",
+            new String[][]{
+                {"--elementId <id>", "REQUIRED. elementId of the element to copy"},
+                {"--targetParentId <id>", "paste target parent; omit = source's own parent (in-place duplicate)"},
+                {"--position <p>", "first | last (default) | before:<id> | after:<id>"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli copy --elementId 5",
+                "jmeter-cli copy --elementId 5 --targetParentId 2 --position first"
             }),
 
         new Cmd("update",
@@ -837,6 +1278,21 @@ public final class JmeterCli {
                 "jmeter-cli delete --elementId 5"
             }),
 
+        new Cmd("batch-delete",
+            "Delete several elements in one shot.",
+            "jmeter-cli batch-delete --elementIds 1,2,3",
+            """
+            Removes every listed elementId in a single IPC round-trip (wraps batch_delete_jmeter_elements).
+            If an id is a descendant of another listed id it is skipped (the ancestor delete removes it).
+            Max 50 ids per call.""",
+            new String[][]{
+                {"--elementIds <csv>", "REQUIRED. comma-separated elementIds, e.g. 5,6,7"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli batch-delete --elementIds 5,6,7"
+            }),
+
         new Cmd("move",
             "Move an element under a different parent.",
             "jmeter-cli move --elementId <id> --targetParentId <parentId> [--position first|last|before:<id>|after:<id>]",
@@ -855,6 +1311,25 @@ public final class JmeterCli {
                 "jmeter-cli move --elementId 5 --targetParentId 2 --position first"
             }),
 
+        new Cmd("batch-move",
+            "Move several elements to one parent in one shot.",
+            "jmeter-cli batch-move --elementIds 1,2,3 --targetParentId <id> [--position first|last|before:<id>|after:<id>]",
+            """
+            Moves all listed elements to a shared parent at a shared position; input order is preserved at
+            the destination (wraps batch_move_jmeter_elements). All elements are validated before any is
+            moved - any violation (missing id, cycle, incompatible parent, ancestor/descendant pairs) aborts
+            the whole batch with no mutation. Max 50 ids per call.""",
+            new String[][]{
+                {"--elementIds <csv>", "REQUIRED. comma-separated elementIds to move"},
+                {"--targetParentId <id>", "REQUIRED. elementId of the destination parent"},
+                {"--position <p>", "first | last (default) | before:<id> | after:<id> (reference must not be a moved element)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli batch-move --elementIds 5,6 --targetParentId 2",
+                "jmeter-cli batch-move --elementIds 5,6 --targetParentId 2 --position first"
+            }),
+
         new Cmd("toggle",
             "Enable / disable / toggle an element.",
             "jmeter-cli toggle --elementId <id> [--action enable|disable|toggle]",
@@ -869,6 +1344,23 @@ public final class JmeterCli {
             new String[]{
                 "jmeter-cli toggle --elementId 5",
                 "jmeter-cli toggle --elementId 5 --action disable"
+            }),
+
+        new Cmd("batch-toggle",
+            "Enable / disable / toggle several elements.",
+            "jmeter-cli batch-toggle --elementIds 1,2,3 [--action enable|disable|toggle]",
+            """
+            Applies one shared action to every listed element with a single GUI refresh at the end (wraps
+            batch_toggle_jmeter_elements). Default action 'toggle' inverts each element's current state.
+            Max 50 ids per call.""",
+            new String[][]{
+                {"--elementIds <csv>", "REQUIRED. comma-separated elementIds"},
+                {"--action <a>", "enable | disable | toggle (default)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli batch-toggle --elementIds 5,6,7",
+                "jmeter-cli batch-toggle --elementIds 5,6,7 --action disable"
             }),
 
         new Cmd("batch",
@@ -886,28 +1378,80 @@ public final class JmeterCli {
                 "jmeter-cli batch --elementIds 5,6,7 --properties \"{\\\"HTTPSampler.domain\\\":\\\"batch.example.com\\\"}\""
             }),
 
+        new Cmd("validate",
+            "Statically validate the current test plan.",
+            "jmeter-cli validate",
+            """
+            Runs structure and logic lint over the current GUI plan (wraps validate_test_plan) and prints a
+            structured PASS/FAIL report with per-issue details. Read-only: no plan mutation and no test
+            execution. Direct IPC calls bypass the goal channel, so no goal evidence is recorded.""",
+            new String[][]{
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli validate",
+                "jmeter-cli validate --json"
+            }),
+
+        new Cmd("script-info",
+            "Show current script path and runtime environment.",
+            "jmeter-cli script-info",
+            """
+            Reports the currently-open .jmx path (empty when the plan is unsaved) plus runtime environment
+            info: JMeter version, Java version/vendor, JMeter home (wraps get_script_info).""",
+            new String[][]{
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli script-info"
+            }),
+
+        new Cmd("log",
+            "Read the JMeter log panel.",
+            "jmeter-cli log [--startLine <n>] [--endLine <n>] [--maxLines <n>]",
+            """
+            Returns LoggerPanel (bottom log panel) content by line range (wraps get_log_panel_content).
+            Default is tail mode: the most recent 50 lines. Line numbers match the number the GUI shows
+            when selecting a log row, so you can fetch surrounding context for a specific log line.""",
+            new String[][]{
+                {"--startLine <n>", "1-based start line (inclusive); omit with --endLine for tail mode"},
+                {"--endLine <n>", "1-based end line (inclusive); omit = startLine + maxLines - 1"},
+                {"--maxLines <n>", "max lines to return (default 50, hard cap 500)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli log",
+                "jmeter-cli log --startLine 100 --endLine 120"
+            }),
+
         new Cmd("run",
             "Start the current JMeter test plan.",
-            "jmeter-cli run [--properties \"<json>\"] [--ignoreTimers <bool>] [--wait] [--timeout <ms>]",
+            "jmeter-cli run [--properties \"<json>\"] [--ignoreTimers <bool>] [--mode normal|smoke] [--wait] [--timeout <ms>]",
             """
             Starts the whole GUI test plan (cannot target a sub-tree). A result collector is injected so 'status'
             and 'results' can report data afterwards. Returns once the engine confirms start (within a few seconds)
             and does NOT block until the test finishes; use 'status' to monitor, or pass --wait to poll until done.
             --properties injects global JMeter properties before the test starts; values must be strings, numbers,
             or booleans and can be read with __P(name) or props.get("name") in the test plan.
-            --ignoreTimers true skips timer delays (quick functional validation). --wait polls get_test_status
-            every 1s until the test completes; the total wait is bounded by --timeout (default %dms, raise it
-            for long runs). Progress dots go to stderr; the final status goes to stdout."""
+            --ignoreTimers true skips timer delays (quick functional validation; not applicable in smoke mode,
+            which always skips timers). --mode smoke runs ALL thread groups at minimal cost (1 thread x 1 iteration,
+            scheduler off, timers skipped, assertions kept) and blocks until the verdict returns - ideal for a
+            quick sanity check. NOTE: smoke actually EXECUTES the plan and sends real requests (write endpoints
+            will be hit once) - it is not a static check. --wait polls get_test_status every 1s until the test completes; the total wait is
+            bounded by --timeout (default %dms, raise it for long runs). Progress dots go to stderr; the final
+            status goes to stdout."""
                     .formatted(DEFAULT_REQUEST_TIMEOUT_MS),
             new String[][]{
                 {"--properties \"<json>\"", "JSON object of JMeter properties to inject before starting"},
-                {"--ignoreTimers <bool>", "skip timer delays during the run (default: false)"},
+                {"--ignoreTimers <bool>", "skip timer delays during the run (default: false; ignored in smoke mode)"},
+                {"--mode <m>", "normal (default) | smoke: minimal-cost validation run, blocks until the verdict"},
                 {"--wait", "block until the test finishes, polling status (bounded by --timeout)"},
                 {"--json, --pid, --token, --jmeter-home, --timeout", "global options (see jmeter-cli help)"}
             },
             new String[]{
                 "jmeter-cli run",
                 "jmeter-cli run --properties \"{\\\"p_env\\\":\\\"test\\\",\\\"p_concurrent\\\":100}\"",
+                "jmeter-cli run --mode smoke",
                 "jmeter-cli run --ignoreTimers true --wait --timeout 30000"
             }),
 
@@ -1030,7 +1574,8 @@ public final class JmeterCli {
         return null;
     }
 
-    private static void printGlobalHelp(PrintStream out) {
+    // 包内可见以便帮助冒烟测试(每命令 SPECS 条目可解析、打印不抛异常)
+    static void printGlobalHelp(PrintStream out) {
         int w = 0;
         for (Cmd c : SPECS) {
             w = Math.max(w, c.name().length());
@@ -1062,13 +1607,13 @@ public final class JmeterCli {
         out.println("Quick start:");
         out.println("  jmeter-cli list");
         out.println("  jmeter-cli health");
-        out.println("  jmeter-cli find --searchBy elementType --query testplan");
+        out.println("  jmeter-cli tree   # 取 TestPlan 根 id");
         out.println("  jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <id>");
         out.println();
         out.println("Exit codes: 0 success  |  1 tool/agent/transport error  |  2 bad usage");
     }
 
-    private static boolean printCommandHelp(PrintStream out, String name) {
+    static boolean printCommandHelp(PrintStream out, String name) {
         Cmd c = findCmd(name);
         if (c == null) {
             return false;

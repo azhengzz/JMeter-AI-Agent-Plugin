@@ -62,35 +62,53 @@ public abstract class AbstractTool implements Tool {
     }
 
     /**
-     * Get an integer parameter from the parameters map
+     * Get an integer parameter from the parameters map. Strict: garbage strings used to
+     * silently return the default (masking wrong input); out-of-range numbers used to
+     * silently truncate via {@code intValue()}. Both now raise a teaching IAE, caught by
+     * {@link #execute} into a {@code ToolResult.error}.
      */
     protected int getIntParameter(Map<String, Object> parameters, String key, int defaultValue) {
         Object value = parameters.get(key);
         if (value == null) {
             return defaultValue;
         }
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
+        if (value instanceof Number n) {
+            long wide = n.longValue();
+            if (wide < Integer.MIN_VALUE || wide > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException(
+                        "Parameter '" + key + "' is out of integer range: " + wide);
+            }
+            return (int) wide;
         }
         try {
-            return Integer.parseInt(value.toString());
+            return Integer.parseInt(value.toString().trim());
         } catch (NumberFormatException e) {
-            log.warn("Invalid integer value for parameter {}: {}", key, value);
-            return defaultValue;
+            throw new IllegalArgumentException(
+                    "Parameter '" + key + "' must be an integer, got: '" + value + "'");
         }
     }
 
     /**
-     * Get a boolean parameter from the parameters map
+     * Get a boolean parameter from the parameters map. Strict: unrecognized strings
+     * ("yes"/"1"/"maybe") used to silently mean {@code false} via parseBoolean — now a
+     * teaching IAE. Accepts native booleans and case-insensitive "true"/"false" strings.
      */
     protected boolean getBooleanParameter(Map<String, Object> parameters, String key, boolean defaultValue) {
         Object value = parameters.get(key);
         if (value == null) {
             return defaultValue;
         }
-        if (value instanceof Boolean) {
-            return (Boolean) value;
+        if (value instanceof Boolean b) {
+            return b;
         }
-        return Boolean.parseBoolean(value.toString());
+        String s = value.toString().trim();
+        if (s.equalsIgnoreCase("true")) {
+            return true;
+        }
+        if (s.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new IllegalArgumentException(
+                "Parameter '" + key + "' must be a boolean (true/false), got: '" + value + "'");
     }
 }

@@ -121,6 +121,7 @@ public final class JmxFileParser {
 
     private static ParsedJmxElement parseElementTag(Element el) {
         ParsedJmxElement parsed = new ParsedJmxElement();
+        parsed.testClassFqcn = el.getTagName();
         parsed.elementType = el.getAttribute("testclass");
         if (parsed.elementType.isEmpty()) {
             parsed.elementType = el.getTagName();
@@ -271,6 +272,10 @@ public final class JmxFileParser {
 
     public static class ParsedJmxElement {
         public String elementType;
+        /** XML tag 原文(JMeter 序列化恒为模型类 FQCN,如 org.apache.jmeter.control.LoopController)——
+         *  testclass/guiclass 属性都是 SimpleName,跨包同名组件(native vs gitee-qa 的
+         *  LoopController/LoopControlPanel)只有 tag 能区分。 */
+        public String testClassFqcn;
         public String guiClass;
         public String name;
         public boolean enabled;

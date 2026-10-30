@@ -138,8 +138,13 @@ public class FindElementTool extends AbstractTool {
             return ToolResult.error("Parameter 'limit' must not exceed 50, got: " + limit);
         }
 
-        // Scope the search to a parent node's subtree when parentId is provided
-        if (parentId > 0) {
+        // Scope the search to a parent node's subtree when parentId is provided. An explicit
+        // non-positive id used to silently drop the scoping (whole-plan results while the user
+        // believed they were subtree-scoped) — now rejected like any other nonexistent id.
+        if (parameters.get("parentId") != null) {
+            if (parentId <= 0) {
+                return ToolResult.error("Invalid parentId: " + parentId + ". Must be a positive integer.");
+            }
             JMeterTreeNode parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
             if (parentNode == null) {
                 return ToolResult.error("Could not find parent node with elementId: " + parentId +
@@ -253,12 +258,19 @@ public class FindElementTool extends AbstractTool {
      */
     private ToolResult findByElementId(JMeterTreeNode root, String idStr,
                                        boolean includeProperties, int maxDepth) throws JsonProcessingException {
-        int elementId;
+        // Long 通道:合法但超 int 范围的整数历史上被 Integer.parseInt 误报为 "must be an
+        // integer"——先按 long 解析,超范围给明确的 range 文案(而非误导性的类型报错)。
+        long elementIdLong;
         try {
-            elementId = Integer.parseInt(idStr);
+            elementIdLong = Long.parseLong(idStr.trim());
         } catch (NumberFormatException e) {
             return ToolResult.error("elementId must be an integer: " + idStr);
         }
+        if (elementIdLong < 1 || elementIdLong > Integer.MAX_VALUE) {
+            return ToolResult.error("elementId is out of range: " + idStr
+                    + " (elementIds are positive 32-bit integers)");
+        }
+        int elementId = (int) elementIdLong;
 
         JMeterTreeNode foundNode = JMeterTreeUtils.findNodeByElementId(root, elementId);
 

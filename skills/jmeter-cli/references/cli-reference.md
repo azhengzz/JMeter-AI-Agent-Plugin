@@ -40,6 +40,17 @@ jmeter-cli open --file <path.jmx> --merge true --json
 
 Options: `--file <path>` required, `--merge <bool>`, `--includeProperties <bool>`, `--maxDepth <n>`.
 
+### `parse`
+
+Parse an external `.jmx` and return its tree WITHOUT loading it into the GUI (the open plan stays untouched).
+
+```bash
+jmeter-cli parse --file <path.jmx> --json
+jmeter-cli parse --file <path.jmx> --elementType httpsampler --limit 50 --json
+```
+
+Options: `--file <path>` required; `--elementType <t>` switches to query mode — output becomes a paginated `{total, offset, limit, elements}` list (default 20, max 50) and `--maxDepth` then defaults to 0 (tree mode: -1); `--includeProperties <bool>`; `--maxDepth <n>`; `--limit <n>`/`--offset <n>` (query mode only, require `--elementType`). Property-name/value filters and `matchMode` are reachable via `tool parse_jmx_file --params {...}`.
+
 ### `get`
 
 Get one element by `elementId`, or the current GUI selection when omitted.
@@ -63,6 +74,47 @@ jmeter-cli find --searchBy elementType --query JSR223Sampler --parentId <id>
 
 Options: `--searchBy <name|elementType|path|elementId>` required, `--query <q>` required, `--exactMatch <bool>`, `--includeProperties <bool>`, `--maxDepth <n>`, `--offset <n>`, `--limit <n>`.
 
+### `query`
+
+Search elements by property content instead of name/type/path.
+
+```bash
+jmeter-cli query --propertyName HTTPSampler.domain --propertyValue example.com --json
+jmeter-cli query --elementType httpsampler --matchMode exact --propertyValue "example.com" --json
+```
+
+Options: `--propertyName <n>` / `--propertyValue <v>` — at least one REQUIRED (server-enforced; use `tree`/`find` for unfiltered listing); `--elementType <t>` (secondary filter), `--matchMode exact|contains` (default `contains`), `--parentId <id>`, `--includeProperties <bool>`, `--maxDepth <n>`, `--offset <n>`, `--limit <n>`.
+
+### `tree`
+
+Dump the whole current test-plan tree (discover `elementId`s before create/move/copy).
+
+```bash
+jmeter-cli tree --json
+jmeter-cli tree --includeProperties false --maxDepth 2 --json
+```
+
+Options: `--includeProperties <bool>` (default `true`), `--maxDepth <n>` (-1 = unlimited).
+
+### `script-info`
+
+Show the currently-open `.jmx` path (empty when unsaved) plus JMeter/Java versions and JMeter home.
+
+```bash
+jmeter-cli script-info --json
+```
+
+### `log`
+
+Read the JMeter LoggerPanel content by line range; default is tail mode (most recent 50 lines). Line numbers match the GUI log row numbers.
+
+```bash
+jmeter-cli log --json
+jmeter-cli log --startLine 100 --endLine 120 --json
+```
+
+Options: `--startLine <n>`, `--endLine <n>`, `--maxLines <n>` (default 50, cap 500).
+
 ### `create`
 
 Create a JMeter element.
@@ -72,6 +124,17 @@ jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <testPl
 ```
 
 Options: `--elementType <type>` required, `--elementName <name>` required, `--parentId <id>` strongly recommended, `--properties <json>`.
+
+### `copy`
+
+Deep-clone an element (with all descendants) and paste it. Omit `--targetParentId` to duplicate in place.
+
+```bash
+jmeter-cli copy --elementId <id> --json
+jmeter-cli copy --elementId <id> --targetParentId <parentId> --position first --json
+```
+
+Options: `--elementId <id>` required, `--targetParentId <id>`, `--position first|last|before:<id>|after:<id>`.
 
 ### `update`
 
@@ -91,6 +154,16 @@ Delete an element and its descendants.
 jmeter-cli delete --elementId <id> --json
 ```
 
+### `batch-delete`
+
+Delete several elements in one shot (max 50 ids). Descendants of another listed id are skipped.
+
+```bash
+jmeter-cli batch-delete --elementIds 5,6,7 --json
+```
+
+Options: `--elementIds <csv>` required.
+
 ### `move`
 
 Move an element under another parent.
@@ -100,6 +173,16 @@ jmeter-cli move --elementId <id> --targetParentId <parentId> --position last --j
 ```
 
 Options: `--elementId <id>` required, `--targetParentId <id>` required, `--position first|last|before:<id>|after:<id>`.
+
+### `batch-move`
+
+Move several elements to one shared parent at a shared position in one shot (max 50 ids). All-or-nothing: any validation violation aborts the whole batch.
+
+```bash
+jmeter-cli batch-move --elementIds 5,6 --targetParentId <id> --position first --json
+```
+
+Options: `--elementIds <csv>` required, `--targetParentId <id>` required, `--position first|last|before:<id>|after:<id>`.
 
 ### `toggle`
 
@@ -111,6 +194,16 @@ jmeter-cli toggle --elementId <id> --action disable --json
 
 Options: `--elementId <id>` required, `--action enable|disable|toggle`.
 
+### `batch-toggle`
+
+Apply one shared enable/disable/toggle action to several elements (max 50 ids) with a single GUI refresh.
+
+```bash
+jmeter-cli batch-toggle --elementIds 5,6,7 --action disable --json
+```
+
+Options: `--elementIds <csv>` required, `--action enable|disable|toggle` (default `toggle`).
+
 ### `batch`
 
 Apply the same properties to several elements.
@@ -121,15 +214,24 @@ jmeter-cli batch --elementIds 5,6,7 --properties "{\"HTTPSampler.domain\":\"exam
 
 Options: `--elementIds <csv>` required, `--properties <json>` required.
 
+### `validate`
+
+Statically validate the current test plan (structure + logic lint). Read-only: no plan mutation, no test execution, no goal evidence.
+
+```bash
+jmeter-cli validate --json
+```
+
 ### `run`
 
-Start the current JMeter test plan (whole plan; cannot target a sub-tree). Returns once the engine confirms start; does not block until completion unless `--wait` is given.
+Start the current JMeter test plan (whole plan; cannot target a sub-tree). Returns once the engine confirms start; does not block until completion unless `--wait` is given. `--mode smoke` runs ALL thread groups at minimal cost (1 thread x 1 iteration, timers always skipped, assertions kept) and blocks until the verdict returns. NOTE: smoke actually EXECUTES the plan and sends real requests (write endpoints will be hit once) — it is not a static check.
 
 ```bash
 jmeter-cli run --ignoreTimers true --wait --timeout 30000 --json
+jmeter-cli run --mode smoke --json
 ```
 
-Options: `--ignoreTimers <bool>` (skip timer delays), `--wait` (poll `status` until the test finishes, bounded by `--timeout`).
+Options: `--ignoreTimers <bool>` (skip timer delays; ignored in smoke mode), `--mode normal|smoke` (default `normal`), `--wait` (poll `status` until the test finishes, bounded by `--timeout`).
 
 ### `stop`
 
@@ -196,9 +298,16 @@ The IPC server only allows these tools over `jmeter-cli tool`.
 - `update_jmeter_element`: `{ "elementId": 1, "properties": {...} }`
 - `batch_update_jmeter_elements`: `{ "elementIds": [1,2], "properties": {...} }`
 - `delete_jmeter_element`: `{ "elementId": 1 }`
+- `batch_delete_jmeter_elements`: `{ "elementIds": [1,2] }` (descendants of another listed id are skipped)
 - `move_jmeter_element`: `{ "elementId": 1, "targetParentId": 2, "position": "last" }`
+- `batch_move_jmeter_elements`: `{ "elementIds": [1,2], "targetParentId": 3, "position": "last" }` (all-or-nothing)
 - `copy_paste_jmeter_element`: `{ "elementId": 1, "targetParentId": 2, "position": "last" }`
 - `toggle_jmeter_element`: `{ "elementId": 1, "action": "enable|disable|toggle" }`
+- `batch_toggle_jmeter_elements`: `{ "elementIds": [1,2], "action": "toggle" }`
+
+### Static Validation
+
+- `validate_test_plan`: `{}` (read-only structure/logic lint; direct IPC calls record no goal evidence)
 
 ### Inspection
 
@@ -219,7 +328,7 @@ The IPC server only allows these tools over `jmeter-cli tool`.
 
 Prefer the dedicated top-level commands — `run`, `stop`, `shutdown`, `status`, `results` — over the raw tools below. The raw tools remain available via `tool` for parity.
 
-- `run_test`: `{ "action": "start|stop|shutdown", "ignore_timers": false }`
+- `run_test`: `{ "action": "start|stop|shutdown", "mode": "normal|smoke", "ignore_timers": false }`
 - `get_test_status`: `{}`
 - `get_test_results`: `{ "format": "summary|samples|both", "limit": 20, "offset": 0, "include_details": false, "status_filter": "all|success|failure" }`
 

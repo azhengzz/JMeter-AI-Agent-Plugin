@@ -96,9 +96,14 @@ public class CopyPasteJMeterElementTool extends AbstractTool {
                         ". Use get_test_plan_tree to get current elementIds.");
             }
 
-            // Determine target parent
+            // Determine target parent. An explicitly-provided non-positive targetParentId used
+            // to fall into the duplicate-in-place branch silently — reject it (create 同族).
             JMeterTreeNode targetParent;
-            if (targetParentId > 0) {
+            if (parameters.get("targetParentId") != null) {
+                if (targetParentId <= 0) {
+                    return ToolResult.error("Invalid targetParentId: " + targetParentId
+                            + ". Must be a positive integer (omit it to duplicate in place).");
+                }
                 targetParent = JMeterTreeUtils.findNodeByElementId(rootNode, targetParentId);
                 if (targetParent == null) {
                     return ToolResult.error("Could not find target parent node with elementId: " + targetParentId +
@@ -115,6 +120,15 @@ public class CopyPasteJMeterElementTool extends AbstractTool {
             ToolResult validation = validateCopyPaste(sourceNode, targetParent);
             if (!validation.isSuccess()) {
                 return validation;
+            }
+
+            // Pre-validate the before:/after: reference (hard error, aligned with move/batch-move;
+            // the old lenient end-append fallback silently dropped the requested position).
+            // Note: ref == source elementId is LEGAL here — the source does not move, the clone
+            // lands relative to its current position (unlike move, which rejects self-reference).
+            ToolResult refCheck = validatePositionRef(position, targetParent, rootNode);
+            if (!refCheck.isSuccess()) {
+                return refCheck;
             }
 
             // Deep-clone the source node
@@ -268,6 +282,32 @@ public class CopyPasteJMeterElementTool extends AbstractTool {
     }
 
     // --- Helpers ---
+
+    /**
+     * Pre-validate a before:/after: position reference: it must exist and currently be a child
+     * of the resolved target parent (hard error instead of the old silent end-append).
+     */
+    private ToolResult validatePositionRef(String position, JMeterTreeNode targetParent, JMeterTreeNode rootNode) {
+        if (!position.startsWith("before:") && !position.startsWith("after:")) {
+            return ToolResult.success("");
+        }
+        try {
+            int refId = Integer.parseInt(position.substring(position.indexOf(':') + 1));
+            JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(rootNode, refId);
+            if (refNode == null) {
+                return ToolResult.error("position '" + position + "' references elementId " + refId
+                        + " which cannot be found");
+            }
+            if (refNode.getParent() != targetParent) {
+                return ToolResult.error("position '" + position + "' references elementId " + refId
+                        + " which is not a child of the target parent");
+            }
+        } catch (NumberFormatException e) {
+            return ToolResult.error("Invalid position format: '" + position
+                    + "'. The reference id must be an integer.");
+        }
+        return ToolResult.success("");
+    }
 
     private boolean isTestPlanRootNode(JMeterTreeNode node) {
         if (node == null) return false;

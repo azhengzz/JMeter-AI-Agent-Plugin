@@ -115,9 +115,16 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
         }
 
         try {
-            // Determine parent node
+            // Determine parent node. An explicitly-provided non-positive parentId used to be
+            // silently folded into the "not provided" branch (parentId > 0 guard), landing the
+            // element on the non-deterministic GUI selection with no warning — now rejected.
             JMeterTreeNode parentNode;
-            if (parentId != null && parentId > 0) {
+            boolean parentExplicit = parameters.get("parentId") != null;
+            if (parentExplicit && parentId <= 0) {
+                return ToolResult.error("Invalid parentId: " + parentId
+                        + ". Must be a positive integer (omit it to use the GUI's current selection).");
+            }
+            if (parentExplicit) {
                 // Find parent node by elementId
                 JMeterTreeNode rootNode = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
                 parentNode = JMeterTreeUtils.findNodeByElementId(rootNode, parentId);
@@ -157,8 +164,16 @@ public class CreateJMeterElementTool extends AbstractJMeterElementTool {
             int elementId = System.identityHashCode(newNode);
             log.info("New element created with elementId: {}", elementId);
 
-            // Build and return success result
-            return buildSuccessResult(elementName, elementType, properties, elementId);
+            // Build and return success result. When parentId was omitted the element landed on
+            // the GUI's current selection — surface the landing spot so callers (CLI scripts and
+            // the GUI Agent alike) can detect a wrong placement.
+            ToolResult result = buildSuccessResult(elementName, elementType, properties, elementId);
+            if (!parentExplicit) {
+                result = ToolResult.success(result.getContent()
+                        + "\nAdded under (parentId was not specified; used current selection): `"
+                        + JMeterTreeUtils.getNodePath(parentNode) + "`");
+            }
+            return result;
 
         } catch (Exception e) {
             log.error("Error creating JMeter element", e);

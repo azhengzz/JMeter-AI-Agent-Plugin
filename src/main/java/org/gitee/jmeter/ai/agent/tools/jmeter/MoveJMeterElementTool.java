@@ -116,16 +116,17 @@ public class MoveJMeterElementTool extends AbstractTool {
                 return validation;
             }
 
-            // 6. Calculate insert position (shared helper; -1 means a before/after reference was
-            //    unresolved — preserve original behavior by falling back to 'last').
-            int insertIndex = JMeterTreeUtils.calculateInsertPosition(targetParent, position, rootNode);
-            if (insertIndex < 0) {
-                log.warn("Reference element for position '{}' not found in target parent, defaulting to 'last'", position);
-                insertIndex = targetParent.getChildCount();
+            // 6. Pre-validate the before:/after: reference (hard error, aligned with
+            //    batch_move_jmeter_elements; the old lenient fallback silently appended at the
+            //    end, masking input errors — and for same-parent moves fed the stale-index bug).
+            ToolResult refValidation = validatePositionRef(position, elementId, targetParent, rootNode);
+            if (!refValidation.isSuccess()) {
+                return refValidation;
             }
 
-            // 7. Perform the move
-            return performMove(sourceNode, targetParent, insertIndex);
+            // 7. Perform the move (insert index is computed inside the EDT block on the
+            //    post-removal tree — see performMove)
+            return performMove(sourceNode, targetParent, position, rootNode);
 
         } catch (Exception e) {
             log.error("Error moving element with elementId: {}", elementId, e);
@@ -177,9 +178,48 @@ public class MoveJMeterElementTool extends AbstractTool {
     }
 
     /**
-     * Perform the actual move operation.
+     * Pre-validate a before:/after: position reference. Mirrors batch-move semantics: the
+     * reference must exist, must not be the element being moved, and must currently be a child
+     * of the target parent. Anything else is a hard error (no silent 'last' degradation).
      */
-    private ToolResult performMove(JMeterTreeNode sourceNode, JMeterTreeNode targetParent, int insertIndex) {
+    private ToolResult validatePositionRef(String position, int elementId,
+                                           JMeterTreeNode targetParent, JMeterTreeNode rootNode) {
+        if (!position.startsWith("before:") && !position.startsWith("after:")) {
+            return ToolResult.success("");
+        }
+        int refId;
+        try {
+            refId = Integer.parseInt(position.substring(position.indexOf(':') + 1));
+        } catch (NumberFormatException e) {
+            return ToolResult.error("Invalid position format: '" + position
+                    + "'. The reference id must be an integer.");
+        }
+        if (refId == elementId) {
+            return ToolResult.error("position '" + position + "' references elementId " + refId
+                    + " which is itself being moved");
+        }
+        JMeterTreeNode refNode = JMeterTreeUtils.findNodeByElementId(rootNode, refId);
+        if (refNode == null) {
+            return ToolResult.error("position '" + position + "' references elementId " + refId
+                    + " which cannot be found");
+        }
+        if (refNode.getParent() != targetParent) {
+            return ToolResult.error("position '" + position + "' references elementId " + refId
+                    + " which is not a child of the target parent");
+        }
+        return ToolResult.success("");
+    }
+
+    /**
+     * Perform the actual move operation. Two-phase on the post-removal tree (same shape as
+     * BatchMoveJMeterElementTool): the insert index MUST be computed AFTER
+     * removeNodeFromParent — a pre-removal childCount/index goes stale once the source
+     * leaves the target parent and historically threw ArrayIndexOutOfBoundsException,
+     * detaching the element (silent data loss), and shifted same-parent before:/after:
+     * references by one.
+     */
+    private ToolResult performMove(JMeterTreeNode sourceNode, JMeterTreeNode targetParent,
+                                   String position, JMeterTreeNode rootNode) {
         GuiPackage guiPackage = GuiPackage.getInstance();
         if (guiPackage == null) {
             return ToolResult.error("JMeter GUI is not available");
@@ -193,17 +233,25 @@ public class MoveJMeterElementTool extends AbstractTool {
         String elementType = element.getClass().getSimpleName();
         String oldParentPath = JMeterTreeUtils.getNodePath(oldParent);
 
-        log.info("Moving element: {} ({}) from '{}' to '{}' at index {}",
-                elementName, elementType, oldParentPath, targetParent.getName(), insertIndex);
+        log.info("Moving element: {} ({}) from '{}' to '{}' at position {}",
+                elementName, elementType, oldParentPath, targetParent.getName(), position);
 
         // All JMeterTreeModel and GuiPackage.updateCurrentGui calls must run on EDT
         // (JMeterTreeModel extends DefaultTreeModel, see JMeter source). Running them
         // on tool-executor corrupts JTree internal TreeState and triggers EDT NPEs.
         Exception edtError = org.gitee.jmeter.ai.agent.tools.jmeter.utils.EdtRunner.run(guiPackage, () -> {
-            // Remove from old parent
+            // Phase A — remove first.
             guiPackage.getTreeModel().removeNodeFromParent(sourceNode);
 
-            // Insert into new parent
+            // Phase B — compute the insert index against the post-removal tree. calculateInsertPosition
+            // returning -1 here can only mean the reference vanished between pre-validation and this
+            // EDT run (TOCTOU: concurrent GUI edit) — append at the end rather than throw: the removal
+            // is already committed, and an exception now would detach the element (data loss). Do NOT
+            // remove this fallback as "dead code"; it is the never-throw guarantee for Phase A.
+            int insertIndex = JMeterTreeUtils.calculateInsertPosition(targetParent, position, rootNode);
+            if (insertIndex < 0 || insertIndex > targetParent.getChildCount()) {
+                insertIndex = targetParent.getChildCount();
+            }
             guiPackage.getTreeModel().insertNodeInto(sourceNode, targetParent, insertIndex);
 
             // Refresh tree structure

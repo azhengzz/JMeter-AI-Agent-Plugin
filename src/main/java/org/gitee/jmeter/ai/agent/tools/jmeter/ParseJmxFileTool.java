@@ -191,7 +191,7 @@ public class ParseJmxFileTool extends AbstractTool {
             String simpleClassName = modelClassName.substring(modelClassName.lastIndexOf('.') + 1);
             String guiClassName = classInfo.getGuiClassName();
             candidates = new ArrayList<>();
-            findElementsByType(root, simpleClassName, guiClassName, candidates);
+            findElementsByType(root, modelClassName, simpleClassName, guiClassName, candidates);
         } else {
             candidates = new ArrayList<>();
             collectAllElements(root, candidates);
@@ -266,15 +266,36 @@ public class ParseJmxFileTool extends AbstractTool {
         }
     }
 
-    private static void findElementsByType(ParsedJmxElement el, String simpleClassName,
+    /** 取 FQCN 的 SimpleName(最后一个 '.' 段);null 原样返回。 */
+    private static String simpleNameOrNull(String fqcn) {
+        if (fqcn == null) {
+            return null;
+        }
+        int dot = fqcn.lastIndexOf('.');
+        return dot < 0 ? fqcn : fqcn.substring(dot + 1);
+    }
+
+    // 包内可见以便策略单测(ParseJmxElementTypeGuardTest):钉死「模型类按 tag FQCN 精确匹配
+    // + gui 类 SimpleName 归一合取」的匹配口径。
+    static void findElementsByType(ParsedJmxElement el, String modelClassName, String simpleClassName,
                                             String guiClassName, List<ParsedJmxElement> result) {
-        if (simpleClassName.equals(el.elementType)
-                && (guiClassName == null || guiClassName.equals(el.guiClass))) {
+        // 匹配口径(修 SL-F2):jmx 的 testclass/guiclass 属性都是 SimpleName,而注册表侧是
+        // FQCN——gui 侧按 SimpleName 归一比较(直接全等在真实 .jmx 上永不成立);模型类优先
+        // 按 XML tag 的 FQCN 精确匹配(tag 是唯一能区分跨包同名组件的来源:native 与
+        // gitee-qa 各有一个 LoopController/LoopControlPanel),tag 非 FQCN 时退回 SimpleName。
+        boolean modelMatch;
+        if (el.testClassFqcn != null && el.testClassFqcn.indexOf('.') >= 0) {
+            modelMatch = modelClassName.equals(el.testClassFqcn);
+        } else {
+            modelMatch = simpleClassName.equals(el.elementType);
+        }
+        if (modelMatch
+                && (guiClassName == null || simpleNameOrNull(guiClassName).equals(simpleNameOrNull(el.guiClass)))) {
             result.add(el);
         }
         if (el.children != null) {
             for (ParsedJmxElement child : el.children) {
-                findElementsByType(child, simpleClassName, guiClassName, result);
+                findElementsByType(child, modelClassName, simpleClassName, guiClassName, result);
             }
         }
     }

@@ -798,9 +798,11 @@ public class JMeterTreeUtils {
     /**
      * Calculate the insert index for a position spec within {@code targetParent}.
      * <p>For {@code before:<id>}/{@code after:<id>}, returns {@code -1} if the reference node
-     * cannot be found or is not a direct child of {@code targetParent}. Callers decide the
-     * fallback policy for the {@code -1} case (single-element tools fall back to {@code last};
-     * batch tools validate up front so they never hit {@code -1}).
+     * cannot be found or is not a direct child of {@code targetParent}. Callers pre-validate
+     * the reference (move/batch-move/copy all hard-error on unresolved references), so
+     * {@code -1} in practice only means a TOCTOU: the reference vanished between validation
+     * and execution — callers must treat it as "append at end" (never-throw after a committed
+     * removal), NOT as a license for silent lenient fallback on unvalidated input.
      *
      * @return insert index (&ge; 0), or {@code -1} if a before/after reference is unresolved
      */
