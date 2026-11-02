@@ -85,4 +85,25 @@ class AiConfigTest {
             assertEquals(30000L, AiConfig.getLong("test.ai.config.long", 30000L));
         });
     }
+
+    @Test
+    void edtWaitTimeout_defaultClampAndFallback() {
+        // 0/负值钳到 1000ms 下限(无 0=关闭语义——无界等待正是该键要消灭的 bug);
+        // 非数值回退默认 120s;正常值直通
+        String key = "agent.tools.edt.wait.timeout.ms";
+        try {
+            JMeterUtils.setProperty(key, "");
+            assertEquals(120000L, AiConfig.getEdtWaitTimeoutMs());
+            JMeterUtils.setProperty(key, "0");
+            assertEquals(1000L, AiConfig.getEdtWaitTimeoutMs());
+            JMeterUtils.setProperty(key, "-5");
+            assertEquals(1000L, AiConfig.getEdtWaitTimeoutMs());
+            JMeterUtils.setProperty(key, "not-a-long");
+            assertEquals(120000L, AiConfig.getEdtWaitTimeoutMs());
+            JMeterUtils.setProperty(key, "250000");
+            assertEquals(250000L, AiConfig.getEdtWaitTimeoutMs());
+        } finally {
+            JMeterUtils.setProperty(key, ""); // 空值回落默认,防跨测试类污染
+        }
+    }
 }

@@ -116,10 +116,13 @@ class MemoryConsolidatorTruncatedOutputTest {
         f.setAccessible(true);
         f.set(provider, client);
 
-        // MemoryStore mock：与事件现场同规模（MEMORY.md ~13k、6 条待整合消息）
+        // MemoryStore mock：与事件现场同规模（MEMORY.md ~13k、6 条待整合消息）。
+        // 严格读(整合路径专用)与宽松读都 stub 成同一内容:截断响应下 LLM 永不成功,
+        // 永不到达锁内验证,快照恒「新鲜」不触发冲突重试
         memoryStore = mock(MemoryStore.class);
         when(memoryStore.isEnabled()).thenReturn(true);
         when(memoryStore.readLongTermMemory()).thenReturn(incidentScaleMemory());
+        when(memoryStore.readLongTermMemoryStrictly()).thenReturn(incidentScaleMemory());
         when(memoryStore.lockLongTermMemory(any()))
                 .thenReturn(mock(MemoryStore.MemoryWriteLock.class));
         when(memoryStore.appendHistory(anyString())).thenReturn(true);

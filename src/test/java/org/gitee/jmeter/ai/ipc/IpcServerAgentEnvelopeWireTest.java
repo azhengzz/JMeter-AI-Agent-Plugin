@@ -82,8 +82,6 @@ class IpcServerAgentEnvelopeWireTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long WAIT_SECONDS = 10;
-    /** /agent 服务端同步等待上限的属性键（handleAgent 每次请求现读，可按用例改）。 */
-    private static final String TIMEOUT_KEY = "jmeter.ai.ipc.agent.timeout.ms";
 
     /** 类级共享：IPC server 的临时 jmeter home（端口文件落点，避免污染真实安装）。 */
     @TempDir
@@ -195,8 +193,10 @@ class IpcServerAgentEnvelopeWireTest {
     @Test
     void timeoutReturns504WithTypedReasonAndCancelsInFlightTurn() throws Exception {
         GatedCall held = aiService.scriptGated(LLMResponse.text("late-final"));
-        // 服务端等待上限 4s：远大于回合 pickup（毫秒级），保证计时器到期时回合确定性地 in-flight
-        JMeterUtils.setProperty(TIMEOUT_KEY, "4000");
+        // 服务端等待上限 4s(经定格快照的包内测试缝注入——运行时改属性已不再生效,
+        // 端口文件发布值须与执行上界同源)：远大于回合 pickup（毫秒级），保证计时器
+        // 到期时回合确定性地 in-flight
+        IpcServer.getInstance().setAgentTimeoutMsForTest(4000);
         try {
             CompletableFuture<HttpResponse<String>> post = CompletableFuture.supplyAsync(
                     () -> postRaw("/agent", agentRequest("hold past the timer", false), 20_000));
@@ -224,7 +224,7 @@ class IpcServerAgentEnvelopeWireTest {
                     "the 504 branch must interrupt the in-flight LLM call "
                             + "(cancelActiveTask(session, TIMEOUT) wiring)");
         } finally {
-            JMeterUtils.getJMeterProperties().remove(TIMEOUT_KEY);
+            IpcServer.getInstance().setAgentTimeoutMsForTest(300_000L);
             held.hang.countDown(); // HANG 钉子放行：垂死回合体收尾（信封此刻早已发出）
         }
     }

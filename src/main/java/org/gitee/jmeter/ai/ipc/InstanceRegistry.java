@@ -69,6 +69,18 @@ public final class InstanceRegistry {
      */
     public static InstanceInfo writeInstance(File ipcDir, String pid, int port, String token, String bind,
                                              String instanceId, String jmxPath) throws IOException {
+        return writeInstance(ipcDir, pid, port, token, bind, instanceId, jmxPath, 0L);
+    }
+
+    /**
+     * {@link #writeInstance(File, String, int, String, String, String, String)} 的完整形态,
+     * 携带 {@code agentTimeoutMs} 发布。
+     *
+     * @param agentTimeoutMs 本实例 {@code /agent} 路由的服务端等待超时毫秒(IPC 启动时定格);
+     *                       0 = 未发布(旧版本兼容,等待方回退自身配置派生)
+     */
+    public static InstanceInfo writeInstance(File ipcDir, String pid, int port, String token, String bind,
+                                             String instanceId, String jmxPath, long agentTimeoutMs) throws IOException {
         if (!ipcDir.exists() && !ipcDir.mkdirs()) {
             throw new IOException("Cannot create IPC dir: " + ipcDir);
         }
@@ -80,6 +92,7 @@ public final class InstanceRegistry {
         info.setBind(bind);
         info.setInstanceId(instanceId);
         info.setJmxPath(jmxPath == null ? "" : jmxPath);
+        info.setAgentTimeoutMs(agentTimeoutMs);
 
         atomicWrite(ipcDir, info);
         return info;
@@ -284,6 +297,8 @@ public final class InstanceRegistry {
         private String bind;
         private String instanceId;
         private String jmxPath;
+        /** 本实例 /agent 路由的服务端等待超时毫秒(启动时定格);0 = 未发布(旧版本)。 */
+        private long agentTimeoutMs;
 
         public InstanceInfo() {
         }
@@ -318,6 +333,14 @@ public final class InstanceRegistry {
 
         public void setStartedAt(long startedAt) {
             this.startedAt = startedAt;
+        }
+
+        public long getAgentTimeoutMs() {
+            return agentTimeoutMs;
+        }
+
+        public void setAgentTimeoutMs(long agentTimeoutMs) {
+            this.agentTimeoutMs = agentTimeoutMs;
         }
 
         public String getBind() {

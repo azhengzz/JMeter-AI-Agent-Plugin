@@ -126,7 +126,8 @@ public class AgentRunner {
         // goal-requested flag rides the same channel: GoalTools read it as their
         // permission gate (create_goal / update_goal replace only on /goal turns),
         // and ToolRegistry replays it onto pooled tool-executor threads.
-        AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId, spec.isGoalRequested()));
+        AgentRunContext.set(new AgentRunContext(spec.getSessionKey(), runId, spec.isGoalRequested(),
+                spec.getDeadlineAtMs()));
         // isDelegated() == true 标识"当前这一个 Agent 回合是被别的实例委派过来的"，
         // DelegationGuard.begin() 在这个回合的执行线程上做一个 ThreadLocal 标记，
         // 用于禁止这个回合里再往别的实例委派（深度 1 硬阻断）。

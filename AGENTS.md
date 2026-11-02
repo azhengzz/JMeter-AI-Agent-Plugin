@@ -188,7 +188,7 @@ CDP 直连 Chrome 的浏览器录制能力（无代理/无 MITM 证书）：两�
 - **ProgressCallbackHookAdapter** - 进度回调适配器
 
 #### Agent 记忆 (`agent/memory`)
-- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` 覆盖 read→LLM→write 全程，双实例并发深度提炼时串行化防 lost-update。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`：`distillSync` 路径在 commonPool 载体上 interrupt 不可达；内联整合线程虽可被 interrupt 命中，但阻塞式 `channel.lock()` 被 interrupt 会抛 `ClosedByInterruptException` 关闭通道；统一以 abort flag 为取消事实来源），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。`MemoryConsolidator` 与 `save_memory` 工具共用）
+- **MemoryStore** - Agent 记忆存储（MEMORY.md 写路径带跨进程写锁 `lockLongTermMemory(aborted)`：`memory.lock` + OS 级 `FileLock` **只覆盖读-验证-写**（乐观并发：LLM 提炼调用在锁外，锁持有≈文件 IO 毫秒级；写前锁内重读验证快照新鲜，过期带最新快照重试≤2 次，耗尽退化为持锁完整流程兜底——对端实例在跑回合的内联整合不再被本实例关闭提炼卡住分钟级）。等锁为 **abort 感知 `tryLock()` 轮询**（非阻塞式 `lock()`：`distillSync` 路径在 commonPool 载体上 interrupt 不可达；内联整合线程虽可被 interrupt 命中，但阻塞式 `channel.lock()` 被 interrupt 会抛 `ClosedByInterruptException` 关闭通道；统一以 abort flag 为取消事实来源），每轮查 abort 谓词，被中止/中断返回 `null` = 未执行、不降级写盘；仅真实 IO 故障才 best-effort 降级无锁。`distillSync` 超时先置共享 flag 再 cancel。整合读用**严格读** `readLongTermMemoryStrictly()`——读失败放弃整合，不把空串当快照基线写盘。注意：`save_memory` 是整合器内建的强制 tool-call（`MemoryConsolidator` 自产自销），**不是注册工具**、无独立锁消费方）
 - **MemoryConsolidator** - 跨会话记忆整合
 - **CloseConsolidationCoordinator** - 关闭期记忆整合协调器（静默归档 HISTORY.md 的幂等守卫 + 深度提炼入口，供关闭对话框与 shutdown hook 共用）
 
@@ -442,18 +442,20 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 **多实例会话与协调（会话隔离、关闭整合与 IPC 均默认开启）：** 每个实例用独立会话文件（`sessions/{instanceId}.jsonl`），关闭时把未整合消息归档进共享 HISTORY.md（可选深度提炼写 MEMORY.md 供他实例系统提示可见），并通过 IPC 让实例间互相发现打开的 jmx 并委派任务。关闭记忆整合与跨实例协作无独立开关（整合始终开启，协作随 IPC 开关），详见 `openspec/changes/multi-instance-session-ipc/`。
 
 - `agent.session.per-instance` - 每实例独立会话文件（默认 `true`；false 回退全局 `jmeter-ai-chat` 键）
-- `agent.memory.consolidate-on-exit.timeout.ms` - 关闭整合"深度提炼"有界超时毫秒（默认 `120000`）
+- `agent.memory.consolidate-on-exit.timeout.ms` - 关闭整合"深度提炼"有界超时毫秒（默认 `300000`）
+- `agent.tools.timeout.ms` - 工具执行默认超时毫秒（默认 `30000`；仅并行批只读工具的 `orTimeout` 兜底，超时后 best-effort 中断泄漏工作）
+- `agent.tools.edt.wait.timeout.ms` - 等待 EDT 执行树操作的上限毫秒（默认 `120000`、下限钳 1000；单次等待口径。超时只放弃调用方等待，EDT 任务不撤回仍会执行——结局未知，契约文案引导 `get_test_plan_tree` 复查）
 - `agent.session.reap.ttl.days` - 启动期回收孤立会话文件的存活 TTL 天数（默认 `7`）
 - `jmeter.ai.ipc.enabled` - 内嵌 IPC HTTP 服务开关（默认 `true`，仅 loopback + token 鉴权；**多实例协作依赖此开关**）
 - `jmeter.ai.ipc.bind` / `jmeter.ai.ipc.port` / `jmeter.ai.ipc.token` - 绑定地址（仅 loopback）/端口（0 自动分配）/鉴权 token（空则随机生成）
-- `jmeter.ai.ipc.agent.timeout.ms` - `/agent` 路由同步等待超时毫秒（默认 `120000`）
+- `jmeter.ai.ipc.agent.timeout.ms` - `/agent` 路由同步等待超时毫秒（默认 `300000`）
 
 **异步子代理（SubAgent，默认关闭）：** 主代理通过 `spawn` 工具把只读分析任务委派给后台子代理（隔离的只读工具集 + 临时会话，不污染主会话），结果回合内回注。详见 `openspec/changes/add-async-subagent/`。
 
 - `agent.subagent.enabled` - 总开关（默认 `false`；关闭时不注册 `spawn`/`subagent_status`）
 - `agent.subagent.max.concurrent` - 每主会话并发子代理上限（默认 `1`）
 - `agent.subagent.max.iterations` - 单次子代理工具迭代上限（默认 `50`）
-- `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `120`，硬上限 `300`）
+- `agent.subagent.drain.timeout.seconds` - 主回合等待子代理结果的阻塞时长秒数（默认 `180`，硬上限 `300`）
 - `agent.subagent.status.retention.seconds` - 完成态状态可查询保留 TTL 秒数（默认 `60`；晚到/未投递结果保留此窗口后被回收；0 = 不按时长回收）
 - `agent.subagent.status.max.completed` - 每会话保留的完成态状态上限（默认 `10`；超出按最旧淘汰；0 = 不按数量淘汰）
 

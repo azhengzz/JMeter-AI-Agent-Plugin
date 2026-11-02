@@ -66,7 +66,10 @@ public class MemoryConsolidator {
     private final ToolRegistry toolRegistry;
     private final int contextWindowTokens;
     private final int maxCompletionTokens;
-    private int consecutiveFailures = 0;
+    /** 原子计数:同一 consolidator 被关闭提炼(commonPool 载体)与内联整合(run 线程)共享,
+     *  非原子 int 在并发失败路径上有丢计数竞态。 */
+    private final java.util.concurrent.atomic.AtomicInteger consecutiveFailures =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     public MemoryConsolidator(MemoryStore memoryStore, AiService aiService, SessionManager sessionManager,
                               ContextBuilder contextBuilder, ToolRegistry toolRegistry) {
@@ -165,7 +168,7 @@ public class MemoryConsolidator {
 
             for (int i = 0; i < MAX_RETRIES; i++) {
                 if (consolidateWithAi(messages)) {
-                    consecutiveFailures = 0;
+                    consecutiveFailures.set(0);
                     return true;
                 }
                 log.warn("AI consolidation attempt {}/{} failed", i + 1, MAX_RETRIES);
@@ -223,7 +226,7 @@ public class MemoryConsolidator {
         try {
             boolean ok = f.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (ok) {
-                consecutiveFailures = 0;
+                consecutiveFailures.set(0);
             }
             return ok;
         } catch (TimeoutException te) {
@@ -252,40 +255,127 @@ public class MemoryConsolidator {
      * {@code distillSync}/{@code archiveMessagesAsync} 跑在 commonPool 载体上,关闭期
      * cancelActiveTask 只能置 abort flag、无法打断该调用;{@code maybeConsolidate} 路径
      * 内联在 run 执行线程上,interrupt 可达——但 signalCancel 先置 flag 再 interrupt,
-     * 两者收敛到同一"不落盘"结局。因此本方法只在
-     * <b>写盘前</b>检查 {@code aborted}——被取消的僵尸回合在 LLM 返回后、写 HISTORY/MEMORY 前
-     * 直接放弃落盘(返回 false),不覆盖用户等待的关闭提炼结果。
+     * 两者收敛到同一"不落盘"结局。因此本方法只在<b>写盘前</b>检查 {@code aborted}——
+     * 被取消的僵尸回合在 LLM 返回后、写 HISTORY/MEMORY 前直接放弃落盘(返回 false),
+     * 不覆盖用户等待的关闭提炼结果。
      *
-     * <p>全程持有 {@link MemoryStore#lockLongTermMemory(BooleanSupplier)} 跨进程写锁
-     * (读→LLM→写),共享默认 workspace 的双实例并发深度提炼不会互相覆盖。
-     * 等锁为 abort 感知轮询:被中止/中断时返回 {@code null} = 未执行,不降级写盘(降级会
-     * 重新打开 lost-update 敞口);仅真实 IO 故障才按 best-effort 降级为无锁执行。
+     * <p><b>锁范围(乐观并发)</b>:LLM 提炼调用在<b>锁外</b>进行——锁持有时间从
+     * 「≈LLM 时长(分钟级)」降为「≈文件 IO(毫秒级)」,对端实例在跑回合的内联整合
+     * (maybeConsolidate,跑在 agent run 线程)不再被本实例的关闭提炼卡住分钟级。
+     * 写盘前在锁内重读 MEMORY.md 验证快照仍新鲜:新鲜则锁内两门写;过期则以最新快照
+     * 重试(乐观尝试上限 2 次,<b>独立的 conflict 分支</b>——快照过期不是 LLM 失败,
+     * 不递增失败计数、不触发 rawArchive);重试耗尽退化为<b>持锁完整流程</b>(替换而非
+     * 追加第 3 次尝试,单次整合总尝试数封顶 3——LLM 调用按每尝试含 forced+auto 两次
+     * 内层计,现状最坏 2、本结构最坏 6,仅持续冲突触达,无冲突路径与现状同量)。
+     * 跨进程锁最终保证无 lost-update:写盘仅在快照被验证新鲜时发生,兜底路径与重构前
+     * 行为相同(短暂重现分钟级持锁,高声记录以便观测)。
+     *
+     * <p>等锁为 abort 感知轮询:被中止/中断时返回未执行、不降级写盘(降级会重新打开
+     * lost-update 敞口);仅取锁真实 IO 故障按 best-effort 降级为无锁完整流程(终局,
+     * 不与重试交错)。读 MEMORY.md 失败(严格读抛错)立即放弃本次整合——把空串当快照
+     * 基线会以空记忆覆盖既有内容写盘。失败处理(含 rawArchive→HISTORY 追加)随 LLM
+     * 移出锁外:跨进程锁本就只保护 MEMORY.md 读改写,archiveSync 路径的 HISTORY 追加
+     * 今天同样无锁。
      */
     private boolean consolidateWithAi(List<Message> messages, BooleanSupplier aborted) {
-        MemoryStore.MemoryWriteLock lock;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            // ---- 锁外:读快照 → LLM 提炼(分钟级调用不持锁) ----
+            String m0 = readMemorySnapshot();
+            if (m0 == null || aborted.getAsBoolean()) {
+                return false;
+            }
+            LLMResponse response = callConsolidationLlm(m0, messages);
+            if (response == null) {
+                return handleConsolidationFailure(messages, aborted);
+            }
+            // ---- 锁内:重读-验证-写 ----
+            MemoryStore.MemoryWriteLock lock;
+            try {
+                lock = memoryStore.lockLongTermMemory(aborted);
+            } catch (IOException e) {
+                log.error("Failed to acquire MEMORY.md write lock, proceeding unlocked (best-effort)", e);
+                return consolidateWithAiUnderLock(messages, aborted);
+            }
+            if (lock == null) {
+                // 等锁期间被中止(Stop / 关闭超时)或中断 → 视为未执行、不降级写盘
+                log.info("Memory consolidation aborted while waiting for MEMORY.md write lock");
+                return false;
+            }
+            try (MemoryStore.MemoryWriteLock ignored = lock) {
+                String m1 = readMemorySnapshot();
+                if (m1 == null || aborted.getAsBoolean()) {
+                    return false;
+                }
+                if (!m1.equals(m0)) {
+                    log.info("Memory snapshot changed concurrently (optimistic attempt {}); "
+                            + "retrying with the fresh snapshot (conflict, not a failure)", attempt);
+                    continue;
+                }
+                return extractAndSaveToolCallResult(response, m1, messages, aborted);
+            }
+        }
+        // 兜底:持锁完整流程(= 重构前行为)。仅持续冲突(多写者同刻)才触达;
+        // 会短暂重现分钟级持锁——恰是本重构要消除的场景,高声记录以便观测
+        log.warn("Memory consolidation: snapshot kept changing across optimistic attempts; "
+                + "running one locked full pass (serial semantics)");
+        MemoryStore.MemoryWriteLock fallbackLock;
         try {
-            lock = memoryStore.lockLongTermMemory(aborted);
+            fallbackLock = memoryStore.lockLongTermMemory(aborted);
         } catch (IOException e) {
-            log.error("Failed to acquire MEMORY.md write lock, proceeding unlocked (best-effort)", e);
+            log.error("Failed to acquire MEMORY.md write lock for the fallback pass, "
+                    + "proceeding unlocked (best-effort)", e);
             return consolidateWithAiUnderLock(messages, aborted);
         }
-        if (lock == null) {
-            // 等锁期间被中止(Stop / 关闭超时)或中断 → 视为未执行、不降级写盘
-            log.info("Memory consolidation aborted while waiting for MEMORY.md write lock");
+        if (fallbackLock == null) {
+            log.info("Memory consolidation aborted while waiting for MEMORY.md write lock (fallback)");
             return false;
         }
-        try (MemoryStore.MemoryWriteLock ignored = lock) {
+        try (MemoryStore.MemoryWriteLock ignored = fallbackLock) {
             return consolidateWithAiUnderLock(messages, aborted);
         }
     }
 
-    /** {@link #consolidateWithAi(List, BooleanSupplier)} 的锁内主体。 */
+    /**
+     * 严格读 MEMORY.md 快照。IO 故障返回 {@code null}(调用方放弃本次整合)——
+     * {@code readLongTermMemory()} 把读失败吞成空串,若以空串为快照基线提炼并写盘,
+     * 会覆盖既有全部记忆。
+     */
+    private String readMemorySnapshot() {
+        try {
+            return memoryStore.readLongTermMemoryStrictly();
+        } catch (IOException e) {
+            log.error("Failed to read MEMORY.md; skipping this consolidation "
+                    + "(won't write over an unknown baseline)", e);
+            return null;
+        }
+    }
+
+    /**
+     * 完整流程主体(读→LLM→写):乐观冲突的<b>兜底</b>在持锁下调用,取锁 IO 故障的
+     * 无锁降级直接调用——两种调用形态行为与重构前一致。
+     */
     private boolean consolidateWithAiUnderLock(List<Message> messages, BooleanSupplier aborted) {
-        String currentMemory = memoryStore.readLongTermMemory();
+        String currentMemory = readMemorySnapshot();
+        if (currentMemory == null) {
+            return false;
+        }
         if (aborted.getAsBoolean()) {
             log.info("Memory consolidation aborted before LLM call ({} messages)", messages.size());
             return false;
         }
+        LLMResponse response = callConsolidationLlm(currentMemory, messages);
+        if (response == null) {
+            return handleConsolidationFailure(messages, aborted);
+        }
+        return extractAndSaveToolCallResult(response, currentMemory, messages, aborted);
+    }
+
+    /**
+     * 锁外 LLM 提炼(forced tool_choice → auto 回退,对齐重构前的 Step 1-3/Step 5)。
+     * 一切失败形态(isError / 无 save_memory 调用 / 异常)打点既有日志并返回
+     * {@code null},由调用方统一走 {@link #handleConsolidationFailure}。
+     */
+    private LLMResponse callConsolidationLlm(String currentMemory, List<Message> messages) {
         String messagesText = formatMessages(messages);
 
         List<Message> chatMessages = List.of(
@@ -317,18 +407,18 @@ public class MemoryConsolidator {
             // Step 3: if no tool calls, track failure (Nanobot line 158-166)
             if (response.isError()) {
                 log.warn("Tool-call consolidation failed: {}", response.getErrorMessage());
-                return handleConsolidationFailure(messages, aborted);
+                return null;
             }
 
             if (!response.hasToolCalls()) {
                 log.warn("LLM did not call save_memory tool (finishReason={}, content_len={})",
                         response.getFinishReason(),
                         response.getContent() != null ? response.getContent().length() : 0);
-                return handleConsolidationFailure(messages, aborted);
+                return null;
             }
 
-            // Step 4: extract and save (Nanobot line 168-196)
-            return extractAndSaveToolCallResult(response, currentMemory, messages, aborted);
+            // Step 4 (caller): extract and save (Nanobot line 168-196)
+            return response;
 
         } catch (Exception e) {
             // Step 5: if forced tool_choice caused the exception, try auto
@@ -337,7 +427,7 @@ public class MemoryConsolidator {
                 try {
                     LLMResponse response = aiService.generateResponseWithTools(chatMessages, List.of(SAVE_MEMORY_TOOL_DEF));
                     if (!response.isError() && response.hasToolCalls()) {
-                        return extractAndSaveToolCallResult(response, currentMemory, messages, aborted);
+                        return response;
                     }
                 } catch (Exception e2) {
                     log.warn("Auto tool-call also failed: {}", e2.getMessage());
@@ -345,7 +435,7 @@ public class MemoryConsolidator {
             } else {
                 log.error("Memory consolidation failed", e);
             }
-            return handleConsolidationFailure(messages, aborted);
+            return null;
         }
     }
 
@@ -418,10 +508,10 @@ public class MemoryConsolidator {
             log.info("Memory consolidation aborted, skipping failure handling");
             return false;
         }
-        consecutiveFailures++;
-        if (consecutiveFailures >= MAX_RETRIES) {
+        int failures = consecutiveFailures.incrementAndGet();
+        if (failures >= MAX_RETRIES) {
             rawArchive(messages);
-            consecutiveFailures = 0;
+            consecutiveFailures.set(0);
         }
         return false;
     }

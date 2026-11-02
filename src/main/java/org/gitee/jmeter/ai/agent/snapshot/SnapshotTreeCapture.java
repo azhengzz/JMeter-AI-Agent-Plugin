@@ -36,7 +36,8 @@ final class SnapshotTreeCapture {
 
     /**
      * EDT 上捕获当前测试计划的脱离副本。必须在非 EDT 线程调用（内部
-     * {@code invokeAndWait}）。空计划/无 TestPlan 节点/EDT 派发失败返回 null。
+     * 有界 EDT 等待，超时上限见 {@code agent.tools.edt.wait.timeout.ms}）。
+     * 空计划/无 TestPlan 节点/EDT 派发失败或等待超时返回 null（best-effort）。
      */
     static HashTree captureDetachedPlanClone(GuiPackage gui) {
         HashTree[] result = new HashTree[1];
@@ -63,7 +64,7 @@ final class SnapshotTreeCapture {
      *
      * <p>上一回合 Stop 的迟到中断（signalCancel 读到 runnerThread 引用到
      * {@code interrupt()} 实际送达之间，线程可能已复用进入下一回合）若落在 EDT
-     * 等待中，{@code invokeAndWait} 直接抛 InterruptedException 使克隆失败、
+     * 等待中，有界等待直接抛 InterruptedException 使克隆失败、
      * 本回合静默失去基线。清位后克隆可正常完成；回置保证 {@code isAborted}
      * （abortFlag ‖ isInterrupted）的中止语义对运行循环完全不变——该位若真是
      * 陈旧残留，与无快照代码时一样照常被消费。

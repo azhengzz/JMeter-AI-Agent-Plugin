@@ -81,13 +81,13 @@ class IpcServerAgentTimeoutRaceTest {
 
     /** /agent 同步等待压到 300ms：future.get 的 TimeoutException 在测试时间尺度内出现。 */
     private static final long IPC_TIMEOUT_MS = 300;
-    private static final String TIMEOUT_PROP_KEY = "jmeter.ai.ipc.agent.timeout.ms";
+    /** 快照恢复值(生产默认 300s,与 AiConfig 缺省一致)。 */
+    private static final long IPC_TIMEOUT_DEFAULT_MS = 300_000L;
 
     @TempDir
     Path tempDir;
 
     Properties jmeterProps;
-    String prevTimeoutProp;
     HttpServer server;
     LatchedCancelAgentLoop loop;
     GatedScriptAiService aiService;
@@ -95,12 +95,10 @@ class IpcServerAgentTimeoutRaceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // 1) JMeter 属性：纯单测里 JMeterUtils.appProperties 为 null（见项目记忆），反射初始化
-        //    后才能写 jmeter.ai.ipc.agent.timeout.ms（保存旧值供 @AfterEach 恢复，防污染同
-        //    JVM 后续测试读到的 120s 默认）
-        jmeterProps = ensureJMeterProperties();
-        prevTimeoutProp = jmeterProps.getProperty(TIMEOUT_PROP_KEY);
-        jmeterProps.setProperty(TIMEOUT_PROP_KEY, String.valueOf(IPC_TIMEOUT_MS));
+        // 1) /agent 等待上限走 IpcServer 的定格快照(生产只在 start() 读一次配置;运行时改
+        //    属性已不再生效——端口文件发布值须与执行上界同源)。包内测试缝注入小值
+        ensureJMeterProperties();
+        IpcServer.getInstance().setAgentTimeoutMsForTest(IPC_TIMEOUT_MS);
 
         // 2) AgentLoopTurnEventTest 同配方的 loop + 两个确定性钩子（见 LatchedCancelAgentLoop）
         aiService = new GatedScriptAiService();
@@ -150,13 +148,7 @@ class IpcServerAgentTimeoutRaceTest {
         if (server != null) {
             server.stop(0);
         }
-        if (jmeterProps != null) {
-            if (prevTimeoutProp == null) {
-                jmeterProps.remove(TIMEOUT_PROP_KEY);
-            } else {
-                jmeterProps.setProperty(TIMEOUT_PROP_KEY, prevTimeoutProp);
-            }
-        }
+        IpcServer.getInstance().setAgentTimeoutMsForTest(IPC_TIMEOUT_DEFAULT_MS);
     }
 
     // ---- 被攻击的缺陷[19]：超时分支 TOCTOU——回合在取消生效前已完整完成，wire 仍谎报 504 cancelled ----
@@ -277,6 +269,18 @@ class IpcServerAgentTimeoutRaceTest {
                                                                org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin) {
             CompletableFuture<AgentResponse> future =
                     super.processMessage(message, sessionKey, callback, origin);
+            lastTurnFuture = future;
+            return future;
+        }
+
+        @Override
+        public CompletableFuture<AgentResponse> processMessage(String message, String sessionKey,
+                                                               AgentLoop.ProgressCallback callback,
+                                                               org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin,
+                                                               Long deadlineAtMs) {
+            // handleAgent 生产路径走带截止期的 5 参重载;桩必须拦这一形态
+            CompletableFuture<AgentResponse> future =
+                    super.processMessage(message, sessionKey, callback, origin, deadlineAtMs);
             lastTurnFuture = future;
             return future;
         }

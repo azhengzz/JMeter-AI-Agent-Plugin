@@ -107,10 +107,10 @@ public class AiConfig {
     }
 
     /**
-     * Agent 路由同步等待超时(毫秒),默认 120s。
+     * Agent 路由同步等待超时(毫秒),默认 300s。
      */
     public static long getIpcAgentTimeoutMs() {
-        return getLong("jmeter.ai.ipc.agent.timeout.ms", 120000);
+        return getLong("jmeter.ai.ipc.agent.timeout.ms", 300000);
     }
 
     // ---- Run result capture (GUI-initiated runs) ----
@@ -135,10 +135,10 @@ public class AiConfig {
     }
 
     /**
-     * 关闭整合"深度提炼"(写 MEMORY.md)的有界超时(毫秒)。默认 120s;超时保留已整合部分并继续退出。
+     * 关闭整合"深度提炼"(写 MEMORY.md)的有界超时(毫秒)。默认 300s;超时保留已整合部分并继续退出。
      */
     public static long getConsolidateOnExitTimeoutMs() {
-        return getLong("agent.memory.consolidate-on-exit.timeout.ms", 120000L);
+        return getLong("agent.memory.consolidate-on-exit.timeout.ms", 300000L);
     }
 
     /**
@@ -183,6 +183,17 @@ public class AiConfig {
     /** 单次工具调用超时(毫秒)。默认 30000。 */
     public static long getToolTimeoutMs() {
         return getLong("agent.tools.timeout.ms", 30000);
+    }
+
+    /**
+     * 等待 JMeter GUI 事件线程(EDT)执行单例批工具内树操作的上限毫秒。默认 120s;下限钳到 1000ms。
+     * 量纲为<b>单次等待</b>:批工具是两次串行等待(deselectCurrentNode + 主块),最坏 240s。
+     * 超时只放弃调用方等待,EDT 任务仍会稍后执行(结局未知,调用方须复查树状态)。
+     * 无 0=关闭语义——无界等待正是本修复要消灭的 bug;要模拟旧行为设巨值(如 86400000)。
+     */
+    public static long getEdtWaitTimeoutMs() {
+        long v = getLong("agent.tools.edt.wait.timeout.ms", 120000L);
+        return Math.max(1000L, v);
     }
 
     /** 对话历史消息条数上限。默认 120。 */
@@ -354,9 +365,9 @@ public class AiConfig {
         return getInt("agent.subagent.max.iterations", 50);
     }
 
-    /** 主回合等待子代理结果的阻塞时长(秒)。默认 120。 */
+    /** 主回合等待子代理结果的阻塞时长(秒)。默认 180。 */
     public static long getSubagentDrainTimeoutSeconds() {
-        return getLong("agent.subagent.drain.timeout.seconds", 120);
+        return getLong("agent.subagent.drain.timeout.seconds", 180);
     }
 
     /** 完成态子代理状态的可查询保留时长(秒)。默认 60。 */

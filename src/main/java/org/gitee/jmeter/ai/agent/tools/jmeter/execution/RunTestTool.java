@@ -41,6 +41,12 @@ public class RunTestTool extends AbstractTool {
      */
     private static final long SMOKE_COMPLETION_TIMEOUT_MS = 180_000;
     private static final long SMOKE_POLL_INTERVAL_MS = 200;
+    /**
+     * 冒烟启动的回合预算下限:覆盖 EDT 启动路径上界(10s 派发闩 + 10s 启动确认轮询)
+     * + 最小完成轮询窗 + 收尾 LLM 往返的<b>保守启发式,非硬保证</b>。剩余低于它则
+     * 冒烟在收到判定前就会被 IPC 服务端超时掐死——预检拒绝优于半途而废。
+     */
+    private static final long SMOKE_TURN_BUDGET_FLOOR_MS = 60_000L;
 
     /** goal 计数/证据回写通道；null（直构测试）时 goal 接线整体旁路。 */
     private final org.gitee.jmeter.ai.agent.session.SessionManager sessionManager;
@@ -189,6 +195,17 @@ public class RunTestTool extends AbstractTool {
         JMeterTreeNode root = (JMeterTreeNode) gui.getTreeModel().getRoot();
         if (!hasThreadGroups(root)) {
             return ToolResult.error("Test plan has no thread groups. Add at least one thread group before running.");
+        }
+
+        // 回合截止期预检(仅 smoke,须在引擎派发前——一旦派发即无法撤回):剩余预算不足时
+        // 拒绝启动、结构化交回,而非启动后被 IPC 服务端超时硬杀在冒烟半途。不消耗冒烟预算
+        // (countSmokeAttempt 在 finishSmokeRun 才记账)。goal 在 TIMEOUT 取消下保持
+        // ACTIVE(收敛门只认 USER_STOP),硬杀的真实伤害是冒烟半途而废+证据清零。
+        if (smoke) {
+            ToolResult budgetRefusal = smokeBudgetRefusalOrNull();
+            if (budgetRefusal != null) {
+                return budgetRefusal;
+            }
         }
 
         boolean ignoreTimers = getBooleanParameter(parameters, "ignore_timers", false);
@@ -403,10 +420,54 @@ public class RunTestTool extends AbstractTool {
      * PASS/FAIL verdict from the captured error count and record the verification
      * evidence on the goal.
      */
-    private ToolResult finishSmokeRun(int totalThreads) {
+    /**
+     * 回合截止期(可空):IPC /agent 服务端注入({@code t0 + timeout});本地面板回合、
+     * goal 续跑与直构测试为 null。双层空守卫:context 为 null 或截止期为 null 均视为
+     * 无外部预算、行为与钳制前逐字节一致(直构测试路径依赖此行为)。
+     */
+    /** 包内可见供边界测试直调(生产仅本类调用)。 */
+    static Long runDeadlineOrNull() {
+        org.gitee.jmeter.ai.agent.run.AgentRunContext ctx =
+                org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
+        return ctx == null ? null : ctx.getDeadlineAtMs();
+    }
+
+    /**
+     * 冒烟回合预算预检(见 doStart 的预检区):剩余预算低于 {@link #SMOKE_TURN_BUDGET_FLOOR_MS}
+     * 时返回拒绝结果(未启动引擎、不消耗冒烟预算、引导模型收尾回合),预算充足或无截止期
+     * (本地回合)返回 null 放行。
+     */
+    /** 包内可见供边界测试直调(生产仅 doStart 预检区调用)。 */
+    static ToolResult smokeBudgetRefusalOrNull() {
+        Long deadline = runDeadlineOrNull();
+        if (deadline == null) {
+            return null;
+        }
+        long remaining = deadline - System.currentTimeMillis();
+        if (remaining >= SMOKE_TURN_BUDGET_FLOOR_MS) {
+            return null;
+        }
+        return ToolResult.error("Turn budget nearly exhausted: only " + remaining
+                + "ms remain before the IPC server timeout cancels this turn — below the "
+                + SMOKE_TURN_BUDGET_FLOOR_MS + "ms floor a smoke run needs (engine dispatch + completion "
+                + "polling + wrap-up). The smoke run was NOT started: no engine was launched and no smoke "
+                + "attempt was charged. Wrap up the turn and report current progress instead of starting "
+                + "a new smoke run.");
+    }
+
+    /** 包内可见供钳制/文案边界测试直调(生产仅 doStart smoke 路径调用)。 */
+    ToolResult finishSmokeRun(int totalThreads) {
         countSmokeAttempt();
         boolean completed = false;
-        long deadline = System.currentTimeMillis() + SMOKE_COMPLETION_TIMEOUT_MS;
+        long start = System.currentTimeMillis();
+        // 轮询截止 = min(默认完成死线, 回合截止期),入口重算(一次算死会被 EDT 启动路径
+        // 的耗时吃掉精度)。截止期钳制提前退出与默认 180s 超时同记账语义:
+        // recordSmokeEvidence(false) 清既有 PASS 证据、冒烟预算已计——只是钳制使触发
+        // 更早,文案据此区分「回合预算耗尽」与「冒烟完成超时」。
+        Long turnDeadline = runDeadlineOrNull();
+        long deadline = turnDeadline == null
+                ? start + SMOKE_COMPLETION_TIMEOUT_MS
+                : Math.min(start + SMOKE_COMPLETION_TIMEOUT_MS, turnDeadline);
         while (System.currentTimeMillis() < deadline) {
             if (AgentResultCollector.getTestEndTimeMs() > 0
                     && !AgentResultCollector.isTestRunning()) {
@@ -421,13 +482,28 @@ public class RunTestTool extends AbstractTool {
                         + "Use get_test_status / get_test_results to inspect partial results.");
             }
         }
+        long waitedMs = System.currentTimeMillis() - start;
         if (!completed) {
             // inconclusive latest run: stale smoke-PASS evidence must not survive
             recordSmokeEvidence(false);
+            // 显式判据:轮询截止时刻是否就是回合截止期(钳制生效)——与 waitedMs 解耦,
+            // 不依赖「轮询睡满间隔/时钟不回拨」的隐式前提(时钟回拨会让 waitedMs 失真
+            // 而把完成超时错分类为预算耗尽)
+            boolean turnBudgetExhausted = turnDeadline != null
+                    && turnDeadline < start + SMOKE_COMPLETION_TIMEOUT_MS;
+            if (turnBudgetExhausted) {
+                return ToolResult.success(String.format(
+                        "Turn budget exhausted after %d ms of waiting (smoke validation still running; "
+                                + "all thread groups, 1 thread x 1 iteration). No verdict: the previous smoke-PASS "
+                                + "evidence has been cleared because this run is inconclusive. "
+                                + "Use get_test_status / get_test_results once the run finishes — start the next "
+                                + "verification in a turn with more budget.",
+                        waitedMs));
+            }
             return ToolResult.success(String.format(
                     "Smoke validation still running after %d ms (all thread groups, 1 thread x 1 iteration). "
                             + "Use get_test_status to wait for completion and get_test_results for the verdict.",
-                    SMOKE_COMPLETION_TIMEOUT_MS));
+                    waitedMs));
         }
 
         AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();

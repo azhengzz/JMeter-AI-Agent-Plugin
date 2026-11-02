@@ -108,7 +108,7 @@
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
 | `agent.memory.enabled` | 启用记忆系统 | `true` |
-| `agent.memory.consolidate-on-exit.timeout.ms` | 关闭时深度蒸馏的超时（毫秒；超时则保留已归档的 HISTORY.md 并直接退出。关闭时归档到 HISTORY.md 始终执行，不可配置） | `120000` |
+| `agent.memory.consolidate-on-exit.timeout.ms` | 关闭时深度蒸馏的超时（毫秒；超时则保留已归档的 HISTORY.md 并直接退出。关闭时归档到 HISTORY.md 始终执行，不可配置） | `300000` |
 
 ## 工具配置
 
@@ -116,7 +116,8 @@
 
 | 属性 | 说明 | 默认值 |
 |------|------|--------|
-| `agent.tools.timeout.ms` | 工具执行默认超时（毫秒） | `30000` |
+| `agent.tools.timeout.ms` | 工具执行默认超时（毫秒；仅并行批只读工具的 `orTimeout` 兜底） | `30000` |
+| `agent.tools.edt.wait.timeout.ms` | 等待 JMeter GUI 事件线程（EDT）执行树操作的上限（毫秒；单次等待口径，批工具两次串行等待最坏 240s；下限钳 1000）。超时只放弃调用方等待，EDT 任务仍会稍后执行（结局未知，错误文案引导先复查树再行动） | `120000` |
 
 ### JMeter 工具
 
@@ -168,7 +169,7 @@
 | `agent.subagent.enabled` | 总开关。关闭时不注册 `spawn` 与 `subagent_status` 工具，主代理无法派发子代理 | `false` |
 | `agent.subagent.max.concurrent` | 每个主会话的最大并发子代理数（`1` 时串行执行） | `1` |
 | `agent.subagent.max.iterations` | 单次子代理运行的最大工具迭代数 | `50` |
-| `agent.subagent.drain.timeout.seconds` | 主回合等待子代理结果的阻塞时长（秒，硬上限 300）；超时后子代理继续运行，结果可经 `subagent_status` 查询，或在下个回合投递 | `120` |
+| `agent.subagent.drain.timeout.seconds` | 主回合等待子代理结果的阻塞时长（秒，硬上限 300）；超时后子代理继续运行，结果可经 `subagent_status` 查询，或在下个回合投递 | `180` |
 | `agent.subagent.status.retention.seconds` | 完成态子代理状态可经 `subagent_status` 查询的保留时长（秒）；晚到/未投递结果保留此窗口后被回收；0 = 永不按时长回收 | `60` |
 | `agent.subagent.status.max.completed` | 每会话保留的完成态状态上限（超出按最旧淘汰）；0 = 永不按数量淘汰 | `10` |
 
@@ -199,4 +200,4 @@
 | `jmeter.ai.ipc.bind` | 绑定地址（仅接受 loopback；`0.0.0.0`/`::`/`*` 会被拒绝） | `127.0.0.1` |
 | `jmeter.ai.ipc.port` | 监听端口（0 = 自动分配，推荐） | `0` |
 | `jmeter.ai.ipc.token` | 鉴权 token（空 = 启动时随机生成并写入端口文件） | 空（随机生成） |
-| `jmeter.ai.ipc.agent.timeout.ms` | `/agent` 路由同步等待超时（毫秒） | `120000` |
+| `jmeter.ai.ipc.agent.timeout.ms` | `/agent` 路由同步等待超时（毫秒；IPC 启动时定格并发布到端口文件 `agentTimeoutMs` 字段，CLI `agent` 子命令与委派工具按「目标发布值 + 10s」派生等待，目标未发布（旧版本 ≥ 兼容 v0.3.2 读者）回退内置缺省） | `300000` |

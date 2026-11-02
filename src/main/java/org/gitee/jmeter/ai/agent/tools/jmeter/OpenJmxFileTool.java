@@ -160,7 +160,10 @@ public class OpenJmxFileTool extends AbstractTool {
             return ToolResult.error("Failed to load JMX file: " + holder[1]);
         }
         if (edtError != null) {
-            return ToolResult.error("Failed to load JMX file: " + rootMessage(edtError));
+            // EDT 等待异常的自含契约(结局未知/复查指引)直接透传——与其他 13 个调用点
+            // 同款;经 rootMessage 剥 cause 会把中断路径(cause=InterruptedException,
+            // message=null)拼成 "Failed to load JMX file: null"
+            return ToolResult.error("Failed to load JMX file: " + edtError.getMessage());
         }
 
         try {
@@ -191,8 +194,16 @@ public class OpenJmxFileTool extends AbstractTool {
         return JMeterTreeUtils.buildTreeData(actualRoot, includeProperties, maxDepth, 0);
     }
 
-    private static String rootMessage(Throwable t) {
+    /**
+     * 包内可见供契约回归测试(生产仅本类调用)。cause 优先(holder[1] 动作内异常的真实
+     * 根因),但其 message 为 null(如 InterruptedException)时回退外层 message——
+     * 否则拼出 "Failed to ...: null" 把外层携带的契约文案丢了。
+     */
+    static String rootMessage(Throwable t) {
         Throwable c = t.getCause();
-        return (c != null ? c : t).getMessage();
+        if (c == null) {
+            return t.getMessage();
+        }
+        return c.getMessage() != null ? c.getMessage() : t.getMessage();
     }
 }

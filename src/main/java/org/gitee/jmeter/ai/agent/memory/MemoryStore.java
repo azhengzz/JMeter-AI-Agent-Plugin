@@ -85,6 +85,19 @@ public class MemoryStore {
     }
 
     /**
+     * 严格读变体:IO 故障抛 {@link IOException}(区别于「文件不存在 = 空记忆」的正常空)。
+     * 整合路径必须用它——{@link #readLongTermMemory()} 把读失败吞成空串,以空串为
+     * 快照基线提炼并写盘会覆盖既有全部记忆(锁内单读的既有隐患,乐观并发下读次数
+     * 增加同样要求可区分)。
+     */
+    public String readLongTermMemoryStrictly() throws IOException {
+        if (!Files.exists(memoryFile)) {
+            return "";
+        }
+        return Files.readString(memoryFile, StandardCharsets.UTF_8);
+    }
+
+    /**
      * Write long-term memory to MEMORY.md
      *
      * @return {@code true} 写入成功;IO 故障(盘满/权限/只读目录)返回 {@code false}——

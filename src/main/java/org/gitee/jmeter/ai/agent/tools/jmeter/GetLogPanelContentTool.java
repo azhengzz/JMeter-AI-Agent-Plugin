@@ -41,6 +41,11 @@ public class GetLogPanelContentTool extends AbstractTool {
         return "get_log_panel_content";
     }
 
+    @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
     /** Read-only: reads LoggerPanel text on the EDT, never mutates it. Visible to subagents. */
     @Override
     public Set<String> getScopes() {

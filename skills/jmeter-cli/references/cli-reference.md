@@ -8,7 +8,7 @@ This reference summarizes the CLI implemented by `org.gitee.jmeter.ai.cli.Jmeter
 - `--token <t>`: Override the IPC token. Normally the CLI reads it from the port file.
 - `--json`: Print the raw `IpcResponse` JSON with `success`, `content`, `error`, `durationMs`, and agent metadata when applicable.
 - `--jmeter-home <dir>`: Override `JMETER_HOME`.
-- `--timeout <ms>`: HTTP timeout. Default is `130000`.
+- `--timeout <ms>`: HTTP timeout. Default is `310000`. For the `agent` command only, the default is derived from the target instance's published `agentTimeoutMs` (port file) + 10s grace — falling back to `310000` when the target is an older version that does not publish it. `/tool`-route commands (e.g. `run --wait`) always use the plain default.
 - `-h`, `--help`, `help [command]`: Show help.
 
 ## Top-Level Commands

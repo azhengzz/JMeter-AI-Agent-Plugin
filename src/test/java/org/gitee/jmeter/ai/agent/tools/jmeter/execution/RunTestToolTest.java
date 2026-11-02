@@ -87,6 +87,120 @@ class RunTestToolTest {
         assertTrue(result.getError().contains("'mode'"));
     }
 
+    // --- turn-deadline budget contracts (IPC /agent turns) ---
+
+    @Test
+    void smokeBudgetRefusal_belowFloor_refusesBeforeEngineStart() {
+        // 剩余 30s < 60s 地板 → 拒绝;文案明示未启动引擎、不消耗冒烟预算、建议收尾
+        org.gitee.jmeter.ai.agent.run.AgentRunContext ctx =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 30_000);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(ctx);
+        try {
+            ToolResult refusal = RunTestTool.smokeBudgetRefusalOrNull();
+            assertTrue(refusal != null && !refusal.isSuccess(), "below-floor budget must refuse");
+            assertTrue(refusal.getError().contains("NOT started"));
+            assertTrue(refusal.getError().contains("no smoke attempt was charged"));
+            assertTrue(refusal.getError().contains("Wrap up the turn"));
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+    }
+
+    @Test
+    void smokeBudgetRefusal_aboveFloorOrNullDeadline_passes() {
+        // 预算充足(5min)或无截止期(本地回合/直构) → 放行(null)
+        org.gitee.jmeter.ai.agent.run.AgentRunContext ctx =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 300_000);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(ctx);
+        try {
+            org.junit.jupiter.api.Assertions.assertNull(RunTestTool.smokeBudgetRefusalOrNull(),
+                    "ample budget must pass the precheck");
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+        org.junit.jupiter.api.Assertions.assertNull(RunTestTool.smokeBudgetRefusalOrNull(),
+                "no run context (direct-construction/local turn) must never clamp");
+        org.junit.jupiter.api.Assertions.assertNull(RunTestTool.runDeadlineOrNull(),
+                "null context guard");
+    }
+
+    @Test
+    void budgetFloorBoundary_refusesBelow_passesJustAbove() {
+        // 地板两侧的边界固化(spec:剩余低于 60s 下限拒绝):59s 拒、61s 放——
+        // 过线形态(61s)引擎启动路径法定可耗 ~20s、轮询窗仍薄,属 design「已接受残余」,
+        // 预检只管地板以下
+        org.gitee.jmeter.ai.agent.run.AgentRunContext below =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 59_000);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(below);
+        try {
+            ToolResult refusal = RunTestTool.smokeBudgetRefusalOrNull();
+            assertTrue(refusal != null && !refusal.isSuccess(), "59s < 60s floor must refuse");
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+
+        org.gitee.jmeter.ai.agent.run.AgentRunContext above =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 61_000);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(above);
+        try {
+            org.junit.jupiter.api.Assertions.assertNull(RunTestTool.smokeBudgetRefusalOrNull(),
+                    "61s just above the floor must pass (clamped wait handles the thin window)");
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+    }
+
+    @Test
+    void normalModeWithDeadline_doesNotHitBudgetRefusal() {
+        // spec 需求级边界:普通(非 smoke)模式不受截止期钳制——预算预检包在 if(smoke)
+        // 内。headless 直构下 normal 路径撞 GUI guard("JMeter GUI is not available"),
+        // 而非预算拒绝文案;若有人把预检挪出 if(smoke) 或提前到 GUI guard 之前,
+        // 本用例的红即暴露 normal 被误钳制
+        org.gitee.jmeter.ai.agent.run.AgentRunContext ctx =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 30_000);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(ctx);
+        try {
+            ToolResult result = new RunTestTool().execute(Map.of(
+                    "action", "start", "mode", "normal"));
+            assertFalse(result.isSuccess());
+            assertTrue(result.getError().contains("JMeter GUI is not available"),
+                    "normal mode must not hit the smoke budget refusal, got: " + result.getError());
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+    }
+
+    @Test
+    void finishSmokeRun_clampsToDeadline_andReportsActualWaitWithBudgetWording() {
+        // 截止期 1.5s 后:轮询钳制到 ~1.5s(而非 180s),文案报实际等待时长并以
+        // 「回合预算耗尽」措辞区分于「冒烟完成超时」,明示证据已清
+        org.gitee.jmeter.ai.agent.run.AgentRunContext ctx =
+                new org.gitee.jmeter.ai.agent.run.AgentRunContext(
+                        "s", "r", false, System.currentTimeMillis() + 1_500);
+        org.gitee.jmeter.ai.agent.run.AgentRunContext.set(ctx);
+        try {
+            long t0 = System.currentTimeMillis();
+            ToolResult result = new RunTestTool().finishSmokeRun(1);
+            long elapsed = System.currentTimeMillis() - t0;
+            assertTrue(elapsed < 10_000, "clamped wait must return near the deadline, took " + elapsed + "ms");
+            assertTrue(result.isSuccess(), "inconclusive smoke keeps the informational success shape");
+            String content = String.valueOf(result.getContent());
+            assertTrue(content.contains("Turn budget exhausted"),
+                    "clamped timeout must use the budget-exhausted wording: " + content);
+            assertTrue(content.contains("no verdict") || content.contains("No verdict"),
+                    "wording must state there is no verdict: " + content);
+            assertTrue(content.contains("evidence has been cleared"),
+                    "wording must explain why PASS evidence was cleared: " + content);
+        } finally {
+            org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+        }
+    }
+
     @Test
     void smokeModeRequiresStartAction() {
         ToolResult result = new RunTestTool().execute(Map.of(

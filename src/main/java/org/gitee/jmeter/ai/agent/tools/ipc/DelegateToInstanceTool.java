@@ -149,9 +149,13 @@ public class DelegateToInstanceTool extends AbstractTool {
                     + "). delegate_to_instance is for PEER instances; perform the task directly instead.");
         }
 
-        // 宽限 5s:让目标 /agent 在自身超时后自取消(loop.cancelActiveTask)并回 504,
-        // 先于本端 HttpClient 超时,从而拿到结构化错误而非 HttpTimeoutException。
-        long timeoutMs = AiConfig.getIpcAgentTimeoutMs() + 5_000L;
+        // 余量 10s:服务器超时分支 cancelActiveTask 内部 waitForCancellation 最坏再等 5s 才发 504,
+        // 委派方余量必须覆盖它——结构化 504(含取消原因)才能先于本端 HttpClient 超时到达,
+        // 否则拿到的是裸 HttpTimeoutException。上界优先按目标端口文件发布的 agentTimeoutMs
+        // 派生(双实例配置不一致时跟随目标真实上界);目标为旧版本(未发布=0)回退本侧配置。
+        long published = target.getAgentTimeoutMs();
+        long serverBound = published > 0 ? published : AiConfig.getIpcAgentTimeoutMs();
+        long timeoutMs = serverBound + 10_000L;
         IpcClient client = new IpcClient(hostOf(target), target.getPort(), target.getToken());
         String payload = withProvenance(task, self, selfJmxPath(all, self));
         try {

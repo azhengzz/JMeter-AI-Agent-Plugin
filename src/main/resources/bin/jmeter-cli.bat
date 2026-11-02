@@ -21,6 +21,12 @@ rem scripted environments. (Do NOT put raw metacharacters in rem lines either -
 rem cmd parses them here too.)
 setlocal DisableDelayedExpansion
 
+rem Display fix: --json output is UTF-8 by design (RFC 8259, so jq/scripts
+rem receive valid bytes). Switch this console to codepage 65001 so interactive
+rem cmd windows render non-ASCII correctly instead of mojibake; redirected/
+rem piped output bytes are identical either way. Persists for this cmd window.
+chcp 65001 >nul
+
 rem Default JMETER_HOME to the parent of this script's directory
 rem (for %%~fi is pure string normalization: cross-drive and UNC safe, no pushd side effects)
 if "%JMETER_HOME%"=="" for %%i in ("%~dp0..") do set "JMETER_HOME=%%~fi"

@@ -32,6 +32,11 @@ public class SubagentStatusTool extends AbstractTool {
     }
 
     @Override
+    public boolean isConcurrencySafe() {
+        return true;
+    }
+
+    @Override
     public String getDescription() {
         return "Check the progress of subagents spawned in this conversation: phase, iteration, "
             + "recent tool calls, token usage, and the result of any that already finished. "

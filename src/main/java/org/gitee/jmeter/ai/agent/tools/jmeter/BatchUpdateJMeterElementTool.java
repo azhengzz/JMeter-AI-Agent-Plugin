@@ -155,9 +155,9 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
             deselectCurrentNode(guiPackage);
 
             List<ElementResult> results = new ArrayList<>();
-            String guardError = applyBatchUpdateOnEdt(guiPackage, nodeMap, universalProps, schemaProps, schema, results);
-            if (guardError != null) {
-                return ToolResult.error(guardError);
+            String refusalError = applyBatchUpdateOnEdt(guiPackage, nodeMap, universalProps, schemaProps, schema, results);
+            if (refusalError != null) {
+                return ToolResult.error(refusalError);
             }
 
             // Step 7: Build aggregated result (type + updated-properties block as header extra)
@@ -174,7 +174,8 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
         }
     }
 
-    private String applyBatchUpdateOnEdt(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap,
+    /** Package-private for the EDT-error-propagation regression test. */
+    String applyBatchUpdateOnEdt(GuiPackage guiPackage, Map<Integer, JMeterTreeNode> nodeMap,
                                         Map<String, String> universalProps, Map<String, Object> schemaProps,
                                         ComponentSchema schema, List<ElementResult> results) {
         // Property writes + GUI refresh run atomically on EDT (mirrors the single-element
@@ -232,7 +233,10 @@ public class BatchUpdateJMeterElementTool extends AbstractBatchJMeterElementTool
             }
         });
         if (edtError != null) {
+            // 不再吞没为"Updated 0 of N"成功形态:EDT 等待超时/中断(结局未知)必须让
+            // 模型看见,否则孤儿迟到执行后重试会双重改写
             log.error("Failed to batch update elements on EDT", edtError);
+            return "Failed to batch update elements: " + edtError.getMessage();
         }
         return guardError[0];
     }

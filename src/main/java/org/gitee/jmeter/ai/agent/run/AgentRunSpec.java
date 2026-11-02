@@ -42,6 +42,7 @@ public class AgentRunSpec {
     private final boolean goalRequested;
     private final boolean hostSyntheticTrigger;
     private final Long turnId;
+    private final Long deadlineAtMs;
     private final org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin;
 
     private AgentRunSpec(Builder builder) {
@@ -65,6 +66,7 @@ public class AgentRunSpec {
         this.hostSyntheticTrigger = builder.hostSyntheticTrigger;
         this.turnId = builder.turnId;
         this.origin = builder.origin;
+        this.deadlineAtMs = builder.deadlineAtMs;
     }
 
     public String getUserMessage() { return userMessage; }
@@ -135,6 +137,13 @@ public class AgentRunSpec {
      */
     public org.gitee.jmeter.ai.agent.presenter.TurnOrigin getOrigin() { return origin; }
 
+    /**
+     * 回合截止期（墙钟 epoch ms，可空）。非空 = IPC /agent 回合（服务端超时注入）：
+     * 到点未完成的回合会被服务端硬取消，长等待工具据此钳制。null = 本地回合/子代理，
+     * 无外部预算、行为与钳制前逐字节一致。
+     */
+    public Long getDeadlineAtMs() { return deadlineAtMs; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -160,6 +169,7 @@ public class AgentRunSpec {
         private boolean hostSyntheticTrigger = false;
         private Long turnId;
         private org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin;
+        private Long deadlineAtMs;
 
         public Builder userMessage(String message) {
             this.userMessage = message;
@@ -271,6 +281,17 @@ public class AgentRunSpec {
                                     org.gitee.jmeter.ai.agent.presenter.TurnOrigin origin) {
             this.turnId = turnId;
             this.origin = origin;
+            return this;
+        }
+
+        /**
+         * 回合截止期（墙钟 epoch ms）。仅 IPC /agent 入口注入（服务端 {@code t0 + timeout}
+         * ——到点未完成的回合被服务端超时硬取消）；本地面板/goal 续跑/子代理为 null
+         * （无外部预算）。长等待工具（如 run_test smoke）据此钳制等待、预算不足时
+         * 启动前拒绝。
+         */
+        public Builder deadlineAtMs(Long deadlineAtMs) {
+            this.deadlineAtMs = deadlineAtMs;
             return this;
         }
 

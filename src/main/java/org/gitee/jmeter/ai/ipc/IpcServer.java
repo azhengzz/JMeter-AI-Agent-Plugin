@@ -50,8 +50,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>两条调用链都在 {@code ipc-worker} 线程(非 EDT)上发起:
  * <ul>
  *   <li>{@code POST /tool} —— 直接调 {@link ToolRegistry#execute} 执行白名单内工具,
- *       工具内部已自包 {@code EdtRunner}(invokeAndWait)上 EDT。<b>本 handler 绝不再包 EDT</b>,
- *       否则 EDT 上调 invokeAndWait 会抛 Error/死锁。</li>
+ *       工具内部已自包 {@code EdtRunner}(有界 EDT 等待)上 EDT。<b>本 handler 绝不再包 EDT</b>,
+ *       否则 EDT 上等待 EDT 会守卫拒绝/死锁。</li>
  *   <li>{@code POST /agent} —— 调 {@link AgentLoop#processMessage} 推消息进 Agent,
  *       默认复用本实例 {@code instanceId} 会话(经 {@code InstanceContext}),与 GUI 聊天共享历史。</li>
  *   <li>{@code GET /health} —— 健康检查(需 token)。</li>
@@ -106,7 +106,20 @@ public final class IpcServer {
     private final Object registryLock = new Object();
     private volatile HttpServer server;
     private volatile String expectedToken;
+    /**
+     * {@code /agent} 服务端等待超时的<b>定格快照</b>:start() 时读一次配置,端口文件发布
+     * 与 handleAgent 执行同源——构造性保证「发布值 == 执行上界」。不做每次现读:
+     * {@code run_test} 的 {@code properties} 参数可运行时注入任意 JMeter 键
+     * ({@code JMeterUtils::setProperty}),现读的服务器会与只写一次的端口文件分歧,
+     * 让按发布值派生的 CLI/委派方提前放弃。包内可写供测试注入小值。
+     */
+    private volatile long agentTimeoutMs = 300_000L;
     private ToolRegistry toolRegistry;
+
+    /** 包内测试缝:覆盖定格快照(生产路径只在 start() 赋值一次)。 */
+    void setAgentTimeoutMsForTest(long ms) {
+        this.agentTimeoutMs = ms;
+    }
 
     private IpcServer() {
     }
@@ -173,7 +186,15 @@ public final class IpcServer {
         String cfgToken = AiConfig.getIpcToken();
         expectedToken = (cfgToken == null || cfgToken.isEmpty()) ? randomToken() : cfgToken;
 
-        server.setExecutor(Executors.newFixedThreadPool(4, r -> {
+        // 无界 cached 池(必须 daemon——默认非 daemon 会挂住 JVM 退出,server.stop 不关 executor)。
+        // 饥饿是「固定小池 × 任意长阻塞 handler」的结构性质:/agent 长回合(默认 300s)与
+        // /tool 上 run_test 冒烟(~200s)都会占住 handler 线程,固定 4 池时 ≥4 个并发长请求
+        // 即把 /health、/tool 饿死。cached 池把「等待」的成本从有界池线程降为廉价线程。
+        // 注:/tool 无会话/无 AgentLoop 闸门——固定池原是其唯一并发上限,本变更解除后
+        // EDT 前的解析/校验阶段可并发(树变更本身仍在 EDT 全序;客户端皆本插件自身,
+        // loopback+token)。/agent 侧的隐性 4 并发上限同步解除,实际闸门仍是 AgentLoop
+        // 单线程 executor 全序串行 + 同会话 busy 拒绝。
+        server.setExecutor(Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "ipc-worker");
             t.setDaemon(true);
             return t;
@@ -187,10 +208,11 @@ public final class IpcServer {
 
         int actualPort = server.getAddress().getPort();
         String pid = InstanceRegistry.currentPid();
+        agentTimeoutMs = AiConfig.getIpcAgentTimeoutMs(); // 定格:发布与执行同源(见字段注释)
         try {
             File ipcDir = InstanceRegistry.ipcDir(new File(JMeterUtils.getJMeterHome()));
             InstanceRegistry.writeInstance(ipcDir, pid, actualPort, expectedToken, bind,
-                    InstanceContext.instanceId(), "");
+                    InstanceContext.instanceId(), "", agentTimeoutMs);
         } catch (Exception e) {
             log.error("IPC server bound on {}:{} but failed to write port file "
                     + "(CLI discovery won't work): {}", bind, actualPort, e.getMessage());
@@ -290,7 +312,7 @@ public final class IpcServer {
             }
             String session = (req.getSession() == null || req.getSession().isEmpty())
                     ? InstanceContext.currentSessionKey() : req.getSession();
-            long timeout = AiConfig.getIpcAgentTimeoutMs();
+            long timeout = agentTimeoutMs; // 定格快照,与端口文件发布值同源(见字段注释)
             long t0 = System.currentTimeMillis();
             // CLI 直连(delegated=false)的非命令消息加 [from cli] 前缀(随消息文本进回合上下文与
             // jsonl,单一事实源);斜杠命令豁免;委派载荷保持 [delegated-from …] 原样
@@ -301,9 +323,11 @@ public final class IpcServer {
             TurnContentAccumulator accumulator = new TurnContentAccumulator();
             AgentLoop.ProgressCallback turnCallback = accumulator::onProgress;
             // delegated=true → 该回合内置 DelegationGuard,回合内 delegate_to_instance 直接报错(防 ping-pong)
+            // 截止期注入 t0+timeout:到点本分支硬取消回合;长等待工具(smoke)据此预检/钳制
             CompletableFuture<AgentResponse> future =
                     loop.processMessage(message, session, turnCallback,
-                            req.isDelegated() ? TurnOrigin.IPC_DELEGATED : TurnOrigin.IPC_CLI);
+                            req.isDelegated() ? TurnOrigin.IPC_DELEGATED : TurnOrigin.IPC_CLI,
+                            t0 + timeout);
             AgentResponse ar;
             try {
                 ar = future.get(timeout, TimeUnit.MILLISECONDS);

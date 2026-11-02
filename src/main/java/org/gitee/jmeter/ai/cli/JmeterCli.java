@@ -55,10 +55,10 @@ public final class JmeterCli {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     /** 客户端整请求 HTTP 超时的缺省值(--timeout 未传时)。须<b>长于</b>服务器侧 /agent
-     * 等待超时 jmeter.ai.ipc.agent.timeout.ms(默认 120s):服务器先到点自取消,才能把
+     * 等待超时 jmeter.ai.ipc.agent.timeout.ms(默认 300s):服务器先到点自取消,才能把
      * 504+cancelled 结构化回执送达仍在等待的客户端。帮助文案与超时报错文案均引用本
      * 常量,改值只动这里。 */
-    static final long DEFAULT_REQUEST_TIMEOUT_MS = 130_000L;
+    static final long DEFAULT_REQUEST_TIMEOUT_MS = 310_000L;
 
     /**
      * run --wait 轮询 get_test_status 时判定"仍在运行"的字面标记,来源是 GetTestStatusTool
@@ -132,7 +132,12 @@ public final class JmeterCli {
             System.err.println("Error: " + e.getMessage());
             System.exit(2);
         } catch (Exception e) {
-            System.err.println("Error: " + friendly(e, p == null ? null : timeoutOf(p.opts)));
+            // 回显实际生效值:agent 命令派生过等待上限时优先暂存值(否则报缺省 310s 而实际
+            // 生效的是派生数,违反「显式传过 --timeout 的用户看到的必须是自己传的数」的回显契约)
+            long effective = (p == null || p.effectiveAgentTimeoutMs == null)
+                    ? (p == null ? 0L : timeoutOf(p.opts))
+                    : p.effectiveAgentTimeoutMs;
+            System.err.println("Error: " + friendly(e, p == null ? null : effective));
             System.exit(1);
         }
     }
@@ -293,7 +298,15 @@ public final class JmeterCli {
         if (p.opts.get("session") != null) {
             req.setSession(p.opts.get("session"));
         }
-        return sendToTool(p.opts, "/agent", req, json);
+        // 单次解析:派生与发送共用同一 InstanceInfo(防双实例切换窗口内"按 A 的发布
+        // 超时请求 B");/agent 等待按目标发布值派生,/tool 命令仍走 postIpc 缺省路径
+        InstanceInfo inst = resolveInstance(p.opts);
+        if (inst == null) {
+            return 1;
+        }
+        long effective = effectiveAgentTimeoutMs(p.opts, inst);
+        p.effectiveAgentTimeoutMs = effective;
+        return sendToTool(p.opts, "/agent", req, json, inst, effective);
     }
 
     private static int cmdTool(Parsed p, boolean json) throws Exception {
@@ -735,6 +748,39 @@ public final class JmeterCli {
         // 复用进程内 IPC 客户端(与跨实例委派工具同一传输),CLI 仅保留实例发现 + 超时解析。
         IpcClient client = new IpcClient(host(inst), inst.getPort(), tokenFor(inst, opts));
         return client.post(endpoint, req, timeoutOf(opts));
+    }
+
+    /**
+     * {@code /agent} 请求的实际等待上限(包内可见供单测)。<b>仅 /agent 端点</b>使用:
+     * 显式 {@code --timeout} 最优先;否则按目标端口文件发布的 {@code agentTimeoutMs}
+     * + 10s 派生——余量覆盖服务器超时分支 cancelActiveTask 的 5s 取消收尾,让结构化
+     * 504(含取消原因)先于本端 HTTP 超时到达;目标未发布(旧版本服务器)回退内置缺省。
+     * 经 /tool 路由的命令(run --wait 等)不得使用派生——/tool 同步执行无 agent 超时
+     * 语义,绑定会把长跑测试的等待窗静默截短。
+     */
+    static long effectiveAgentTimeoutMs(Map<String, String> opts, InstanceInfo inst) {
+        if (opts.get("timeout") != null) {
+            return timeoutOf(opts);
+        }
+        long published = inst.getAgentTimeoutMs();
+        return published > 0 ? published + 10_000L : DEFAULT_REQUEST_TIMEOUT_MS;
+    }
+
+    /** 单次解析形态的传输:显式传入已解析的实例与等待上限(见 cmdAgent)。 */
+    private static HttpResponse<String> postIpc(Map<String, String> opts, String endpoint, IpcRequest req,
+                                                InstanceInfo inst, long timeoutMs) throws Exception {
+        IpcClient client = new IpcClient(host(inst), inst.getPort(), tokenFor(inst, opts));
+        return client.post(endpoint, req, timeoutMs);
+    }
+
+    /** 单次解析形态的 sendToTool(见 cmdAgent)。 */
+    private static int sendToTool(Map<String, String> opts, String endpoint, IpcRequest req, boolean json,
+                                  InstanceInfo inst, long timeoutMs) throws Exception {
+        HttpResponse<String> resp = postIpc(opts, endpoint, req, inst, timeoutMs);
+        if (resp == null) {
+            return 1;
+        }
+        return printResp(resp, json);
     }
 
     /** Calls an allowed IPC tool and returns the parsed response (null if no instance resolved). */
@@ -1650,5 +1696,11 @@ public final class JmeterCli {
         final List<String> positionals = new ArrayList<>();
         boolean json;
         boolean help;
+        /**
+         * agent 命令实际生效的 /agent 等待上限(派生或显式 --timeout)。暂存于此供
+         * main 的 catch 块 friendly() 回显——否则超时报错文案报的是缺省 310s 而实际
+         * 生效的是按目标发布值派生的数(违反「回显实际生效值」契约)。
+         */
+        Long effectiveAgentTimeoutMs;
     }
 }

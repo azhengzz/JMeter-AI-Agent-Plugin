@@ -5,10 +5,14 @@ import org.gitee.jmeter.ai.agent.tools.AbstractTool;
 import org.gitee.jmeter.ai.agent.tools.ValidationResult;
 import org.gitee.jmeter.ai.utils.AiConfig;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -169,14 +173,13 @@ public class ExecTool extends AbstractTool {
         try {
             Process process = pb.start();
 
-            StringBuilder output = new StringBuilder();
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
             Thread outputReader = new Thread(() -> {
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream(),
-                            StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        output.append(line).append("\n");
+                try (InputStream in = process.getInputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        output.write(buf, 0, n);
                     }
                 } catch (IOException e) {
                     log.debug("Output reader error: {}", e.getMessage());
@@ -195,7 +198,8 @@ public class ExecTool extends AbstractTool {
             }
 
             int exitCode = process.exitValue();
-            String rawOutput = output.toString();
+            String rawOutput = decodeProcessOutput(output.toByteArray(),
+                Charset.defaultCharset());
             String truncated = truncateOutput(rawOutput);
 
             StringBuilder result = new StringBuilder();
@@ -211,6 +215,25 @@ public class ExecTool extends AbstractTool {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ToolResult.error("Command execution interrupted");
+        }
+    }
+
+    /**
+     * 子进程输出解码:先按严格 UTF-8 解码(现代 CLI 工具的常见管道编码),解码失败
+     * (存在非法 UTF-8 字节)回退给定编码——生产传平台缺省,中文 Windows 的 cmd /c
+     * 命令(ping/ipconfig 等)管道输出是 GBK,按 UTF-8 硬解会得到替换符乱码喂给 LLM。
+     * 已知局限:少数 GBK 序列恰好构成合法 UTF-8(如「联通」),会被静默误解——
+     * 相比恒定 UTF-8 的全量乱码仍是严格改进。包内可见供单测注入回退编码。
+     */
+    static String decodeProcessOutput(byte[] bytes, Charset fallbackCharset) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            return new String(bytes, fallbackCharset);
         }
     }
 

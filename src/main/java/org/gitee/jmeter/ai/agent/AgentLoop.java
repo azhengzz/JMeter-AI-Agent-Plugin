@@ -223,7 +223,7 @@ public class AgentLoop {
             String message,
             String sessionKey,
             List<InstanceInfo> instanceMentions) {
-        return doProcessMessage(message, sessionKey, null, TurnOrigin.LOCAL_PANEL, instanceMentions);
+        return doProcessMessage(message, sessionKey, null, TurnOrigin.LOCAL_PANEL, instanceMentions, null);
     }
 
     /**
@@ -236,7 +236,22 @@ public class AgentLoop {
             String sessionKey,
             ProgressCallback callback,
             TurnOrigin origin) {
-        return doProcessMessage(message, sessionKey, callback, origin, List.of());
+        return doProcessMessage(message, sessionKey, callback, origin, List.of(), null);
+    }
+
+    /**
+     * 带回合截止期的来源化入口：IPC /agent 服务器按 {@code t0 + 服务端超时} 注入——
+     * 到点未完成的回合被服务端硬取消；长等待工具（run_test smoke）经
+     * {@code AgentRunContext.getDeadlineAtMs()} 感知并钳制/预检拒绝。本地面板与
+     * goal 续跑回合无截止期（null），行为与钳制前逐字节一致。
+     */
+    public CompletableFuture<AgentResponse> processMessage(
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            TurnOrigin origin,
+            Long deadlineAtMs) {
+        return doProcessMessage(message, sessionKey, callback, origin, List.of(), deadlineAtMs);
     }
 
     private CompletableFuture<AgentResponse> doProcessMessage(
@@ -244,7 +259,8 @@ public class AgentLoop {
             String sessionKey,
             ProgressCallback callback,
             TurnOrigin origin,
-            List<InstanceInfo> instanceMentions) {
+            List<InstanceInfo> instanceMentions,
+            Long deadlineAtMs) {
         boolean delegated = origin == TurnOrigin.IPC_DELEGATED;
         String raw = message.trim();
 
@@ -346,7 +362,8 @@ public class AgentLoop {
         }
 
         // Phase 3: Normal processing (via executor)
-        return startTurn(raw, message, sessionKey, callback, delegated, origin, instanceMentions);
+        return startTurn(raw, message, sessionKey, callback, delegated, origin, instanceMentions,
+                false, deadlineAtMs);
     }
 
     /**
@@ -384,6 +401,7 @@ public class AgentLoop {
     /**
      * 完整签名：{@code syntheticTrigger} 标记触发消息为宿主合成（goal 续跑/交回
      * 切片直投，早落盘据此挂记忆/归档视图的跳过标记）。真实用户消息恒 false。
+     * 无截止期（goal 续跑/孤儿 re-publish 直调本形态——宿主本地回合，无外部预算）。
      */
     private CompletableFuture<AgentResponse> startTurn(
             String raw,
@@ -394,6 +412,24 @@ public class AgentLoop {
             TurnOrigin origin,
             List<InstanceInfo> instanceMentions,
             boolean syntheticTrigger) {
+        return startTurn(raw, message, sessionKey, callback, delegated, origin,
+                instanceMentions, syntheticTrigger, null);
+    }
+
+    /**
+     * 最完整签名：携带回合截止期（仅 IPC /agent 入口经 doProcessMessage 注入，见
+     * {@link #processMessage(String, String, ProgressCallback, TurnOrigin, Long)}）。
+     */
+    private CompletableFuture<AgentResponse> startTurn(
+            String raw,
+            String message,
+            String sessionKey,
+            ProgressCallback callback,
+            boolean delegated,
+            TurnOrigin origin,
+            List<InstanceInfo> instanceMentions,
+            boolean syntheticTrigger,
+            Long deadlineAtMs) {
         // 回合身份句柄（进程唯一 id + 来源 + 显示域元数据 + 终态去重位）。REPUBLISH 的
         // echoText 为 null——You 回显已由 INJECTED 事件给过，孤儿回合不再重复回显。
         // 句柄随 Turn 构造、先于注册表可见（不按旧 activeTurnHandles.put 的时机后写）：
@@ -509,6 +545,8 @@ public class AgentLoop {
                                 .hostSyntheticTrigger(syntheticTrigger)
                                 // 回合身份（句柄 id + 来源）：回合快照的参与门与文件名段
                                 .turnIdentity(handle.id(), origin)
+                                // 回合截止期（IPC /agent 注入;本地/goal 续跑为 null）
+                                .deadlineAtMs(deadlineAtMs)
                                 .build();
 
                             // 末迭代终结判定的基线：回合起点 goal 是否活跃（结束后对比，

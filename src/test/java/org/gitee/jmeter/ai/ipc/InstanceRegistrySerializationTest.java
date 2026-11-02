@@ -70,6 +70,31 @@ class InstanceRegistrySerializationTest {
     }
 
     @Test
+    void agentTimeoutMsRoundTrips_andSurvivesJmxPathRewrite() throws Exception {
+        File ipcDir = new File(tmp, "ipc");
+        // 8 参完整形态:发布 300000
+        InstanceRegistry.writeInstance(ipcDir, "555", 5000, "tok-ms", "127.0.0.1",
+                "555-111", "/a.jmx", 300_000L);
+        InstanceInfo read = MAPPER.readValue(InstanceRegistry.portFile(ipcDir, "555"), InstanceInfo.class);
+        assertEquals(300_000L, read.getAgentTimeoutMs(), "published timeout must round-trip");
+
+        // 读改写(updateJmxPath)保留发布值——等待方派生依赖它在实例存活期不漂移
+        assertTrue(InstanceRegistry.updateJmxPath(ipcDir, "555", "/b.jmx"));
+        InstanceInfo after = MAPPER.readValue(InstanceRegistry.portFile(ipcDir, "555"), InstanceInfo.class);
+        assertEquals(300_000L, after.getAgentTimeoutMs(), "agentTimeoutMs must survive the read-modify-write");
+        assertEquals("/b.jmx", after.getJmxPath());
+    }
+
+    @Test
+    void legacyWriteInstanceOmitsTimeout_asZero() throws Exception {
+        // 旧调用形态(与旧版本写入的文件同形):0 = 未发布,等待方回退自身配置派生
+        File ipcDir = new File(tmp, "ipc");
+        InstanceRegistry.writeInstance(ipcDir, "666", 6000, "t", "127.0.0.1", "666-1", "");
+        InstanceInfo read = MAPPER.readValue(InstanceRegistry.portFile(ipcDir, "666"), InstanceInfo.class);
+        assertEquals(0L, read.getAgentTimeoutMs(), "legacy writes must read back as unpublished(0)");
+    }
+
+    @Test
     void unknownFieldsAreToleratedOnRead() throws Exception {
         // 前向兼容:未来版本向端口文件新增字段时,本版本读者不得因 Jackson 默认的
         // FAIL_ON_UNKNOWN_PROPERTIES 解析失败——否则实例会被 listInstances 整条跳过。

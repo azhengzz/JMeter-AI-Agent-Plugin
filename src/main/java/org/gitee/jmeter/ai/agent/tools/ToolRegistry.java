@@ -285,29 +285,49 @@ public class ToolRegistry {
 
         final long finalTimeout = effectiveTimeout;
         // Concurrent tools run on the pooled tool-executor, which has no run context
-        // of its own — carry the caller's over so tools like spawn still know their
-        // session, and clear it so the pooled thread keeps nothing stale. The
-        // delegation guard rides the same channel (Nanobot contextvars → Java carry).
+        // of its own — carry the caller's over (real consumers on this lane are tools
+        // like subagent_status reading their session; spawn itself is NOT
+        // concurrency-safe and never runs here), and clear it so the pooled thread
+        // keeps nothing stale. The delegation guard rides the same channel
+        // (Nanobot contextvars → Java carry).
         final org.gitee.jmeter.ai.agent.run.AgentRunContext runContext =
                 org.gitee.jmeter.ai.agent.run.AgentRunContext.current();
         final boolean delegatedTurn =
                 org.gitee.jmeter.ai.instance.DelegationGuard.isActive();
-        return CompletableFuture.supplyAsync(() -> {
-                    org.gitee.jmeter.ai.agent.run.AgentRunContext.set(runContext);
-                    if (delegatedTurn) {
-                        org.gitee.jmeter.ai.instance.DelegationGuard.begin();
-                    }
-                    try {
-                        return executeWithEvent(name, parameters);
-                    } finally {
-                        org.gitee.jmeter.ai.instance.DelegationGuard.end();
-                        org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
-                    }
-                }, executor)
-                .orTimeout(finalTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+        // 超时后 best-effort 中断仍在执行的工作。CompletableFuture.cancel(true) 在 JDK 中
+        // 明文不中断线程(参数被忽略),且 orTimeout 完结的就是 supplyAsync 这同一个 future
+        // ——唯一的真中断途径是拿到工作线程引用显式 interrupt()。消费式 CAS:只在引用仍
+        // 指向本任务的线程时发出(worker 清引用先于线程归池),闭合「迟到中断命中池线程
+        // 已接手的下一个任务」的窗口。该路径仅并发安全只读工具可达,中断只读操作安全;
+        // 不响应中断的工具(如 HttpURLConnection 阻塞读)照常跑完、结果丢弃(best-effort)。
+        final java.util.concurrent.atomic.AtomicReference<Thread> workerRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        CompletableFuture<ToolExecutionResult> work = CompletableFuture.supplyAsync(() -> {
+            workerRef.set(Thread.currentThread());
+            try {
+                org.gitee.jmeter.ai.agent.run.AgentRunContext.set(runContext);
+                if (delegatedTurn) {
+                    org.gitee.jmeter.ai.instance.DelegationGuard.begin();
+                }
+                try {
+                    return executeWithEvent(name, parameters);
+                } finally {
+                    org.gitee.jmeter.ai.instance.DelegationGuard.end();
+                    org.gitee.jmeter.ai.agent.run.AgentRunContext.clear();
+                }
+            } finally {
+                workerRef.compareAndSet(Thread.currentThread(), null);
+            }
+        }, executor);
+        return work.orTimeout(finalTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {
                     if (ex instanceof java.util.concurrent.TimeoutException) {
-                        log.warn("Tool execution timed out after {}ms: {}", finalTimeout, name);
+                        Thread worker = workerRef.get();
+                        if (worker != null && workerRef.compareAndSet(worker, null)) {
+                            worker.interrupt();
+                        }
+                        log.warn("Tool execution timed out after {}ms: {} (worker interrupted best-effort)",
+                                finalTimeout, name);
                         return new ToolExecutionResult(
                             ToolResult.error("Tool execution timed out after " + finalTimeout + "ms"),
                             ToolEvent.timeout(name, finalTimeout, parameters)
