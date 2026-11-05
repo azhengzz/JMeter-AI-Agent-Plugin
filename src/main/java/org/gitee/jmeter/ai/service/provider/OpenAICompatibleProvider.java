@@ -22,6 +22,7 @@ import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.service.AiService;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.SystemPrompt;
+import org.gitee.jmeter.ai.utils.VersionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +106,8 @@ public class OpenAICompatibleProvider implements AiService {
                 providerName, baseUrl);
 
         OpenAIOkHttpClient.Builder clientBuilder = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey.isEmpty() ? "no-key" : apiKey);
+                .apiKey(apiKey.isEmpty() ? "no-key" : apiKey)
+                .putHeader("User-Agent", VersionUtils.userAgent());
 
         if (!baseUrl.isEmpty()) {
             clientBuilder.baseUrl(baseUrl);

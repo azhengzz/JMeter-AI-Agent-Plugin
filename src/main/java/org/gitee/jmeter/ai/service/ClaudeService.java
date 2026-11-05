@@ -30,6 +30,7 @@ import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.utils.AiConfig;
 import org.gitee.jmeter.ai.utils.SystemPrompt;
+import org.gitee.jmeter.ai.utils.VersionUtils;
 import org.gitee.jmeter.ai.usage.AnthropicUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +56,8 @@ public class ClaudeService implements AiService {
         }
 
         AnthropicOkHttpClient.Builder clientBuilder = AnthropicOkHttpClient.builder()
-                .apiKey(API_KEY);
+                .apiKey(API_KEY)
+                .putHeader("User-Agent", VersionUtils.userAgent());
 
         String baseUrl = AiConfig.getAnthropicApiBaseUrl();
         if (!baseUrl.isEmpty()) {

@@ -200,6 +200,26 @@
     </dependencies>
 
     <build>
+        <!-- Filtering is scoped to version.properties only: Maven substitutes
+             ${project.version} at build time so runtime code reads the pom
+             version instead of a hardcoded fallback. All other resources stay
+             unfiltered to keep ${...} literals in templates and scripts intact. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>org/gitee/jmeter/ai/version.properties</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>org/gitee/jmeter/ai/version.properties</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

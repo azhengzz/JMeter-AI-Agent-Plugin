@@ -54,14 +54,16 @@ public class VersionUtilsTest {
     
     /**
      * Test that getVersion returns a valid version string
-     * In the test environment, it should find the version from pom.properties
-     * or fall back to the default version
+     * In the test environment, it resolves from the build-time filtered
+     * version.properties (or another fallback source)
      */
     @Test
     public void testGetVersionReturnsValidVersion() {
         String version = VersionUtils.getVersion();
-        // The version should be 1.0.10 (either from pom.properties or default)
-        assertEquals("1.0.10", version, "Version should be 1.0.10");
+        // Assert the x.y.z shape rather than a hardcoded value so version
+        // bumps don't break this test
+        assertTrue(version.matches("\\d+\\.\\d+\\.\\d+(-\\S+)?"),
+                "Version should look like x.y.z but was: " + version);
     }
     
     /**
