@@ -6,7 +6,7 @@ This reference summarizes the CLI implemented by `org.gitee.jmeter.ai.cli.Jmeter
 
 - `--pid <pid>`: Target one JMeter GUI instance. Required when `list` shows more than one instance.
 - `--token <t>`: Override the IPC token. Normally the CLI reads it from the port file.
-- `--json`: Print the raw `IpcResponse` JSON with `success`, `content`, `error`, `durationMs`, and agent metadata when applicable.
+- `--json`: Print the transport envelope `{success, content, error, durationMs, ...}` instead of the bare payload. `content` is ALWAYS a string: for `tree`/`get`/`find`/`query`/`parse`/`script-info`/`log`/`open` it is itself JSON (decode twice); for `create`/`update`/`validate`/`status`/`results`/`run` it is text. **`list` is the exception** — it prints a bare `InstanceInfo[]` array with no envelope. See "Reading `--json` output" in SKILL.md.
 - `--jmeter-home <dir>`: Override `JMETER_HOME`.
 - `--timeout <ms>`: HTTP timeout. Default is `310000`. For the `agent` command only, the default is derived from the target instance's published `agentTimeoutMs` (port file) + 10s grace — falling back to `310000` when the target is an older version that does not publish it. `/tool`-route commands (e.g. `run --wait`) always use the plain default.
 - `-h`, `--help`, `help [command]`: Show help.
@@ -40,6 +40,8 @@ jmeter-cli open --file <path.jmx> --merge true --json
 
 Options: `--file <path>` required, `--merge <bool>`, `--includeProperties <bool>`, `--maxDepth <n>`.
 
+`--includeProperties` defaults to **false** here (unlike `tree`). `--merge false` replaces the plan and **discards unsaved edits without prompting**; `--merge true` merges into whatever node the GUI currently has selected. The returned `loadedTree` is the live tree, so it does carry `elementId`s. Pass an absolute path — relative paths resolve inside the JMeter process.
+
 ### `parse`
 
 Parse an external `.jmx` and return its tree WITHOUT loading it into the GUI (the open plan stays untouched).
@@ -50,6 +52,8 @@ jmeter-cli parse --file <path.jmx> --elementType httpsampler --limit 50 --json
 ```
 
 Options: `--file <path>` required; `--elementType <t>` switches to query mode — output becomes a paginated `{total, offset, limit, elements}` list (default 20, max 50) and `--maxDepth` then defaults to 0 (tree mode: -1); `--includeProperties <bool>`; `--maxDepth <n>`; `--limit <n>`/`--offset <n>` (query mode only, require `--elementType`). Property-name/value filters and `matchMode` are reachable via `tool parse_jmx_file --params {...}`.
+
+Read-only: the GUI plan is untouched, and the output has **no `elementId`** — parsed nodes cannot be used with `update`/`move`/`delete`/`copy`. To modify a file, `open` it first. `--includeProperties` defaults to `true`; query mode defaults `--maxDepth` to 0. Pass an absolute path.
 
 ### `get`
 
@@ -62,17 +66,23 @@ jmeter-cli get --json
 
 Options: `--elementId <id>`, `--includeProperties <bool>`, `--maxDepth <n>`.
 
+With `--elementId` the payload is the same paginated wrapper as `find` — `{total, offset, limit, elements:[{elementId, name, elementType, path, properties, children}]}`; read `elements[0]`. Without it, the GUI selection is returned as a single node object.
+
 ### `find`
 
 Find elements by `name`, `elementType`, `path`, or `elementId`.
 
 ```bash
-jmeter-cli find --searchBy elementType --query testplan --json
+jmeter-cli find --searchBy elementType --query threadgroup --json
 jmeter-cli find --searchBy name --query "HTTP Request" --exactMatch false --limit 10 --json
 jmeter-cli find --searchBy elementType --query JSR223Sampler --parentId <id>
 ```
 
+There is no `testplan` elementType (the registry has no Test Plan key) — `find --searchBy elementType --query testplan` always errors. Get the root id from `jmeter-cli tree --includeProperties false --maxDepth 0`.
+
 Options: `--searchBy <name|elementType|path|elementId>` required, `--query <q>` required, `--exactMatch <bool>`, `--includeProperties <bool>`, `--maxDepth <n>`, `--offset <n>`, `--limit <n>`.
+
+`--searchBy path` joins element NAMES with `" > "`; a name containing `" > "` mis-slices, and duplicate names resolve to the first DFS match with exit 0. Prefer `--searchBy elementId`, or scope with `--parentId`. `--maxDepth` defaults to `0` here (the matched node only). Names are not unique in JMeter.
 
 ### `query`
 
@@ -96,9 +106,11 @@ jmeter-cli tree --includeProperties false --maxDepth 2 --json
 
 Options: `--includeProperties <bool>` (default `true`), `--maxDepth <n>` (-1 = unlimited).
 
+Defaults are `includeProperties=true` and `maxDepth=-1` — always pass both explicitly. `elementType` in this output is the **Java class simple name** (`HTTPSamplerProxy`), not the registry key (`httpsampler`) — the two vocabularies are not interchangeable, see [element-types.md](element-types.md). Property values longer than ~2048 characters end with `...(truncated)`; never feed a truncated value back through `update`.
+
 ### `script-info`
 
-Show the currently-open `.jmx` path (empty when unsaved) plus JMeter/Java versions and JMeter home.
+Show the currently-open `.jmx` path plus JMeter/Java versions and JMeter home. `scriptFilePath` / `scriptFileName` are JSON **`null`** when the plan is unsaved (not empty strings).
 
 ```bash
 jmeter-cli script-info --json
@@ -125,6 +137,8 @@ jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <testPl
 
 Options: `--elementType <type>` required, `--elementName <name>` required, `--parentId <id>` strongly recommended, `--properties <json>`.
 
+The new id is the plain line `elementId: <n>` inside the payload (not a JSON field): `id=$(jmeter-cli create ... | sed -n 's/^elementId: //p')`. Omitting `--parentId` uses the GUI selection and the reply echoes the landing path — read that line. Only types with a bundled schema are creatable (75 of the 166 registry keys) — see [element-types.md](element-types.md); an uncreatable type returns `Unknown elementType: '...'. No schema definition found.`, which does not mean JMeter lacks the type.
+
 ### `copy`
 
 Deep-clone an element (with all descendants) and paste it. Omit `--targetParentId` to duplicate in place.
@@ -146,6 +160,8 @@ jmeter-cli update --elementId <id> --properties "{\"HTTPSampler.domain\":\"examp
 
 Options: `--elementId <id>` required, `--properties <json>` required.
 
+`name` and `comment` are universal properties and may be updated directly (`--properties '{"name":"POST_login"}'`). Both `create` and `update` validate property names against the schema, so a misspelling fails with `Unknown parameter(s) [...] ... Available parameters: [...]` and **nothing is written**. Numeric fields need a JSON number or a `${...}` reference (`"5"` is rejected); Double-typed fields need a decimal point (`600.0`, not `600`); booleans and enums must be literals; String-typed numeric fields take a quoted value. See [property-recipes.md](property-recipes.md).
+
 ### `delete`
 
 Delete an element and its descendants.
@@ -163,6 +179,8 @@ jmeter-cli batch-delete --elementIds 5,6,7 --json
 ```
 
 Options: `--elementIds <csv>` required.
+
+Descendants of another listed id are skipped. Max 50 ids. Direct CLI deletes have **no snapshot and no undo** — back up the `.jmx` first if the plan has an associated file.
 
 ### `move`
 
@@ -214,6 +232,8 @@ jmeter-cli batch --elementIds 5,6,7 --properties "{\"HTTPSampler.domain\":\"exam
 
 Options: `--elementIds <csv>` required, `--properties <json>` required.
 
+Every id must be the **same elementType** — a mixed list is rejected and **nothing is written**. Group ids by type and issue one call per type. Max 50 ids.
+
 ### `validate`
 
 Statically validate the current test plan (structure + logic lint). Read-only: no plan mutation, no test execution, no goal evidence.
@@ -221,6 +241,8 @@ Statically validate the current test plan (structure + logic lint). Read-only: n
 ```bash
 jmeter-cli validate --json
 ```
+
+The payload starts with `## Test Plan Validation: PASS|FAIL`. **The exit code is 0 for both** — gate on the payload text, never on `$?`. It cannot see undefined `${var}` references or missing HTTP targets (definition sites are not statically enumerable) — the smoke run is the arbiter for those. See "Verify before reporting done" in SKILL.md.
 
 ### `run`
 
@@ -231,7 +253,15 @@ jmeter-cli run --ignoreTimers true --wait --timeout 30000 --json
 jmeter-cli run --mode smoke --json
 ```
 
-Options: `--ignoreTimers <bool>` (skip timer delays; ignored in smoke mode), `--mode normal|smoke` (default `normal`), `--wait` (poll `status` until the test finishes, bounded by `--timeout`).
+Options: `--properties <json>` (global JMeter properties injected before start, like `-J`; read them as `${__P(name)}` or `props.get("name")` — values may be strings, numbers or booleans; `resultcollector.action_if_file_exists` is rejected because JMeter freezes it at startup), `--ignoreTimers <bool>` (skip timer delays; ignored in smoke mode), `--mode normal|smoke` (default `normal`), `--wait` (poll `status` until the test finishes, bounded by `--timeout`), `--timeout <ms>`.
+
+**Smoke verdicts** (the payload text, not the exit code): `Smoke validation completed: PASS (zero errors)` · `Smoke validation completed: FAIL` · `Smoke validation completed: FAIL (zero samples executed ...)` — nothing ran, do not count as a pass · `Smoke validation still running` / `Turn budget exhausted` — **no verdict**, poll `status` then `results`. Smoke blocks up to **180 s** internally.
+
+**`run` can rewrite the open `.jmx`.** JMeter defaults to `save_automatically_before_run=true`, so `run` (smoke included) saves the live tree to the plan's associated file before starting.
+
+**`--wait` timing out does not stop the test.** The CLI exits 1 while the test keeps running and is never cancelled — poll `status` yourself or give it more `--timeout`.
+
+**`run --wait` breaks `--json` output.** The captured `run_test` payload (for smoke, the PASS/FAIL verdict) is printed as **plain text to stdout before** the JSON envelope, with no `--json` guard. `run --wait --json | jq` therefore fails to parse. Drop `--json` for `--wait` runs and read the verdict from the text, or use `--json` without `--wait`.
 
 ### `stop`
 
@@ -257,6 +287,8 @@ Show the current test execution status: running state, elapsed, thread progress,
 jmeter-cli status --json
 ```
 
+Covers only the latest run in this GUI session (see `results` below). `**State**: Running` is the marker that a run is live; `**Started by**: USER|AGENT` tells you who started it.
+
 ### `results`
 
 Show test results: summary statistics and/or individual sample details.
@@ -268,15 +300,22 @@ jmeter-cli results --format samples --statusFilter failure --includeDetails true
 
 Options: `--format summary|samples|both` (default `summary`), `--limit <n>` (max 50, default 20), `--offset <n>`, `--includeDetails <bool>`, `--statusFilter all|success|failure`.
 
+Results are process-global and cover **only the most recent run** in this GUI session — starting another run clears them, including runs a human starts from the GUI. `status` prints a `**Started by**: USER|AGENT` line; check it matches the run you started. Only the most recent **1000 samples** are retained. Failed-assertion messages appear only with `--includeDetails true`.
+
 ### `agent`
 
 Send a natural-language message to the jmeter-agent loop running in the GUI.
 
 ```bash
-jmeter-cli agent "add a thread group with 5 users named TG2" --session jmeter-ai-chat --json
+jmeter-cli agent "add a thread group with 5 users named TG2" --json
+jmeter-cli agent "/goal make the login flow pass with assertions" --json
 ```
 
 Options: positional message or `--message <text>`, `--session <key>`, `--timeout <ms>`.
+
+Omit `--session` to share the GUI panel's own session (the instance's `instanceId`) — that is what the GUI chat uses. Pass a key only for an isolated conversation; **never hardcode `jmeter-ai-chat`** (it is the legacy global key and opens a separate conversation).
+
+Blocks until the turn ends: default wait is the instance's `agentTimeoutMs` + 10 s (310 s fallback). On timeout the turn is cancelled **server-side** (`cancelled: true`, `cancelReason: "timeout"`, `partialContent` holds any partial reply) and edits may be partially applied — re-read `tree` afterwards. A reply of `Message injected into current conversation.` means a turn was already running and your text was queued, **not** executed. See "Escalation" in SKILL.md.
 
 ### `tool`
 
@@ -334,14 +373,21 @@ Prefer the dedicated top-level commands — `run`, `stop`, `shutdown`, `status`,
 
 ## Common End-to-End Examples
 
+Full task recipes (build / verify / diagnose / load-test / edit an existing `.jmx`) live in
+[workflows.md](workflows.md). The minimal chain:
+
 ### Create a minimal HTTP test
 
 ```bash
-jmeter-cli find --searchBy elementType --query testplan --json
+jmeter-cli tree --includeProperties false --maxDepth 0 --json
+#   -> the root node IS the Test Plan; its "elementId" is <testPlanId>
 jmeter-cli create --elementType threadgroup --elementName TG1 --parentId <testPlanId> --properties "{\"ThreadGroup.num_threads\":5,\"ThreadGroup.ramp_time\":10}" --json
 jmeter-cli create --elementType httpsampler --elementName "GET /health" --parentId <threadGroupId> --properties "{\"HTTPSampler.domain\":\"example.com\",\"HTTPSampler.path\":\"/health\",\"HTTPSampler.method\":\"GET\"}" --json
-jmeter-cli get --elementId <threadGroupId> --includeProperties true --maxDepth -1 --json
+jmeter-cli get --elementId <threadGroupId> --includeProperties true --maxDepth 1 --json
 ```
+
+There is no `testplan` elementType — the Test Plan node is not in the element registry, so
+`find --searchBy elementType --query testplan` always errors. Take its id from the tree root.
 
 ### Load and inspect a JMX file
 
@@ -350,10 +396,14 @@ jmeter-cli tool parse_jmx_file --params "{\"filePath\":\"D:/tests/api.jmx\",\"in
 jmeter-cli open --file "D:/tests/api.jmx" --includeProperties false --maxDepth 2 --json
 ```
 
+`parse` is read-only and returns **no** `elementId`s; `open` replaces the live plan (unsaved edits
+are discarded without prompting). Use absolute paths. See [workflows.md](workflows.md) Recipe E.
+
 ### Run and collect results
 
 ```bash
-jmeter-cli run --ignoreTimers true --wait --timeout 30000 --json
+jmeter-cli validate --json          # payload says PASS or FAIL; exit code is 0 either way
+jmeter-cli run --mode smoke --json  # require "Smoke validation completed: PASS (zero errors)"
 jmeter-cli status --json
 jmeter-cli results --format both --limit 20 --json
 ```
