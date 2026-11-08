@@ -35,9 +35,9 @@
 | zhipu | glm-5.2 | `1.0` | `65536` | `[none, minimal, low, medium, high, xhigh, max]` | `512000` |
 | zhipu | glm-5.3 | `1.0` | `65536` | `[low, high, max]` | `512000` |
 | zhipu | glm-5.3-flash | `1.0` | `65536` | `[low, high, max]` | `512000` |
-| moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
-| moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
+| moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` | `512000` |
+| moonshot | kimi-k3.1-pro | `1.0`（API 强制） | `65536` | `[low, high, max]` | `512000` |
 | minimax | MiniMax-M3 | `1.0` | `65536` | `[none, medium]` | `512000` |
 | minimax | MiniMax-M3.1-Flash | `1.0` | `65536` | `[low, medium, high, xhigh, max]` | `512000` |
 | langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
