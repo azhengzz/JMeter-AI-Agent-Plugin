@@ -1,5 +1,7 @@
 # jmeter-cli 命令行客户端
 
+> 英文版：[jmeter-cli_en.md](./jmeter-cli_en.md)。
+
 除聊天面板外，还可通过 **jmeter-cli** 命令行驱动正在运行的 JMeter GUI 实例（经 loopback HTTP/IPC），对测试计划做组件增删改查，或向 AI Agent 推消息。CLI 参数与底层工具 schema **1:1 同名**（工具清单见 [agent-tools.md](agent-tools.md)）。IPC 服务默认开启（仅 loopback + token 鉴权），如需关闭设 `jmeter.ai.ipc.enabled=false`（完整配置见[配置参考](configuration.md#ipc--cli-配置)）。
 
 ## 常用命令

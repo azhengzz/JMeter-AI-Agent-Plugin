@@ -1,5 +1,7 @@
 # 配置参考
 
+> 英文版：[configuration_en.md](./configuration_en.md)。
+
 本页是 Gitee Ai - JMeter Agent 的完整配置参考。基础安装与 API Key 配置见 [README 快速开始](../README.md#快速开始)。
 
 将 `jmeter-ai-sample.properties` 的内容复制到 `user.properties`，按需修改。下表中的默认值取自 `jmeter-ai-sample.properties`；若未在 `user.properties` 中显式配置，部分项将回落至源码内置默认值（已注明）。
@@ -36,8 +38,8 @@
 | moonshot | kimi-k2.6 | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k2.7-code | `1.0`（API 强制） | `8192` | `medium` | `128000` |
 | moonshot | kimi-k3 | `1.0`（API 强制） | `65536` | `[low, high, max]` [其他值默认按"max"处理](https://platform.kimi.com/docs/guide/use-thinking-effort) | `512000` |
-| minimax | MiniMax-M2.7 | `1.0` | `8192` | `medium` | `128000` |
 | minimax | MiniMax-M3 | `1.0` | `65536` | `[none, medium]` | `512000` |
+| minimax | MiniMax-M3.1-Flash | `1.0` | `65536` | `[low, medium, high, xhigh, max]` | `512000` |
 | langcat | LongCat-2.0 | `0.7` | `65536` | `[none, medium]` | `512000` |
 
 **使用说明：**

@@ -85,9 +85,9 @@ jmeter.ai.default.provider=anthropic
 
 | 想做什么 | 去哪 |
 |---------|------|
-| 调整温度、上下文窗口等参数 · 全部配置项与各模型推荐值 | [配置参考](documents/configuration.md)（中文） |
-| 了解 Agent 有哪些工具、能做什么 | [Agent 工具清单](documents/agent-tools.md)（中文） |
-| 用命令行 jmeter-cli 驱动 JMeter · 接入 Claude Code/Codex 等外部 Agent | [jmeter-cli 指南](documents/jmeter-cli.md)（中文） |
+| 调整温度、上下文窗口等参数 · 全部配置项与各模型推荐值 | [配置参考](documents/configuration.md) |
+| 了解 Agent 有哪些工具、能做什么 | [Agent 工具清单](documents/agent-tools.md) |
+| 用命令行 jmeter-cli 驱动 JMeter · 接入 Claude Code/Codex 等外部 Agent | [jmeter-cli 指南](documents/jmeter-cli.md) |
 | 了解 Agent Loop 内部架构 | [docs/AGENT-LOOP.md](docs/AGENT-LOOP.md)（英文） |
 | 为 Agent 扩充新 JMeter 组件（零 Java 改动） | [SCHEMA-GUIDE.md](documents/SCHEMA-GUIDE.md) |
 

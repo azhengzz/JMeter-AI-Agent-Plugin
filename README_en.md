@@ -85,9 +85,9 @@ Common commands: `/new` fresh session · `/status` bot status · `/goal <objecti
 
 | What you want | Where |
 |---------------|-------|
-| Tune temperature, context window, etc. · every config property and per-model recommendations | [Configuration Reference](documents/configuration.md) (Chinese) |
-| What tools the Agent has and what they can do | [Agent Tools](documents/agent-tools.md) (Chinese) |
-| Drive JMeter from the command line · integrate Claude Code/Codex and other external Agents | [jmeter-cli Guide](documents/jmeter-cli.md) (Chinese) |
+| Tune temperature, context window, etc. · every config property and per-model recommendations | [Configuration Reference](documents/configuration_en.md) |
+| What tools the Agent has and what they can do | [Agent Tools](documents/agent-tools_en.md) |
+| Drive JMeter from the command line · integrate Claude Code/Codex and other external Agents | [jmeter-cli Guide](documents/jmeter-cli_en.md) |
 | How the Agent Loop works inside | [docs/AGENT-LOOP.md](docs/AGENT-LOOP.md) |
 | Add new JMeter components for the Agent (zero Java changes) | [SCHEMA-GUIDE.md](documents/SCHEMA-GUIDE.md) |
 

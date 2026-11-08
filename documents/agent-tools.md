@@ -1,5 +1,7 @@
 # Agent 工具
 
+> 英文版：[agent-tools_en.md](./agent-tools_en.md)。
+
 本页列出 Gitee Ai - JMeter Agent 内置的全部 Agent 工具。基础使用见 [README 快速开始](../README.md#快速开始)。
 
 除子代理工具（默认关闭）外，以下工具在默认配置下均注册启用；各分组可分别通过配置开关关闭（见[配置参考](configuration.md#工具配置)）。
