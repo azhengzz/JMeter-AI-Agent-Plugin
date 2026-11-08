@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.turn;
 
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.model.AgentResponse;
+import org.gitee.jmeter.ai.agent.model.StreamCloseRegistry;
 import org.gitee.jmeter.ai.agent.presenter.CancelCause;
 import org.gitee.jmeter.ai.agent.presenter.TurnHandle;
 import org.gitee.jmeter.ai.utils.AiConfig;
@@ -90,6 +91,9 @@ public final class Turn {
      */
     private final AtomicBoolean abortFlag;
 
+    /** 在途 provider 流 close 句柄注册表（见 {@link #streamCloseRegistry()}）。 */
+    private final org.gitee.jmeter.ai.agent.model.StreamCloseRegistry streamCloseRegistry;
+
     /**
      * 收尾信号：任务体外层 finally 先按值摘注册表条目再 countDown，
      * waitForCancellation 在后台线程等它——signalCancel 得以保持非阻塞
@@ -161,6 +165,7 @@ public final class Turn {
         this.callback = callback;
         this.delegated = delegated;
         this.abortFlag = new AtomicBoolean(false);
+        this.streamCloseRegistry = new StreamCloseRegistry();
         this.completionLatch = new CountDownLatch(1);
     }
 
@@ -179,6 +184,15 @@ public final class Turn {
     /** 中止位：signalCancel 置位（自我豁免本回合除外），回合内各 abort 检查点读取。 */
     public AtomicBoolean abortFlag() {
         return abortFlag;
+    }
+
+    /**
+     * 本回合在途 provider 流的 close 句柄注册表：signalCancel 置中止位后主动
+     * closeAll——阻塞读不响应线程中断，停滞流（服务端不发 chunk）只能靠关闭
+     * 底层流打断。provider 收完流后自摘句柄（try-with-resources 注册）。
+     */
+    public StreamCloseRegistry streamCloseRegistry() {
+        return streamCloseRegistry;
     }
 
     /** 收尾信号：任务体外层 finally 先按值摘表再 countDown（waitForCancellation 等待）。 */

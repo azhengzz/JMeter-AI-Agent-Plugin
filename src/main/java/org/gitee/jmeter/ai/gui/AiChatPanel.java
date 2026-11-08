@@ -987,6 +987,9 @@ public class AiChatPanel extends JPanel
                 if (!liveTurnIds.remove(turn.id())) {
                     return; // 未领养的早到/迟到终态：无对应武装，不渲染不复位
                 }
+                // 回合终态收敛该回合全部流段（置 ended 使已排队合并 flush 失效 +
+                // 收尾 spinner）——不依赖随后到达的 STREAM_ENDED（活回合过滤会丢弃）
+                transcript.settleStreamTurn(turn.id());
                 handleAgentResponse(event.response(), turn.id());
                 recorder.onTurnTerminal();
             }
@@ -994,6 +997,9 @@ public class AiChatPanel extends JPanel
                 if (!liveTurnIds.remove(turn.id())) {
                     return;
                 }
+                // 同上：被取消回合的流段即刻收敛——否则 Stop 后才 fire 的旧 flush
+                // 会在 "Stopped." 行之下新建运行中的孤儿思考卡
+                transcript.settleStreamTurn(turn.id());
                 // 指示删除与按钮复位同判据（面板视角无活回合）：交叠活回合下被取消回合
                 // 的终态不得清掉兄弟回合仍在用的 loading 指示。不再查
                 // agentLoop.hasActiveRun——终态已派发而注入槽未摘的窗口内会误判
@@ -1524,11 +1530,21 @@ public class AiChatPanel extends JPanel
                 boolean showToolCalls = org.gitee.jmeter.ai.utils.AiConfig.isChatShowToolCalls();
 
                 if (showToolCalls && response.getToolEvents() != null && !response.getToolEvents().isEmpty()) {
-                    displayToolCallInfo(response.getToolEvents());
+                    displayToolCallInfo(turnId, response.getToolEvents());
                 }
             }
 
-            processAiResponse(response.getContent());
+            // streamedFinal：终答已流式呈现——按最终流段 id 原位重渲权威终答
+            // （goal 后缀/标签剥离差异并入同卡），不新增重复卡。查无卡片（终答为
+            // 空/纯思考流/面板晚领养）回退既有新增卡路径
+            boolean renderedInPlace = response.isStreamedFinal()
+                    && turnId != null
+                    && response.getFinalStreamId() != null
+                    && transcript.renderStreamedFinal(
+                            turnId, response.getFinalStreamId(), response.getContent());
+            if (!renderedInPlace) {
+                processAiResponse(response.getContent());
+            }
         }
 
         // Re-enable input
@@ -1573,18 +1589,53 @@ public class AiChatPanel extends JPanel
         removeLoadingIndicator();
 
         switch (update.getType()) {
-            case THINKING -> renderThinking(update.getMessage());
+            case THINKING -> {
+                // 渲染端去重（S9 口径）：adapter 照常向程序化回调发布 THINKING 全文；
+                // 已流式呈现的回合在面板侧不重复渲染（已知边界：同回合中先流式、
+                // 后非流式回退的调用其 THINKING 也会被按回合过滤——回退调用的正文
+                // 经终答卡呈现，仅思考全文不重复显示）
+                if (turnId == 0L || !transcript.hasStreamedEvents(turnId)) {
+                    renderThinking(update.getMessage());
+                }
+            }
+            case TOOL_STARTED -> {
+                // 工具开始信号（载荷 = 本批 ToolCall 列表）：先于执行呈现运行态行
+                // ——长工具（run_test/validate/web）执行期间不再空白；完成事件经
+                // TOOL_CALL 原位替换为终态行
+                if (update.getPayload() instanceof List<?> calls) {
+                    for (Object call : calls) {
+                        if (call instanceof org.gitee.jmeter.ai.agent.model.ToolCall tc) {
+                            progressiveToolCallTurnIds.add(turnId);
+                            transcript.addRunningToolActivity(turnId, tc.getName(),
+                                    runningToolLine(tc));
+                        }
+                    }
+                }
+            }
             case TOOL_CALL -> {
                 progressiveToolCallTurnIds.add(turnId);
                 Object payload = update.getPayload();
                 if (payload instanceof ToolEvent event) {
-                    displaySingleToolEvent(event);
+                    displaySingleToolEvent(turnId, event);
                 } else {
-                    renderToolHint(update.getMessage());
+                    renderToolHint(turnId, update.getMessage());
                 }
             }
             case ERROR -> renderError(update.getMessage());
-            case INTERMEDIATE_RESPONSE -> renderIntermediateResponse(update.getMessage());
+            case INTERMEDIATE_RESPONSE -> {
+                // 渲染端去重（P0-1）：已流式呈现的回合不再把中间答案全文渲染为
+                // 重复卡；发射端照常交付（IPC partialContent 累积口径不变）
+                if (turnId == 0L || !transcript.hasStreamedEvents(turnId)) {
+                    renderIntermediateResponse(update.getMessage());
+                }
+            }
+            case STREAM_STARTED, CONTENT_DELTA, REASONING_DELTA, STREAM_ENDED -> {
+                // 流段事件只认结构化载荷（message 恒空）；懒发射使首事件即首个
+                // 可见增量——loading 在此移除正是「保留至首条可见增量」
+                if (update.getPayload() instanceof org.gitee.jmeter.ai.agent.model.StreamDelta delta) {
+                    transcript.streamDelta(turnId, delta);
+                }
+            }
             default -> renderProgress(update.getMessage());
         }
     }
@@ -1608,8 +1659,9 @@ public class AiChatPanel extends JPanel
         }
     }
 
-    private void renderToolHint(String hint) {
-        transcript.addToolActivity(hint.stripTrailing());
+    private void renderToolHint(long turnId, String hint) {
+        // 工具行携带回合身份路由（重叠活回合的活动组互不串组）
+        transcript.addToolActivity(turnId, hint.stripTrailing());
     }
 
     private void renderProgress(String text) {
@@ -1632,10 +1684,10 @@ public class AiChatPanel extends JPanel
      * mode): rendered into its own collapsed activity group so it reads as a
      * unit instead of interleaving with a sibling turn's running group.
      */
-    private void displayToolCallInfo(List<ToolEvent> toolEvents) {
+    private void displayToolCallInfo(Long turnId, List<ToolEvent> toolEvents) {
         transcript.finishActivityIfRunning();
         for (ToolEvent event : toolEvents) {
-            displaySingleToolEvent(event);
+            displaySingleToolEvent(turnId != null ? turnId : 0L, event);
         }
         transcript.finishActivityIfRunning();
     }
@@ -1644,8 +1696,10 @@ public class AiChatPanel extends JPanel
      * Display a single tool event as an activity-group line: status glyph +
      * tool name + duration, with truncated args/result as indented follow-up
      * lines (the group body is monospaced plain text — no HTML surface).
+     * 优先原位替换 TOOL_STARTED 预置的运行态占位行（同名并行按开始序配对）；
+     * 无占位时按普通行追加。按回合身份路由（重叠回合互不串组）。
      */
-    private void displaySingleToolEvent(ToolEvent event) {
+    private void displaySingleToolEvent(long turnId, ToolEvent event) {
         int maxToolResultLength = org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength();
 
         String statusIcon;
@@ -1661,15 +1715,7 @@ public class AiChatPanel extends JPanel
         sb.append("🔧 ").append(statusIcon).append(' ').append(event.getToolName())
                 .append(" [").append(event.getDurationMs()).append("ms]");
 
-        if (event.getArguments() != null && !event.getArguments().isEmpty()) {
-            String argsStr = formatArguments(event.getArguments());
-            String displayArgs = argsStr.stripTrailing();
-            if (argsStr.length() > maxToolResultLength) {
-                displayArgs = argsStr.substring(0, maxToolResultLength)
-                        + "...(truncated, total " + argsStr.length() + " chars)";
-            }
-            sb.append("\n  Args: ").append(displayArgs);
-        }
+        sb.append(formatToolArgsBlock(event.getArguments(), maxToolResultLength));
 
         String detail = event.getDetail();
         if (detail != null && !detail.isEmpty()) {
@@ -1681,13 +1727,37 @@ public class AiChatPanel extends JPanel
             sb.append("\n  Result: ").append(displayDetail);
         }
 
-        transcript.addToolActivity(sb.toString());
+        transcript.completeToolActivity(turnId, event.getToolName(), sb.toString());
+    }
+
+    /** 工具开始运行态行（终态经完成事件原位替换）：名称 + 参数预览。 */
+    private static String runningToolLine(org.gitee.jmeter.ai.agent.model.ToolCall call) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("🔧 ⋯ ").append(call.getName());
+        sb.append(formatToolArgsBlock(call.getArguments(),
+                org.gitee.jmeter.ai.utils.AiConfig.getChatToolResultMaxLength()));
+        return sb.toString();
+    }
+
+    /** Args 块（超长截断）；无参数返回空串。 */
+    private static String formatToolArgsBlock(
+            java.util.Map<String, Object> arguments, int maxToolResultLength) {
+        if (arguments == null || arguments.isEmpty()) {
+            return "";
+        }
+        String argsStr = formatArguments(arguments);
+        String displayArgs = argsStr.stripTrailing();
+        if (argsStr.length() > maxToolResultLength) {
+            displayArgs = argsStr.substring(0, maxToolResultLength)
+                    + "...(truncated, total " + argsStr.length() + " chars)";
+        }
+        return "\n  Args: " + displayArgs;
     }
 
     /**
      * Format arguments map to a readable string.
      */
-    private String formatArguments(Map<String, Object> arguments) {
+    private static String formatArguments(Map<String, Object> arguments) {
         if (arguments == null || arguments.isEmpty()) {
             return "{}";
         }

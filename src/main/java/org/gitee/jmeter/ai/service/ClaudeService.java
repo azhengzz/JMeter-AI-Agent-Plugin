@@ -9,10 +9,12 @@ import java.util.Optional;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.core.JsonValue;
+import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.RawMessageStreamEvent;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
@@ -22,10 +24,13 @@ import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUseBlock;
 import com.anthropic.models.messages.ToolUseBlockParam;
 import com.anthropic.models.messages.Usage;
+import com.anthropic.core.http.StreamResponse;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.gitee.jmeter.ai.agent.model.GenerationSettings;
 import org.gitee.jmeter.ai.agent.model.LLMResponse;
 import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
+import org.gitee.jmeter.ai.agent.model.StreamCloseRegistry;
+import org.gitee.jmeter.ai.agent.model.StreamDeltaListener;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.utils.AiConfig;
@@ -132,42 +137,27 @@ public class ClaudeService implements AiService {
         };
     }
 
-    private String extractUserFriendlyErrorMessage(Exception e) {
-        String errorMessage = e.getMessage();
-
-        if (errorMessage != null && errorMessage.contains("credit balance is too low")) {
+    /** 常见服务端错误的用户可读文案（无匹配时原样返回服务端消息）。 */
+    private static String friendlyClaudeError(String errorMessage) {
+        if (errorMessage == null) {
+            return "An error occurred while communicating with the Anthropic API. Please try again later.";
+        }
+        if (errorMessage.contains("credit balance is too low")) {
             return "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
         }
-
-        if (errorMessage != null && errorMessage.contains("invalid_api_key")) {
+        if (errorMessage.contains("invalid_api_key")) {
             return "Invalid API key. Please check your API key and try again.";
         }
-
-        if (errorMessage != null && errorMessage.contains("rate_limit_exceeded")) {
+        if (errorMessage.contains("rate_limit_exceeded")) {
             return "Rate limit exceeded. Please try again later.";
         }
-
-        if (errorMessage != null && errorMessage.contains("model_not_found")) {
+        if (errorMessage.contains("model_not_found")) {
             return "The selected model was not found. Please select a different model.";
         }
-
-        if (errorMessage != null && errorMessage.contains("context_length_exceeded")) {
+        if (errorMessage.contains("context_length_exceeded")) {
             return "The conversation is too long. Please start a new conversation.";
         }
-
-        if (errorMessage != null) {
-            if (errorMessage.contains("AnthropicError")) {
-                int messageStart = errorMessage.indexOf("message=");
-                if (messageStart != -1) {
-                    int messageEnd = errorMessage.indexOf("}", messageStart);
-                    if (messageEnd != -1) {
-                        return errorMessage.substring(messageStart + 8, messageEnd);
-                    }
-                }
-            }
-        }
-
-        return "An error occurred while communicating with the Anthropic API. Please try again later.";
+        return errorMessage;
     }
 
     public String getName() {
@@ -220,7 +210,9 @@ public class ClaudeService implements AiService {
             return toLLMResponse(response, currentModelId);
         } catch (Exception e) {
             log.error("Error generating response with tools", e);
-            return LLMResponse.error(extractUserFriendlyErrorMessage(e));
+            // 与流式路径同构的错误分类（429/5xx/网络/超时可重试、4xx 按类别不可
+            // 重试）：流式静默回退落穿到这里的失败不得丢失可重试分类
+            return classifyClaudeError(e);
         }
     }
 
@@ -492,10 +484,339 @@ public class ClaudeService implements AiService {
                 );
                 if (options.getModel() != null) this.currentModelId = options.getModel();
             }
+            // 流式分流：携带 delta 消费者（唯一流式闸门）时走原生流式路径；
+            // 强制工具调用（记忆整合）与无 options 的直连调用保持非流式。
+            if (options != null && options.wantsStreaming()) {
+                return callWithToolsStreaming(messages, tools, options);
+            }
             return generateResponseWithTools(messages, tools);
         } finally {
             this.generationSettings = original;
             this.currentModelId = originalModel;
         }
+    }
+
+    // ---- 流式路径 ----
+
+    /** 流式专用 client：SDK 内部自动重试禁用（maxRetries 0），重试预算由 AgentRunner 外层环独控。 */
+    private volatile AnthropicClient streamingClient;
+    private String streamingClientApiKey;
+    private String streamingClientBaseUrl;
+
+    private AnthropicClient streamingClient() {
+        String apiKey = AiConfig.getAnthropicApiKey();
+        String baseUrl = AiConfig.getAnthropicApiBaseUrl();
+        AnthropicClient local = streamingClient;
+        if (local == null || !apiKey.equals(streamingClientApiKey) || !baseUrl.equals(streamingClientBaseUrl)) {
+            synchronized (this) {
+                if (streamingClient == null || !apiKey.equals(streamingClientApiKey)
+                        || !baseUrl.equals(streamingClientBaseUrl)) {
+                    AnthropicOkHttpClient.Builder builder = AnthropicOkHttpClient.builder()
+                            .apiKey(apiKey)
+                            .putHeader("User-Agent", VersionUtils.userAgent())
+                            .maxRetries(0);
+                    if (!baseUrl.isEmpty()) {
+                        builder.baseUrl(baseUrl);
+                    }
+                    streamingClient = builder.build();
+                    streamingClientApiKey = apiKey;
+                    streamingClientBaseUrl = baseUrl;
+                }
+                local = streamingClient;
+            }
+        }
+        return local;
+    }
+
+    /** 中止标记：abort 谓词在事件之间命中时跳出流读取。 */
+    static final class StreamingAbortException extends RuntimeException {
+        StreamingAbortException() { super("aborted between events"); }
+    }
+
+    /** 流式聚合结果。 */
+    static final class ClaudeStreamAggregation {
+        final StringBuilder content = new StringBuilder();
+        final StringBuilder reasoning = new StringBuilder();
+        final java.util.TreeMap<Long, ClaudeToolBuffer> toolBuffers = new java.util.TreeMap<>();
+        Message startMessage;
+        Optional<StopReason> stopReason = Optional.empty();
+        boolean sawMessageStop;
+        long inputTokens;
+        long outputTokens;
+        /** 流中是否真实携带 usage（message_start/message_delta）：缺失不得以 0/0 冒充。 */
+        boolean usageSeen;
+    }
+
+    /** 按 content block index 拼合的 tool_use 缓冲（block start 给 id/name，input_json_delta 追加参数）。 */
+    static final class ClaudeToolBuffer {
+        String id;
+        String name;
+        final StringBuilder partialJson = new StringBuilder();
+    }
+
+    private LLMResponse callWithToolsStreaming(List<org.gitee.jmeter.ai.agent.model.Message> messages,
+                                               List<ToolDefinition> tools, LlmCallOptions options) {
+        log.info("Generating streaming response with tools using model: {}, {} tools", currentModelId,
+                tools != null ? tools.size() : 0);
+        boolean[] emittedAnyDelta = {false};
+        LlmCallOptions tracked = trackDeltaEmission(options, emittedAnyDelta);
+        MessageCreateParams params = buildToolCallParams(messages, tools, null);
+        StreamCloseRegistry.Registration closeRegistration = null;
+        try {
+            ClaudeStreamAggregation agg;
+            try (StreamResponse<RawMessageStreamEvent> streamResponse =
+                         streamingClient().messages().createStreaming(params)) {
+                if (tracked.getStreamCloseRegistry() != null) {
+                    closeRegistration = tracked.getStreamCloseRegistry().register(streamResponse::close);
+                }
+                agg = aggregateClaudeStream(streamResponse.stream(), tracked);
+            } finally {
+                if (closeRegistration != null) {
+                    closeRegistration.close();
+                }
+            }
+
+            if (!agg.sawMessageStop) {
+                // 流结束但缺 message_stop：按可重试网络失败处理，截断内容不得作为成功结果返回；
+                // 零增量时静默回退非流式（不支持流式协商的兼容服务不应让调用失败）
+                log.warn("Anthropic stream ended without message_stop (truncated connection?)");
+                if (!emittedAnyDelta[0]) {
+                    return callWithTools(messages, tools, null);
+                }
+                return LLMResponse.error("Anthropic stream ended without message_stop (connection truncated)",
+                        true, null, "eof");
+            }
+
+            List<ToolCall> toolCalls = buildToolCallsFromClaudeBuffers(agg.toolBuffers);
+            // 流中缺失 usage 时不得以 0/0 冒充（会清零上下文用量指示）：空 map
+            // 表示"未收到"，消费端（onUsage 只对非空发射）保持前值
+            Map<String, Integer> usageMap = agg.usageSeen
+                    ? Map.of("prompt_tokens", (int) agg.inputTokens,
+                             "completion_tokens", (int) agg.outputTokens)
+                    : Map.of();
+            if (agg.usageSeen) {
+                try {
+                    AnthropicUsage.getInstance().recordUsage(agg.startMessage, currentModelId,
+                            agg.inputTokens, agg.outputTokens);
+                } catch (Exception e) {
+                    log.error("Failed to record token usage", e);
+                }
+            }
+
+            LLMResponse.Builder builder = LLMResponse.builder().usage(usageMap).streamed(true);
+            if (agg.content.length() > 0) {
+                builder.content(agg.content.toString());
+            }
+            if (agg.reasoning.length() > 0) {
+                builder.reasoningContent(agg.reasoning.toString());
+            }
+            if (!toolCalls.isEmpty()) {
+                builder.toolCalls(toolCalls).finishReason("tool_calls");
+            } else {
+                builder.finishReason(mapStopReason(agg.stopReason));
+            }
+            return builder.build();
+        } catch (Exception e) {
+            log.error("Error generating streaming response with tools", e);
+            // 零增量、非中止/中断、且非定性客户端错误（401/403/404/429）的失败：
+            // 静默回退非流式（不支持流式的兼容网关不应让整个调用失败，也不得
+            // 把完整结果伪装成流式）。定性错误不回退——换非流式重发既浪费请求
+            // 也可能掩盖配置错误（与 OpenAICompatibleProvider 同口径）
+            LLMResponse classified = classifyClaudeError(e);
+            String kind = classified.getErrorKind();
+            if (!emittedAnyDelta[0] && !"aborted".equals(kind) && !"interrupted".equals(kind)
+                    && !isDefinitiveClientError(classified)) {
+                log.warn("Streaming failed before any delta; silently falling back to non-streaming");
+                return callWithTools(messages, tools, null);
+            }
+            return classified;
+        }
+    }
+
+    /** 定性客户端错误（鉴权 401/403、模型不存在 404、限额 429）：非流式重试同样必败或应走重试环。 */
+    private static boolean isDefinitiveClientError(LLMResponse classified) {
+        Integer code = classified.getStatusCode();
+        if (code == null) {
+            return false;
+        }
+        return code == 401 || code == 403 || code == 404 || code == 429;
+    }
+
+    /** 包装消费者记录"是否交付过任何 delta"（静默回退资格判定）。 */
+    private static LlmCallOptions trackDeltaEmission(LlmCallOptions options, boolean[] emittedAnyDelta) {
+        StreamDeltaListener raw = options.getStreamDeltaListener();
+        return LlmCallOptions.builder()
+                .model(options.getModel())
+                .temperature(options.getTemperature())
+                .maxTokens(options.getMaxTokens())
+                .reasoningEffort(options.getReasoningEffort())
+                .abortCheck(options.getAbortCheck())
+                .streamCloseRegistry(options.getStreamCloseRegistry())
+                .streamDeltaListener(new StreamDeltaListener() {
+                    @Override public void onContentDelta(String text) {
+                        emittedAnyDelta[0] = true;
+                        raw.onContentDelta(text);
+                    }
+
+                    @Override public void onReasoningDelta(String text) {
+                        emittedAnyDelta[0] = true;
+                        raw.onReasoningDelta(text);
+                    }
+                })
+                .build();
+    }
+
+    /**
+     * 聚合 Anthropic 流事件并向 listener 逐片发射原始增量。message_start 提取输入
+     * token、message_delta 提取 stop_reason 与输出 token；text/thinking 增量双通道
+     * 发射；input_json_delta 仅内部拼合不发射。
+     */
+    static ClaudeStreamAggregation aggregateClaudeStream(java.util.stream.Stream<RawMessageStreamEvent> events,
+                                                         LlmCallOptions options) {
+        StreamDeltaListener listener = options != null ? options.getStreamDeltaListener() : null;
+        java.util.function.BooleanSupplier abortCheck = options != null ? options.getAbortCheck() : null;
+        ClaudeStreamAggregation agg = new ClaudeStreamAggregation();
+        java.util.Iterator<RawMessageStreamEvent> it = events.iterator();
+        while (it.hasNext()) {
+            RawMessageStreamEvent event = it.next();
+            if (abortCheck != null && abortCheck.getAsBoolean()) {
+                throw new StreamingAbortException();
+            }
+            if (event.isMessageStart()) {
+                agg.startMessage = event.asMessageStart().message();
+                try {
+                    Usage usage = agg.startMessage.usage();
+                    if (usage != null) {
+                        agg.inputTokens = usage.inputTokens();
+                        agg.usageSeen = true;
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not extract input tokens from message_start", e);
+                }
+            } else if (event.isContentBlockStart()) {
+                var block = event.asContentBlockStart().contentBlock();
+                var toolUse = block.toolUse();
+                if (toolUse != null && toolUse.isPresent() && toolUse.get() != null) {
+                    ClaudeToolBuffer buf = agg.toolBuffers.computeIfAbsent(
+                            event.asContentBlockStart().index(), k -> new ClaudeToolBuffer());
+                    buf.id = toolUse.get().id();
+                    buf.name = toolUse.get().name();
+                }
+            } else if (event.isContentBlockDelta()) {
+                var delta = event.asContentBlockDelta().delta();
+                var text = delta.text();
+                if (text != null && text.isPresent() && text.get() != null && !text.get().text().isEmpty()) {
+                    agg.content.append(text.get().text());
+                    if (listener != null) {
+                        listener.onContentDelta(text.get().text());
+                    }
+                }
+                var thinking = delta.thinking();
+                if (thinking != null && thinking.isPresent() && thinking.get() != null
+                        && !thinking.get().thinking().isEmpty()) {
+                    agg.reasoning.append(thinking.get().thinking());
+                    if (listener != null) {
+                        listener.onReasoningDelta(thinking.get().thinking());
+                    }
+                }
+                var inputJson = delta.inputJson();
+                if (inputJson != null && inputJson.isPresent() && inputJson.get() != null) {
+                    ClaudeToolBuffer buf = agg.toolBuffers.computeIfAbsent(
+                            event.asContentBlockDelta().index(), k -> new ClaudeToolBuffer());
+                    buf.partialJson.append(inputJson.get().partialJson());
+                }
+            } else if (event.isMessageDelta()) {
+                var messageDelta = event.asMessageDelta();
+                agg.stopReason = messageDelta.delta().stopReason();
+                try {
+                    var usage = messageDelta.usage();
+                    if (usage != null) {
+                        agg.outputTokens = usage.outputTokens();
+                        agg.usageSeen = true;
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not extract output tokens from message_delta", e);
+                }
+            } else if (event.isMessageStop()) {
+                agg.sawMessageStop = true;
+            }
+        }
+        return agg;
+    }
+
+    /** 把 tool_use 分片缓冲解析为完整工具调用（空参数归 {}，JSON 解析失败跳过并记日志）。 */
+    static List<ToolCall> buildToolCallsFromClaudeBuffers(java.util.TreeMap<Long, ClaudeToolBuffer> buffers) {
+        List<ToolCall> toolCalls = new ArrayList<>();
+        for (Map.Entry<Long, ClaudeToolBuffer> entry : buffers.entrySet()) {
+            ClaudeToolBuffer buf = entry.getValue();
+            if (buf.name == null || buf.name.isEmpty()) {
+                log.warn("Skipping streamed tool_use block without a name (index={})", entry.getKey());
+                continue;
+            }
+            String raw = buf.partialJson.length() > 0 ? buf.partialJson.toString() : "{}";
+            Map<String, Object> args;
+            try {
+                args = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                        raw, new TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                log.error("Failed to parse streamed tool_use input for '{}': rawInput=[{}]", buf.name, raw, e);
+                continue;
+            }
+            String id = buf.id != null && !buf.id.isEmpty() ? buf.id : "toolu_stream_" + entry.getKey();
+            toolCalls.add(new ToolCall(id, buf.name, args));
+        }
+        return toolCalls;
+    }
+
+    /** 流式错误分类（SocketTimeout 先于中断判别；429/5xx 可重试；4xx 按类别不可重试）。 */
+    static LLMResponse classifyClaudeError(Throwable e) {
+        if (e instanceof StreamingAbortException) {
+            return LLMResponse.error("Interrupted", false, null, "aborted");
+        }
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root instanceof java.net.SocketTimeoutException) {
+            return LLMResponse.error("LLM request timed out: " + root.getMessage(), true, null, "timeout");
+        }
+        if (isCausedByInterrupt(e)) {
+            Thread.currentThread().interrupt();
+            return LLMResponse.error("Interrupted", false, null, "interrupted");
+        }
+        if (root instanceof java.io.IOException) {
+            return LLMResponse.error("LLM network error: " + root.getMessage(), true, null, "network");
+        }
+        if (e instanceof AnthropicServiceException) {
+            AnthropicServiceException se = (AnthropicServiceException) e;
+            int code = se.statusCode();
+            String message = "Error calling Claude (HTTP " + code + "): " + friendlyClaudeError(se.getMessage());
+            if (code == 429) {
+                return LLMResponse.error(message, true, code, "rate_limit");
+            }
+            if (code >= 500) {
+                return LLMResponse.error(message, true, code, "server");
+            }
+            if (code == 401 || code == 403) {
+                return LLMResponse.error(message, false, code, "auth");
+            }
+            if (code == 404) {
+                return LLMResponse.error(message, false, code, "not_found");
+            }
+            return LLMResponse.error(message, false, code, "invalid_request");
+        }
+        return LLMResponse.error("Error calling Claude (streaming): " + e.getMessage(), false, null, "unknown");
+    }
+
+    private static boolean isCausedByInterrupt(Throwable e) {
+        Throwable current = e;
+        while (current != null) {
+            if (current instanceof java.io.InterruptedIOException
+                    || current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

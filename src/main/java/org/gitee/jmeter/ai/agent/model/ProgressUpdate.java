@@ -45,6 +45,12 @@ public class ProgressUpdate {
     public enum Type {
         /** General progress update */
         PROGRESS,
+        /**
+         * 工具调用开始（载荷 = {@code List<ToolCall>}，本批即将执行）。先于执行
+         * 发射——GUI 据此先行呈现运行态工具行，完成态经 {@link #TOOL_CALL}
+         * 原位收敛；message 恒空（只认结构化载荷）。
+         */
+        TOOL_STARTED,
         /** Tool execution result (payload = ToolEvent) or tool hint (payload = null) */
         TOOL_CALL,
         /** Thinking/reasoning content */
@@ -59,7 +65,18 @@ public class ProgressUpdate {
          * chat text rendering domain: message is always empty and consumers that render
          * text or manage the loading indicator must skip this type.
          */
-        USAGE
+        USAGE,
+        /**
+         * 流式流段开始（载荷 = StreamDelta，attemptSeq>1 表示同段重试将整段替换）。
+         * 懒发射：不早于该段首个增量。
+         */
+        STREAM_STARTED,
+        /** 流式正文通道累计文本（载荷 = StreamDelta，幂等整段渲染）。 */
+        CONTENT_DELTA,
+        /** 流式思考通道累计文本（载荷 = StreamDelta，幂等整段渲染）。 */
+        REASONING_DELTA,
+        /** 流式流段终态（载荷 = StreamDelta，含 SUCCESS/FAILED/ABORTED 与两通道最终累计）。 */
+        STREAM_ENDED
     }
 
     public static ProgressUpdate progress(String message) {
@@ -68,6 +85,11 @@ public class ProgressUpdate {
 
     public static ProgressUpdate toolCall(String hint) {
         return new ProgressUpdate(hint, Type.TOOL_CALL);
+    }
+
+    /** 工具调用开始（载荷 = 本批 ToolCall 列表；message 恒空）。 */
+    public static ProgressUpdate toolStart(java.util.List<ToolCall> toolCalls) {
+        return new ProgressUpdate("", Type.TOOL_STARTED, toolCalls);
     }
 
     public static ProgressUpdate toolCall(ToolEvent event) {
@@ -88,6 +110,17 @@ public class ProgressUpdate {
 
     public static ProgressUpdate usage(Map<String, Integer> usage) {
         return new ProgressUpdate("", Type.USAGE, usage);
+    }
+
+    /** 流段事件（载荷 = StreamDelta）；message 恒空——流式事件只认结构化载荷，不渲染文本行。 */
+    public static ProgressUpdate stream(StreamDelta delta) {
+        Type type = switch (delta.getKind()) {
+            case STREAM_STARTED -> Type.STREAM_STARTED;
+            case CONTENT_DELTA -> Type.CONTENT_DELTA;
+            case REASONING_DELTA -> Type.REASONING_DELTA;
+            case STREAM_ENDED -> Type.STREAM_ENDED;
+        };
+        return new ProgressUpdate("", type, delta);
     }
 
     private static String formatToolEvent(ToolEvent event) {

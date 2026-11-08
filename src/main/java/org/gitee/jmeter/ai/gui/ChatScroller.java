@@ -65,6 +65,20 @@ public final class ChatScroller {
     }
 
     /**
+     * 当前用户手势代际（真实输入——拖动/滚轮/键——才递增；布局与程序滚动不
+     * 递增）。流式增长的跟随判定（{@link StreamFollowTracker}）据此区分
+     * "用户上滚"与"追逐自身的落定滞后"。
+     */
+    static long gestureGeneration(JScrollPane scrollPane) {
+        if (scrollPane == null) {
+            return 0;
+        }
+        JScrollBar bar = scrollPane.getVerticalScrollBar();
+        GestureState gestures = gesturesFor(scrollPane, bar);
+        return gestures == null ? 0 : gestures.generation;
+    }
+
+    /**
      * Follow only when the pinned capture and user-gesture generation still
      * match. Unlike comparing pixel values, layout growth/collapse cannot be
      * mistaken for user input. A small bounded chase accommodates card layout

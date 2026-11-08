@@ -532,6 +532,9 @@ public class AgentLoop {
                                 .maxTokens(generationSettings.getMaxTokens())
                                 .reasoningEffort(generationSettings.getReasoningEffort())
                                 .abortFlag(turn.abortFlag())
+                                // 在途 provider 流 close 句柄注册表（Stop 打断停滞流的机制：
+                                // signalCancel 置中止位后 closeAll）
+                                .streamCloseRegistry(turn.streamCloseRegistry())
                                 .injectionCallback(limit -> drainInjected(turn, limit))
                                 // 会话重置代数活引用（中止落盘/懒收尾的 RESET 判别，
                                 // 对齐 republishLeftovers 的 epoch 纪律；详见 AgentRunSpec）
@@ -1247,6 +1250,14 @@ public class AgentLoop {
             // 「flag=true 而 cause=null」的可见缝隙
             turn.markCancelCause(cause);
             turn.abortFlag().set(true);
+            // 主动关闭在途 provider 流：OkHttp 阻塞读不响应线程中断，停滞流
+            // （服务端不发 chunk）只能靠关闭底层流打断；正常收完流的句柄已自摘，
+            // closeAll 幂等、对无在途流的回合为空操作。判空防御与
+            // AgentRunSpec 的可空契约一致（测试替身/子代理路径可无注册表）
+            org.gitee.jmeter.ai.agent.model.StreamCloseRegistry closeRegistry = turn.streamCloseRegistry();
+            if (closeRegistry != null) {
+                closeRegistry.closeAll();
+            }
         }
 
         // 2. Interrupt the actual agent loop thread (stops in-progress LLM calls)

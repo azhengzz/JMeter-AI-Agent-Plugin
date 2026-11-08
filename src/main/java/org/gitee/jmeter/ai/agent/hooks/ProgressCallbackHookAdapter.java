@@ -2,6 +2,7 @@ package org.gitee.jmeter.ai.agent.hooks;
 
 import org.gitee.jmeter.ai.agent.AgentLoop;
 import org.gitee.jmeter.ai.agent.model.ProgressUpdate;
+import org.gitee.jmeter.ai.agent.model.StreamDelta;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolEvent;
 import org.gitee.jmeter.ai.utils.AiConfig;
@@ -30,31 +31,55 @@ public class ProgressCallbackHookAdapter implements AgentHook {
     }
 
     @Override
+    public boolean wantsStreaming() {
+        return callback != null;
+    }
+
+    @Override
+    public void onStreamDelta(StreamDelta delta, AgentHookContext context) {
+        if (callback == null) return;
+        publish(ProgressUpdate.stream(delta));
+    }
+
+    @Override
     public void beforeExecuteTools(List<ToolCall> toolCalls, AgentHookContext context) {
         if (callback == null) return;
 
         if (context.getLastLlmResponse() != null) {
+            // 全文 THINKING 照常发布——抑制只发生在面板渲染端（已流式回合不重复
+            // 渲染）；程序化回调消费者（IPC/发起方）的口径不因流式改变
             String reasoningContent = context.getLastLlmResponse().getReasoningContent();
             String content = context.getLastLlmResponse().getContent();
 
-            String display;
-            if (reasoningContent != null && !reasoningContent.isEmpty()) {
-                // Structured reasoning_content is separated from content. content may be null
-                // (a thinking+tool_use iteration emits no text block) — concatenating it
-                // verbatim would paint a literal "null"; append only real content.
-                display = showThinking
-                        ? "<think>" + reasoningContent + "</think>"
-                          + (content != null && !content.isEmpty() ? "\n" + content : "")
-                        : TextUtils.stripThink(content);
-            } else {
-                // No structured field — thinking may be embedded as <think/> tags in content
-                display = showThinking ? content : TextUtils.stripThink(content);
-            }
-
+            String display = buildThinkingDisplay(reasoningContent, content);
             if (display != null && !display.isEmpty()) {
                 publish(ProgressUpdate.thinking(display));
             }
         }
+        // 工具开始信号先于执行发布：GUI 先行呈现运行态行（长工具执行期间不再
+        // 空白），完成态经 TOOL_CALL(ToolEvent) 原位收敛。空列表不发布。
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            publish(ProgressUpdate.toolStart(toolCalls));
+        }
+    }
+
+    /**
+     * Build the full-text THINKING display for a non-streamed call (structured
+     * reasoning_content wrapped in think tags, or inline tags stripped/kept by
+     * the showThinking snapshot).
+     */
+    private String buildThinkingDisplay(String reasoningContent, String content) {
+        if (reasoningContent != null && !reasoningContent.isEmpty()) {
+            // Structured reasoning_content is separated from content. content may be null
+            // (a thinking+tool_use iteration emits no text block) — concatenating it
+            // verbatim would paint a literal "null"; append only real content.
+            return showThinking
+                    ? "<think>" + reasoningContent + "</think>"
+                      + (content != null && !content.isEmpty() ? "\n" + content : "")
+                    : TextUtils.stripThink(content);
+        }
+        // No structured field — thinking may be embedded as <think/> tags in content
+        return showThinking ? content : TextUtils.stripThink(content);
     }
 
     @Override

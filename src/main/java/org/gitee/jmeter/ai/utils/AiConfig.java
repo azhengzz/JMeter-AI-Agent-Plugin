@@ -330,6 +330,16 @@ public class AiConfig {
         return getProperty("agent.tools.websearch.tavily.api.key", "");
     }
 
+    // ---- 流式输出 ----
+
+    /**
+     * LLM 流式输出总开关（运维逃生口，非 UI 配置）。默认 true。
+     * 关闭后全部 LLM 调用走非流式路径（options 不挂 delta 消费者），GUI 行为等价流式改造前。
+     */
+    public static boolean isStreamingEnabled() {
+        return getBoolean("jmeter.ai.streaming.enabled", true);
+    }
+
     // ---- 子代理 ----
 
     /** 异步子代理是否启用。默认 false。 */

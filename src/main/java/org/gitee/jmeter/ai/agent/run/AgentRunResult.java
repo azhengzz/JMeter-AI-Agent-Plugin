@@ -27,6 +27,8 @@ public class AgentRunResult {
     private final List<Message> currentMessages;
     private final boolean hadInjections;
     private final String stopReason;
+    private final boolean streamedFinal;
+    private final Long finalStreamId;
 
     private AgentRunResult(Builder builder) {
         this.runId = builder.runId;
@@ -43,6 +45,8 @@ public class AgentRunResult {
         this.currentMessages = builder.currentMessages;
         this.hadInjections = builder.hadInjections;
         this.stopReason = builder.stopReason;
+        this.streamedFinal = builder.streamedFinal;
+        this.finalStreamId = builder.finalStreamId;
     }
 
     public String getRunId() { return runId; }
@@ -86,6 +90,8 @@ public class AgentRunResult {
         private List<Message> currentMessages;
         private boolean hadInjections;
         private String stopReason;
+        private boolean streamedFinal;
+        private Long finalStreamId;
 
         public Builder runId(String runId) { this.runId = runId; return this; }
         public Builder content(String content) { this.content = content; return this; }
@@ -101,6 +107,8 @@ public class AgentRunResult {
         public Builder currentMessages(List<Message> currentMessages) { this.currentMessages = currentMessages; return this; }
         public Builder hadInjections(boolean v) { this.hadInjections = v; return this; }
         public Builder stopReason(String reason) { this.stopReason = reason; return this; }
+        public Builder streamedFinal(boolean v) { this.streamedFinal = v; return this; }
+        public Builder finalStreamId(Long v) { this.finalStreamId = v; return this; }
 
         public AgentRunResult build() {
             return new AgentRunResult(this);
@@ -114,9 +122,21 @@ public class AgentRunResult {
         if (success) {
             return org.gitee.jmeter.ai.agent.model.AgentResponse.success(
                 content, toolsUsed, iterationCount, toolEvents
-            );
+            ).toBuilder()
+                .streamedFinal(streamedFinal)
+                .finalStreamId(finalStreamId)
+                .build();
         } else {
             return org.gitee.jmeter.ai.agent.model.AgentResponse.error(errorMessage);
         }
+    }
+
+    /** 终答流式标记（透传 toAgentResponse，见 AgentResponse.isStreamedFinal）。 */
+    public boolean isStreamedFinal() {
+        return streamedFinal;
+    }
+
+    public Long getFinalStreamId() {
+        return finalStreamId;
     }
 }

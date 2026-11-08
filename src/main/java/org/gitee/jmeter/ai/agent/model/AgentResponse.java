@@ -14,6 +14,10 @@ public class AgentResponse {
     private final boolean success;
     private final String errorMessage;
     private final List<ToolEvent> toolEvents;
+    /** 终答流式标记：终答正文已经增量呈现（粘滞事实源，跨尝试/回退保留）。 */
+    private final boolean streamedFinal;
+    /** 终答所属最终流段 id（面板据此查找原位重渲的流式卡；未流式为 null）。 */
+    private final Long finalStreamId;
 
     private AgentResponse(Builder builder) {
         this.content = builder.content;
@@ -22,6 +26,8 @@ public class AgentResponse {
         this.success = builder.success;
         this.errorMessage = builder.errorMessage;
         this.toolEvents = builder.toolEvents != null ? builder.toolEvents : Collections.emptyList();
+        this.streamedFinal = builder.streamedFinal;
+        this.finalStreamId = builder.finalStreamId;
     }
 
     public String getContent() {
@@ -48,8 +54,29 @@ public class AgentResponse {
         return toolEvents;
     }
 
+    /** 终答流式标记：为 true 时面板按 {@link #getFinalStreamId()} 查卡原位重渲，不新增重复卡。 */
+    public boolean isStreamedFinal() {
+        return streamedFinal;
+    }
+
+    public Long getFinalStreamId() {
+        return finalStreamId;
+    }
+
     public static Builder builder() {
         return new Builder();
+    }
+
+    /** Copy-all-fields builder seed（流式标记透传等派生拷贝用）。 */
+    public Builder toBuilder() {
+        return builder()
+                .content(content)
+                .toolsUsed(toolsUsed)
+                .iterationCount(iterationCount)
+                .success(success)
+                .toolEvents(toolEvents)
+                .streamedFinal(streamedFinal)
+                .finalStreamId(finalStreamId);
     }
 
     public static class Builder {
@@ -59,6 +86,11 @@ public class AgentResponse {
         private boolean success = true;
         private String errorMessage;
         private List<ToolEvent> toolEvents;
+        private boolean streamedFinal;
+        private Long finalStreamId;
+
+        public Builder streamedFinal(boolean streamedFinal) { this.streamedFinal = streamedFinal; return this; }
+        public Builder finalStreamId(Long finalStreamId) { this.finalStreamId = finalStreamId; return this; }
 
         public Builder content(String content) {
             this.content = content;

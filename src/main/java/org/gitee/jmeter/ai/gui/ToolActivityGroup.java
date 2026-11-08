@@ -30,6 +30,11 @@ class ToolActivityGroup extends JPanel {
     private final JPanel bodyWrapper;
     private final Timer spinnerTimer;
 
+    /** 逻辑行模型（渲染以 join 全量重写，行内容可原位更新）。 */
+    private final java.util.List<String> lines = new java.util.ArrayList<>();
+    /** 运行态占位行：key（工具名）→ 等待完成事件原位替换的行号 FIFO（并行同名工具按开始序配对）。 */
+    private final java.util.Map<String, java.util.ArrayDeque<Integer>> pendingLines = new java.util.HashMap<>();
+
     private int spinnerFrame = 0;
     private int lineCount = 0;
     private boolean running = true;
@@ -88,19 +93,51 @@ class ToolActivityGroup extends JPanel {
 
     /** Appends one tool-activity line to the group body. */
     void addLine(String line) {
-        lineCount++;
-        if (bodyArea.getDocument().getLength() > 0) {
-            bodyArea.append("\n");
+        addPendingLine(null, line);
+    }
+
+    /**
+     * 追加一行（可选携带完成配对 key）：运行态工具行在执行开始时以
+     * {@code key=工具名} 先行占位，完成事件经 {@link #completePendingLine}
+     * 原位替换为终态行（含状态/耗时/结果）。
+     */
+    void addPendingLine(String key, String line) {
+        lines.add(line);
+        if (key != null) {
+            pendingLines.computeIfAbsent(key, k -> new java.util.ArrayDeque<>())
+                    .add(lines.size() - 1);
         }
-        bodyArea.append(line);
+        renderBody();
+    }
+
+    /**
+     * 以终态行替换该 key 最早一条运行态占位行（并行同名工具按开始序 FIFO 配对）。
+     *
+     * @return true 当存在配对的占位行并被替换；false = 无占位（开始信号被
+     *         过滤/迟领养），调用方按普通追加兜底
+     */
+    boolean completePendingLine(String key, String finalLine) {
+        java.util.ArrayDeque<Integer> queue = pendingLines.get(key);
+        if (queue == null || queue.isEmpty()) {
+            return false;
+        }
+        lines.set(queue.poll(), finalLine);
+        renderBody();
+        return true;
+    }
+
+    private void renderBody() {
+        lineCount = lines.size();
+        bodyArea.setText(String.join("\n", lines));
         updateHeader();
         revalidate();
     }
 
     /**
      * Marks the activity run as finished: stops the spinner, summarizes the
-     * header, and auto-collapses the body to keep the transcript tidy.
-     * Idempotent.
+     * header, and auto-collapses the body to keep the transcript tidy. 未收到
+     * 完成事件的运行态占位行（Stop/回合终态时工具批仍在跑）补记"未收录结果"，
+     * 不留永久 pending 行。Idempotent.
      */
     void finish() {
         if (!running) {
@@ -108,6 +145,14 @@ class ToolActivityGroup extends JPanel {
         }
         running = false;
         spinnerTimer.stop();
+        for (java.util.ArrayDeque<Integer> queue : pendingLines.values()) {
+            while (!queue.isEmpty()) {
+                int idx = queue.poll();
+                lines.set(idx, lines.get(idx) + "\n  Result: (not recorded — turn ended)");
+            }
+        }
+        pendingLines.clear();
+        renderBody();
         setCollapsed(true);
     }
 

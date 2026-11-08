@@ -110,7 +110,7 @@ class EventParityTest {
         first.release.countDown(); // 门控放行：提交时回合体必未完成
         AgentResponse ar = future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-        assertEquals(List.of("started", "progress", "progress", "completed"),
+        assertEquals(List.of("started", "progress", "progress", "progress", "completed"),
                 newChannel.turnKindsFor(TurnOrigin.IPC_CLI));
         assertEquals(message, newChannel.startedMessages.get(0),
                 "TURN_STARTED echoText is the submitted message");

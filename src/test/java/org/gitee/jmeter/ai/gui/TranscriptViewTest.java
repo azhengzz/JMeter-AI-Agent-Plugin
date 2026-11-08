@@ -69,6 +69,64 @@ class TranscriptViewTest {
     }
 
     @Test
+    void runningToolLinesAreReplacedInPlaceOnCompletion() throws Exception {
+        // 工具开始即呈现运行态行，完成事件原位替换为终态行（不增行）；
+        // 无占位的完成事件按普通行追加（迟领养/开始信号被过滤兜底）
+        AtomicReference<TranscriptView> ref = new AtomicReference<>();
+        onEdt(() -> {
+            TranscriptView view = newView();
+            view.addRunningToolActivity(1L, "run_test", "🔧 ⋯ run_test\n  Args: {mode=smoke}");
+            view.addRunningToolActivity(1L, "read_file", "🔧 ⋯ read_file");
+            ref.set(view);
+        });
+        TranscriptView view = ref.get();
+        ToolActivityGroup group = view.getActivityGroup();
+        assertEquals(2, group.getLineCount());
+        assertTrue(group.getText().contains("⋯ run_test"), "运行态行先行呈现");
+
+        onEdt(() -> view.completeToolActivity(1L, "run_test", "🔧 ✓ run_test [1200ms]\n  Result: PASS"));
+        assertEquals(2, group.getLineCount(), "完成原位替换不增行");
+        assertTrue(group.getText().contains("✓ run_test [1200ms]"));
+        assertFalse(group.getText().contains("⋯ run_test"), "占位行被终态行替换");
+
+        onEdt(() -> view.completeToolActivity(1L, "get_tree", "🔧 ✓ get_tree [5ms]"));
+        assertEquals(3, group.getLineCount(), "无占位的完成事件按普通行追加");
+        assertTrue(group.getText().contains("✓ get_tree"));
+    }
+
+    @Test
+    void sameNameParallelToolsFillPlaceholdersInStartOrder() throws Exception {
+        // 并行同名工具：完成事件按占位行开始序 FIFO 填充（早完成先进早占位行）
+        AtomicReference<TranscriptView> ref = new AtomicReference<>();
+        onEdt(() -> {
+            TranscriptView view = newView();
+            view.addRunningToolActivity(1L, "read_file", "🔧 ⋯ read_file #占位1");
+            view.addRunningToolActivity(1L, "read_file", "🔧 ⋯ read_file #占位2");
+            view.completeToolActivity(1L, "read_file", "🔧 ✓ read_file 后完成 [9ms]");
+            view.completeToolActivity(1L, "read_file", "🔧 ✓ read_file 先完成 [3ms]");
+            ref.set(view);
+        });
+        String[] lines = ref.get().getActivityGroup().getText().split("\n");
+        assertTrue(lines[0].contains("后完成"), "首个完成事件填首个占位行（FIFO）: " + lines[0]);
+        assertTrue(lines[1].contains("先完成"), "次个完成事件填次个占位行: " + lines[1]);
+    }
+
+    @Test
+    void finishMarksUncompletedRunningLines() throws Exception {
+        // Stop/回合终态时工具批仍在跑：收尾时未完成的占位行补记"未收录结果"，
+        // 不留永久 pending 形态
+        AtomicReference<TranscriptView> ref = new AtomicReference<>();
+        onEdt(() -> {
+            TranscriptView view = newView();
+            view.addRunningToolActivity(1L, "run_test", "🔧 ⋯ run_test");
+            view.finishActivityIfRunning();
+            ref.set(view);
+        });
+        String text = ref.get().getActivityGroup().getText();
+        assertTrue(text.contains("not recorded"), "未完成占位行收尾补记: " + text);
+    }
+
+    @Test
     void reasoningStreamsIntoCardAndCollapsesOnAnswer() throws Exception {
         AtomicReference<TranscriptView> ref = new AtomicReference<>();
         onEdt(() -> {

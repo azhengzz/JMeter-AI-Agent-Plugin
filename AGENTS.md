@@ -422,7 +422,7 @@ Agent 的技能通过文件系统组织，每个技能包含一个 `SKILL.md` �
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| anthropic-java | 2.18.0 | Anthropic Claude SDK |
+| anthropic-java | 2.53.0 | Anthropic Claude SDK |
 | openai-java | 4.43.0 | OpenAI GPT SDK（ReasoningEffort 自 4.42.0 起含 MAX） |
 | langsmith-java | 0.1.0-alpha.24 | LangSmith 链路追踪 |
 | ApacheJMeter_core | 5.6.3 | JMeter 核心 |
@@ -516,6 +516,25 @@ D:\WorkHome\git\github\jmeter-5.6.3
 - 聊天输入框支持 Shift+Enter 换行；输入区为统一圆角输入卡（上下文条在输入框上方、模型/按钮行在卡内下方），固定高度、无可拖拽分割条
 - 支持 reasoningContent 结构化思考内容展示
 
+## 外部 Skill 同步约定（`skills/jmeter-cli/`）
+
+`skills/jmeter-cli/` 是发给**外部 Agent**（Claude Code / Codex / OpenClaw / Hermes）的 skill 包。这些 Agent 没有插件内的工具，只能读这 5 个 md 文件并调用 `jmeter-cli` 命令，所以它是外部世界理解本插件的**唯一来源**。文档一旦与代码漂移，外部 Agent 会照着过时说明构造命令，产出错误计划且不报错。
+
+改动以下任一处后，**必须同步检查 `skills/jmeter-cli/`**：
+
+| 改了什么 | 要同步的位置 |
+|---|---|
+| 工具类 `agent/tools/**` 的名称/参数/输出/必填项/校验 | `references/cli-reference.md` 对应命令段、`references/property-recipes.md` |
+| 内置 Skill 的组件 schema（属性名/类型/必填/枚举） | `references/property-recipes.md`、`references/element-types.md` |
+| `JmeterCli.java` 的命令/旗标/默认值/退出码/输出形态 | `SKILL.md` + `references/cli-reference.md` |
+| `IpcServer.ALLOWED_TOOLS` 白名单 | `references/cli-reference.md` 的 Allowed Raw Tools、`SKILL.md` 的 Failure handling |
+| 影响外部可见行为的配置默认值 | `SKILL.md` 的 Limits / Safety rules |
+| 新增 CLI 命令或旗标 | `references/cli-reference.md` + `SKILL.md` 的 Command choice |
+
+**守门**：`mvn test -Dtest=JmeterCliSkillPackageTest`。它钉定了「文档提到的命令/旗标在 CLI 中真实存在」「属性名与 schema 一致」「类型规则不做虚假承诺」「关键警告在位」等不变量。测试红了说明文档漂移，**改文档而不是改测试**（除非测试本身过时）。
+
+---
+
 ## 添加新 JMeter 组件 Checklist
 
 添加一个新的 JMeter 组件需要修改以下 5 处：
@@ -553,5 +572,6 @@ D:\WorkHome\git\github\jmeter-5.6.3
 | 追加 | 组件索引表 | `skills/jmeter/SKILL.md` |
 | 追加 | 类映射 | `JMeterElementManager.java` → `ELEMENT_CLASS_MAP` |
 | 追加 | 默认名称 | `JMeterElementManager.java` → `getDefaultNameForElement` |
+| 按需 | 外部 skill 类型表（若属高频类型） | `skills/jmeter-cli/references/element-types.md` |
 
-前三步是 AI Agent 运行时所需的（技能文档和 schema 校验），后两步是插件代码层识别和创建组件所必需的。
+前三步是 AI Agent 运行时所需的（技能文档和 schema 校验），中两步是插件代码层识别和创建组件所必需的，最后一步保证外部 Agent 也能发现这个新类型（见上文「外部 Skill 同步约定」）。

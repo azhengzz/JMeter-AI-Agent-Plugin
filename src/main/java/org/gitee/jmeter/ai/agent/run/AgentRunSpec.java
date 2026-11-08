@@ -34,6 +34,7 @@ public class AgentRunSpec {
     private final String reasoningEffort;
     private final List<Message> initialMessages;
     private final AtomicBoolean abortFlag;
+    private final org.gitee.jmeter.ai.agent.model.StreamCloseRegistry streamCloseRegistry;
     private final Function<Integer, List<InjectionItem>> injectionCallback;
     private final boolean persistSession;
     private final boolean delegated;
@@ -57,6 +58,7 @@ public class AgentRunSpec {
         this.reasoningEffort = builder.reasoningEffort;
         this.initialMessages = builder.initialMessages;
         this.abortFlag = builder.abortFlag;
+        this.streamCloseRegistry = builder.streamCloseRegistry;
         this.injectionCallback = builder.injectionCallback;
         this.persistSession = builder.persistSession;
         this.delegated = builder.delegated;
@@ -80,6 +82,13 @@ public class AgentRunSpec {
     public String getReasoningEffort() { return reasoningEffort; }
     public List<Message> getInitialMessages() { return initialMessages; }
     public AtomicBoolean getAbortFlag() { return abortFlag; }
+
+    /**
+     * 本回合在途 provider 流的 close 句柄注册表（Turn 构造时创建、startTurn 接线，
+     * 参照 abortFlag 的活引用模式）。null（子代理/直构测试）= provider 不注册、
+     * 取消路径退化为 chunk 间 abort 轮询（流正常流动时的主路径）。
+     */
+    public org.gitee.jmeter.ai.agent.model.StreamCloseRegistry getStreamCloseRegistry() { return streamCloseRegistry; }
     public Function<Integer, List<InjectionItem>> getInjectionCallback() { return injectionCallback; }
 
     /**
@@ -160,6 +169,7 @@ public class AgentRunSpec {
         private String reasoningEffort;
         private List<Message> initialMessages;
         private AtomicBoolean abortFlag;
+        private org.gitee.jmeter.ai.agent.model.StreamCloseRegistry streamCloseRegistry;
         private Function<Integer, List<InjectionItem>> injectionCallback;
         private boolean persistSession = true;
         private boolean delegated = false;
@@ -223,6 +233,12 @@ public class AgentRunSpec {
 
         public Builder abortFlag(AtomicBoolean flag) {
             this.abortFlag = flag;
+            return this;
+        }
+
+        /** 在途 provider 流 close 句柄注册表（Turn 的活引用，见 getter javadoc）。 */
+        public Builder streamCloseRegistry(org.gitee.jmeter.ai.agent.model.StreamCloseRegistry registry) {
+            this.streamCloseRegistry = registry;
             return this;
         }
 

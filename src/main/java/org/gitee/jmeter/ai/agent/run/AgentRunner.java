@@ -51,6 +51,12 @@ public class AgentRunner {
         "Error: Task interrupted before this tool finished.";
     // 每次注入检查点最多从队列中取出的用户消息数
     private static final int MAX_INJECTIONS_PER_TURN = 3;
+
+    /** LLM 单次逻辑调用的总尝试上限（首次 + 2 次自动重试；SDK 内部重试已在流式 client 禁用）。 */
+    private static final int MAX_LLM_ATTEMPTS = 3;
+
+    /** 流式增量发射节流间隔（毫秒）：载荷携带累计文本，间隔放宽只影响延迟不影响正确性。 */
+    private static final long STREAM_FLUSH_INTERVAL_MS = 100;
     // 单次 Agent run 最多经历的注入周期数；超出部分留在队列，由 finally 块重新提交为独立 processMessage
     private static final int MAX_INJECTION_CYCLES = 5;
 
@@ -408,20 +414,45 @@ public class AgentRunner {
         final List<String> toolsUsed = new ArrayList<>();
         final AgentHook hook;
         final LlmCallOptions llmOptions;
+        final boolean streamingArmed;
+        final AgentRunSpec spec;
         final int maxIterations;
+        /** 流段 id 计数器（run 内单调；一次逻辑 LLM 调用一个流段，重试同 id 换 attemptSeq）。 */
+        long nextStreamId = 1;
+        /** 最近一次逻辑调用的粘滞流式标记与其流段 id（终答 streamedFinal 的事实源）。 */
+        boolean lastResponseStreamed;
+        long lastStreamId;
 
         LoopState(List<Message> messages, AgentRunSpec spec, int defaultMaxIterations) {
             this.currentMessages = new ArrayList<>(messages);
             this.hook = spec.getHook();
+            this.spec = spec;
             // Build per-run LLM options from spec overrides
             this.llmOptions = LlmCallOptions.builder()
                 .model(spec.getModel())
                 .temperature(spec.getTemperature())
                 .maxTokens(spec.getMaxTokens())
                 .reasoningEffort(spec.getReasoningEffort())
+                // 流式 abort/关闭机制随 run 级 options 透传（listener 由 callLLM
+                // 在流式武装时逐调用挂上）：provider 在 chunk 间轮询 abort、
+                // 开流时注册 close 句柄供 signalCancel 主动关闭停滞流
+                .abortCheck(spec.getAbortFlag() != null
+                        ? () -> spec.getAbortFlag().get()
+                        : null)
+                .streamCloseRegistry(spec.getStreamCloseRegistry())
                 .build();
+            this.streamingArmed = streamingArmedFor(spec.getHook());
             this.maxIterations = spec.getMaxIterations() > 0 ? spec.getMaxIterations() : defaultMaxIterations;
         }
+    }
+
+    /**
+     * 流式武装判定：进度钩子请求流式且总开关开启（{@code jmeter.ai.streaming.enabled}，
+     * 默认 true 的运维逃生口）。子代理钩子不覆写 wantsStreaming（默认 false）、
+     * 记忆整合器不携带钩子，天然不流式。
+     */
+    static boolean streamingArmedFor(AgentHook hook) {
+        return hook != null && hook.wantsStreaming() && AiConfig.isStreamingEnabled();
     }
 
     /**
@@ -491,12 +522,19 @@ public class AgentRunner {
             // Call LLM — govern context first: trim a per-iteration copy if over budget.
             // currentMessages (the persisted conversation) is never mutated by govern.
             List<Message> messagesForModel = contextWindowManager.govern(state.currentMessages, spec.getMaxTokens());
-            LLMResponse response = callLLM(messagesForModel, state.llmOptions);
+            LLMResponse response = callLLM(messagesForModel, state.llmOptions, state, context);
             context.setLastLlmResponse(response);
+            // 终答流式标记的事实源：最近一次成功调用的粘滞 streamed（错误调用不更新——
+            // 错误终答非流式渲染路径）
+            if (!response.isError()) {
+                state.lastResponseStreamed = response.isStreamed();
+                state.lastStreamId = state.nextStreamId - 1;
+            }
 
             // Check abort after LLM call returns
             if (isAborted(spec)) {
                 log.info("Agent loop aborted after LLM call at iteration {}", state.iteration);
+                state.lastResponseStreamed = false;
                 break;
             }
 
@@ -512,6 +550,9 @@ public class AgentRunner {
             }
 
             if (response.isError()) {
+                // 错误/中止终答不是流式终答：清除上一轮残留的 streamedFinal 标记
+                // （否则面板把错误文案当终答原位覆盖先前流式卡）
+                state.lastResponseStreamed = false;
                 if ("Interrupted".equals(response.getErrorMessage())) {
                     log.info("Agent loop aborted during LLM call at iteration {}", state.iteration);
                     break;
@@ -563,6 +604,9 @@ public class AgentRunner {
             }
 
             state.finalContent = "I reached the maximum number of tool call iterations. Please try breaking the task into smaller steps.";
+            // 迭代耗尽占位终答不是流式终答：清除粘滞标记（占位文案不得原位覆盖
+            // 之前流式呈现的卡片——与 LLM 错误分支同口径）
+            state.lastResponseStreamed = false;
         }
 
         // Finalize content through hook
@@ -588,6 +632,9 @@ public class AgentRunner {
             .metadata(resultMetadata)
             .stopReason(context.getStopReason())
             .hadInjections(state.hadInjections)
+            // 终答流式标记（粘滞）：面板据此原位重渲最终流式卡而非新增重复卡
+            .streamedFinal(state.lastResponseStreamed)
+            .finalStreamId(state.lastResponseStreamed ? state.lastStreamId : null)
             .build();
         } catch (Exception e) {
             // 异常安全结果：携带部分转录（state.currentMessages）供 run() 的
@@ -665,6 +712,9 @@ public class AgentRunner {
                 log.error("Tool execution failed (failOnToolError=true): {}", error);
                 context.setError("Tool execution failed: " + error);
                 context.setStopReason("tool_error");
+                // 工具错误终答不是流式终答：清除粘滞标记（错误文案不得原位覆盖
+                // 之前流式呈现的卡片——与 LLM 错误分支同口径）
+                state.lastResponseStreamed = false;
                 // 块内 hook 变体：afterIteration 在检查点之前发射——inj3 的 continue 路径
                 // 因此不再补发射（与 inj1/4/5 不同）
                 if (state.hook != null) state.hook.afterIteration(context);
@@ -843,10 +893,94 @@ public class AgentRunner {
     }
 
     /**
-     * Call the LLM with the current messages.
+     * Call the LLM with retry: one logical call = one stream segment ({@code streamId}
+     * stable across attempts, {@code attemptSeq} increments). Retries only
+     * provider-classified retryable failures (429/5xx/network/timeout/eof), max
+     * {@value #MAX_LLM_ATTEMPTS} attempts total, exponential backoff with abort/
+     * deadline polling between attempts. The sticky "delivered deltas this call"
+     * mark is ORed onto the final response so downstream suppression keys off a
+     * single fact source even when a later attempt succeeded via the non-streaming
+     * fallback.
+     */
+    private LLMResponse callLLM(List<Message> messages, LlmCallOptions options,
+                                LoopState state, AgentHookContext context) {
+        long streamId = state.nextStreamId++;
+        boolean stickyStreamed = false;
+        for (int attempt = 1; attempt <= MAX_LLM_ATTEMPTS; attempt++) {
+            LLMResponse response;
+            if (state.streamingArmed && state.hook != null) {
+                StreamEmitter emitter = new StreamEmitter(streamId, attempt, state.hook, context,
+                        STREAM_FLUSH_INTERVAL_MS, System::currentTimeMillis);
+                LlmCallOptions callOptions = LlmCallOptions.builder()
+                        .model(options.getModel())
+                        .temperature(options.getTemperature())
+                        .maxTokens(options.getMaxTokens())
+                        .reasoningEffort(options.getReasoningEffort())
+                        .abortCheck(options.getAbortCheck())
+                        .streamCloseRegistry(options.getStreamCloseRegistry())
+                        .streamDeltaListener(emitter)
+                        .build();
+                response = callLLMOnce(messages, callOptions);
+                emitter.end(terminalStreamStatus(response));
+                stickyStreamed |= emitter.deliveredLiveDelta();
+            } else {
+                response = callLLMOnce(messages, options);
+            }
+            if (stickyStreamed && !response.isStreamed()) {
+                response = response.withStreamed(true);
+            }
+            if (!response.isError() || !response.isRetryable() || attempt == MAX_LLM_ATTEMPTS) {
+                return response;
+            }
+            log.info("LLM call failed (attempt {}/{}), retryable: {} — backing off before retry",
+                    attempt, MAX_LLM_ATTEMPTS, response.getErrorMessage());
+            if (!backoffBeforeNextAttempt(attempt, state)) {
+                return response;
+            }
+        }
+        throw new IllegalStateException("LLM retry loop must return within MAX_LLM_ATTEMPTS");
+    }
+
+    /** 流段终态映射：中止/中断类错误为 ABORTED，其余错误 FAILED，成功 SUCCESS。 */
+    private static StreamDelta.Status terminalStreamStatus(LLMResponse response) {
+        if (!response.isError()) {
+            return StreamDelta.Status.SUCCESS;
+        }
+        String kind = response.getErrorKind();
+        if ("aborted".equals(kind) || "interrupted".equals(kind)) {
+            return StreamDelta.Status.ABORTED;
+        }
+        return StreamDelta.Status.FAILED;
+    }
+
+    /**
+     * 重试退避（1s/2s 指数）：分片轮询 abort 与 IPC deadline——Stop/超时能即刻
+     * 打断退避，不再发起下一次尝试。返回 false = 放弃后续尝试（调用方返回最后
+     * 一次的错误响应）。
+     */
+    private boolean backoffBeforeNextAttempt(int attempt, LoopState state) {
+        long delayMs = 1000L << (attempt - 1);
+        long deadlineAt = state.spec.getDeadlineAtMs() != null ? state.spec.getDeadlineAtMs() : Long.MAX_VALUE;
+        long wakeAt = System.currentTimeMillis() + delayMs;
+        while (System.currentTimeMillis() < Math.min(wakeAt, deadlineAt)) {
+            if (isAborted(state.spec)) {
+                return false;
+            }
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return !isAborted(state.spec) && System.currentTimeMillis() < deadlineAt;
+    }
+
+    /**
+     * Call the LLM with the current messages (single attempt, no retry).
      * Uses tool calling if supported by the AI service.
      */
-    private LLMResponse callLLM(List<Message> messages, LlmCallOptions options) {
+    private LLMResponse callLLMOnce(List<Message> messages, LlmCallOptions options) {
         try {
             // Tool calling is the only supported path (see mandatory-toolcalling spec);
             // runAgentLoop guards against services that do not support it.

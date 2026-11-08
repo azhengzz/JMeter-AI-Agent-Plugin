@@ -12,11 +12,11 @@ import org.gitee.jmeter.ai.gui.theme.ThemeColors;
 import org.gitee.jmeter.ai.gui.theme.UiTokens;
 
 /**
- * Collapsible card in the transcript that shows the model's reasoning. While
- * thinking streams in, a spinner animates next to a "Thinking" header and the
- * text accumulates live; when the first answer content arrives (or the turn
- * completes) the card auto-collapses to a "Thoughts" summary line, clickable
- * to re-expand. Modelled on {@link ToolActivityGroup}.
+ * Collapsible card in the transcript that shows the model's reasoning. The body
+ * is collapsed by default: while thinking streams in, a spinner animates next
+ * to a "Thinking" header and the text accumulates (hidden until the user clicks
+ * the header); when thinking finishes the header switches to a "Thoughts"
+ * summary-with-preview line. Modelled on {@link ToolActivityGroup}.
  */
 class ThinkingCard extends JPanel {
 
@@ -32,7 +32,13 @@ class ThinkingCard extends JPanel {
 
     private int spinnerFrame = 0;
     private boolean running = true;
-    private boolean collapsed = false;
+    private boolean collapsed = true;
+    /**
+     * 用户手动折叠/展开过（手势位）：自动收尾（finish）与整段替换都不得覆盖
+     * 用户的选择——自动折叠只作用于未被碰过的卡；替换可重新展开的仅是
+     * 「自动折叠」的卡（双向保护：手动折叠不被强展、手动展开不被强收）。
+     */
+    private boolean userToggled = false;
 
     ThinkingCard() {
         super(new BorderLayout());
@@ -75,6 +81,10 @@ class ThinkingCard extends JPanel {
         bodyWrapper = new JPanel(new BorderLayout());
         bodyWrapper.setOpaque(false);
         bodyWrapper.add(bodyArea, BorderLayout.CENTER);
+        // 默认收起（2026-11-08 需求）：流式思考期间正文闭合，运行态经头部
+        // spinner + "Thinking…" 呈现；思考完毕头部切换为 Thoughts 预览行。
+        // 用户可随时点击头部展开查看实时思考。
+        bodyWrapper.setVisible(false);
         add(bodyWrapper, BorderLayout.CENTER);
 
         spinnerTimer = new Timer(SPINNER_DELAY_MS, e -> {
@@ -93,8 +103,32 @@ class ThinkingCard extends JPanel {
     }
 
     /**
+     * 整段替换（流式重试成功/失败收敛）：原地重写正文，卡片组件不变。
+     * 折叠态不因替换改变（默认收起口径下替换后保持闭合，用户手动展开/折叠
+     * 的选择同样保留）；替换即本段终态：停 spinner，头部切 Thoughts 预览。
+     */
+    void replaceText(String text) {
+        running = false;
+        spinnerTimer.stop();
+        bodyArea.setText(text != null ? text : "");
+        updateHeader();
+        revalidate();
+    }
+
+    /** 清空正文并收敛为折叠终态（组件复用、不销毁；用户手动展开的选择保留）。 */
+    void clear() {
+        replaceText("");
+        if (!userToggled) {
+            collapsed = true;
+            bodyWrapper.setVisible(false);
+            updateHeader();
+        }
+    }
+
+    /**
      * Marks thinking as finished: stops the spinner and auto-collapses the
-     * body, leaving a clickable "Thoughts" summary. Idempotent.
+     * body (除非用户手动展开过——手势位保护), leaving a clickable "Thoughts"
+     * summary. Idempotent.
      */
     void finish() {
         if (!running) {
@@ -102,7 +136,13 @@ class ThinkingCard extends JPanel {
         }
         running = false;
         spinnerTimer.stop();
-        setCollapsed(true);
+        if (!userToggled) {
+            // 自动折叠不经手势位（setCollapsed 会置 userToggled，误把自动态钉成手动态）
+            collapsed = true;
+            bodyWrapper.setVisible(false);
+            updateHeader();
+            revalidate();
+        }
     }
 
     /** True while reasoning is still streaming (spinner active). */
@@ -110,8 +150,9 @@ class ThinkingCard extends JPanel {
         return running;
     }
 
-    /** Toggles body visibility and updates the header affordance. */
+    /** Toggles body visibility and updates the header affordance (user gesture). */
     void setCollapsed(boolean collapsed) {
+        userToggled = true;
         this.collapsed = collapsed;
         bodyWrapper.setVisible(!collapsed);
         updateHeader();

@@ -163,7 +163,10 @@ class MessageCard extends JPanel {
 
     /**
      * Renders markdown content into the card body, replacing anything shown
-     * so far.
+     * so far. Used for both streaming ticks (cumulative markdown, embedded
+     * code/table components render immediately once their fences close) and
+     * the segment's final render — both go through the same full re-render,
+     * so the final render changes nothing visually.
      */
     void setMarkdownContent(String markdown) {
         String content = markdown != null ? markdown : "";

@@ -18,6 +18,10 @@ public class LLMResponse {
     private final String reasoningContent;
     private final String errorMessage;
     private final Map<String, Integer> usage;
+    private final boolean streamed;
+    private final boolean retryable;
+    private final Integer statusCode;
+    private final String errorKind;
 
     private LLMResponse(Builder builder) {
         this.content = builder.content;
@@ -27,6 +31,10 @@ public class LLMResponse {
         this.reasoningContent = builder.reasoningContent;
         this.errorMessage = builder.errorMessage;
         this.usage = builder.usage != null ? Collections.unmodifiableMap(new HashMap<>(builder.usage)) : Collections.emptyMap();
+        this.streamed = builder.streamed;
+        this.retryable = builder.retryable;
+        this.statusCode = builder.statusCode;
+        this.errorKind = builder.errorKind;
     }
 
     public String getContent() {
@@ -62,8 +70,57 @@ public class LLMResponse {
         return usage;
     }
 
+    /**
+     * Copy with the streamed flag overridden — the runner ORs the sticky
+     * "delivered deltas this logical call" mark (across attempts and fallbacks)
+     * onto the final response so suppression keys off a single fact source.
+     */
+    public LLMResponse withStreamed(boolean streamed) {
+        Builder copy = builder()
+                .content(content)
+                .finishReason(finishReason)
+                .toolCalls(toolCalls)
+                .reasoningContent(reasoningContent)
+                .usage(usage)
+                .streamed(streamed)
+                .retryable(retryable)
+                .statusCode(statusCode)
+                .errorKind(errorKind);
+        // errorMessage(null) 会无条件把 finishReason 毒化为 "error"——仅真实错误才走该 setter
+        if (errorMessage != null) {
+            copy.errorMessage(errorMessage);
+        }
+        return copy.build();
+    }
+
     public boolean isLength() {
         return "length".equals(finishReason);
+    }
+
+    /**
+     * Whether this response's text was already delivered to consumers as
+     * streaming deltas (provider streaming path). The runner ORs this across
+     * attempts of one logical call, so a later non-streaming attempt that
+     * succeeds after an earlier attempt already emitted deltas still reports
+     * true — suppression and the streamed-final marker key off this.
+     */
+    public boolean isStreamed() {
+        return streamed;
+    }
+
+    /** Whether a failed (error) response is eligible for the runner's retry loop. */
+    public boolean isRetryable() {
+        return retryable;
+    }
+
+    /** HTTP status code of the underlying provider failure, when known. */
+    public Integer getStatusCode() {
+        return statusCode;
+    }
+
+    /** Error category of the underlying provider failure (e.g. network, timeout, auth, rate_limit, eof). */
+    public String getErrorKind() {
+        return errorKind;
     }
 
     public boolean isStop() {
@@ -81,6 +138,10 @@ public class LLMResponse {
         private String reasoningContent;
         private String errorMessage;
         private Map<String, Integer> usage;
+        private boolean streamed;
+        private boolean retryable;
+        private Integer statusCode;
+        private String errorKind;
 
         public Builder content(String content) {
             this.content = content;
@@ -113,6 +174,26 @@ public class LLMResponse {
             return this;
         }
 
+        public Builder streamed(boolean streamed) {
+            this.streamed = streamed;
+            return this;
+        }
+
+        public Builder retryable(boolean retryable) {
+            this.retryable = retryable;
+            return this;
+        }
+
+        public Builder statusCode(Integer statusCode) {
+            this.statusCode = statusCode;
+            return this;
+        }
+
+        public Builder errorKind(String errorKind) {
+            this.errorKind = errorKind;
+            return this;
+        }
+
         public LLMResponse build() {
             return new LLMResponse(this);
         }
@@ -123,6 +204,17 @@ public class LLMResponse {
         return builder()
                 .content(null)
                 .errorMessage(errorMessage)
+                .build();
+    }
+
+    /** Create a classified error response (retry classification for the runner's retry loop). */
+    public static LLMResponse error(String errorMessage, boolean retryable, Integer statusCode, String errorKind) {
+        return builder()
+                .content(null)
+                .errorMessage(errorMessage)
+                .retryable(retryable)
+                .statusCode(statusCode)
+                .errorKind(errorKind)
                 .build();
     }
 

@@ -4,9 +4,11 @@ import org.gitee.jmeter.ai.agent.model.GenerationSettings;
 import org.gitee.jmeter.ai.agent.model.LLMResponse;
 import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
 import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.agent.model.StreamDeltaListener;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.service.AiService;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -55,6 +57,18 @@ public final class GatedScriptAiService implements AiService {
         return call;
     }
 
+    /**
+     * 流式脚本调用：向 options 的 delta 消费者逐片发射（模拟流式 provider——含
+     * 片间 abort 轮询与中止分类），发射完毕返回完整响应（消费者在场时自动置
+     * streamed=true，对齐真实 provider）。捕获的消费者引用暴露给测试（迟到
+     * delta / 任意线程发射）。
+     */
+    public StreamScriptCall scriptStreamed(LLMResponse response) {
+        StreamScriptCall call = new StreamScriptCall(response);
+        calls.add(call);
+        return call;
+    }
+
     @Override
     public LLMResponse generateResponseWithTools(
             List<Message> messages, List<ToolDefinition> tools, LlmCallOptions options) {
@@ -63,6 +77,33 @@ public final class GatedScriptAiService implements AiService {
             return o.get();
         }
         Object next = calls.poll();
+        if (next instanceof StreamScriptCall streamCall) {
+            StreamDeltaListener listener = options != null ? options.getStreamDeltaListener() : null;
+            streamCall.capturedListener = listener;
+            if (listener == null) {
+                return streamCall.response;
+            }
+            java.util.function.BooleanSupplier abort = options.getAbortCheck();
+            for (int i = 0; i < streamCall.fragments.size(); i++) {
+                if (i > 0) {
+                    Runnable mid = streamCall.midFragmentAction;
+                    if (mid != null) {
+                        mid.run();
+                    }
+                }
+                if (abort != null && abort.getAsBoolean()) {
+                    // 对齐真实流式 provider 的 chunk 间中止分类
+                    return LLMResponse.error("Interrupted", false, null, "aborted");
+                }
+                StreamScriptCall.Fragment fragment = streamCall.fragments.get(i);
+                if (fragment.reasoning()) {
+                    listener.onReasoningDelta(fragment.text());
+                } else {
+                    listener.onContentDelta(fragment.text());
+                }
+            }
+            return streamCall.response.withStreamed(true);
+        }
         if (next instanceof GatedCall call) {
             call.entered.countDown();
             try {
@@ -96,6 +137,37 @@ public final class GatedScriptAiService implements AiService {
 
     @Override public boolean supportsToolCalling() {
         return true;
+    }
+
+    /** 流式脚本调用：片段序列（content/reasoning 原始分片）+ 片间动作 + 捕获的消费者。 */
+    public static final class StreamScriptCall {
+        final List<Fragment> fragments = new ArrayList<>();
+        volatile Runnable midFragmentAction;
+        public final LLMResponse response;
+        /** 发射时捕获的 delta 消费者（无消费者为 null）——迟到 delta 测试入口。 */
+        public volatile StreamDeltaListener capturedListener;
+
+        StreamScriptCall(LLMResponse response) {
+            this.response = response;
+        }
+
+        public StreamScriptCall content(String text) {
+            fragments.add(new Fragment(false, text));
+            return this;
+        }
+
+        public StreamScriptCall reasoning(String text) {
+            fragments.add(new Fragment(true, text));
+            return this;
+        }
+
+        /** 片间动作（第 2 片起、abort 轮询后执行）：供测试置 abort flag 模拟流中 Stop。 */
+        public StreamScriptCall midFragment(Runnable action) {
+            this.midFragmentAction = action;
+            return this;
+        }
+
+        record Fragment(boolean reasoning, String text) {}
     }
 
     /** 门控调用：entered/release 双锁；HANG_UNTIL_RELEASED 策略下另挂 interrupted/hang。 */

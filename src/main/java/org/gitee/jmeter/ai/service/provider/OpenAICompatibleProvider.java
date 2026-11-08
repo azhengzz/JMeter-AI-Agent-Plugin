@@ -5,10 +5,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.core.http.StreamResponse;
+import com.openai.errors.OpenAIServiceException;
 import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
+import com.openai.models.chat.completions.ChatCompletionStreamOptions;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
@@ -17,6 +21,8 @@ import org.gitee.jmeter.ai.agent.model.GenerationSettings;
 import org.gitee.jmeter.ai.agent.model.LLMResponse;
 import org.gitee.jmeter.ai.agent.model.LlmCallOptions;
 import org.gitee.jmeter.ai.agent.model.Message;
+import org.gitee.jmeter.ai.agent.model.StreamCloseRegistry;
+import org.gitee.jmeter.ai.agent.model.StreamDeltaListener;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 import org.gitee.jmeter.ai.agent.model.ToolDefinition;
 import org.gitee.jmeter.ai.service.AiService;
@@ -162,7 +168,7 @@ public class OpenAICompatibleProvider implements AiService {
     /**
      * Check if an exception was caused by thread interruption (e.g. OkHttp InterruptedIOException).
      */
-    private boolean isCausedByInterrupt(Throwable e) {
+    private static boolean isCausedByInterrupt(Throwable e) {
         Throwable current = e;
         while (current != null) {
             if (current instanceof java.io.InterruptedIOException
@@ -377,6 +383,22 @@ public class OpenAICompatibleProvider implements AiService {
                         .build()
                 );
             }
+            // 流式分流：仅当携带 delta 消费者（唯一流式闸门）且非强制工具调用时走流式路径；
+            // 记忆整合器的强制工具调用与无 options 的直连调用天然保持非流式。
+            if (forcedToolName == null && options != null && options.wantsStreaming()) {
+                LLMResponse streamed = doGenerateStreaming(paramsBuilder, options);
+                if (streamed != null) {
+                    return streamed;
+                }
+                // null = 静默回退信号（零增量、非中止、非定性客户端错误的失败，
+                // 如网关不支持流式/5xx/网络抖动）：落穿到非流式路径重发完整请求
+                // ——不把完整结果切片伪装成流式，回退请求不得携带 stream_options。
+                // 401/403/404/429 等定性错误不回退（见 silentFallbackOrClassify）
+                paramsBuilder.streamOptions(java.util.Optional.empty());
+                log.warn("[{}] streaming failed before any delta was delivered; "
+                        + "silently falling back to non-streaming", providerName);
+            }
+
             ChatCompletionCreateParams params = paramsBuilder.build();
             log.info("[{}] Request params: {}, thinkingActive={}, thinkingStyle={}",
                     providerName, summarizeParams(params), thinkingActive, effectiveStyle);
@@ -507,8 +529,378 @@ public class OpenAICompatibleProvider implements AiService {
             } else {
                 log.error("Error in generateResponseWithTools for {}", providerName, e);
             }
-            return LLMResponse.error("Error calling LLM: " + e.getMessage());
+            // 与流式路径同构的错误分类（429/5xx/网络/超时可重试、4xx 按类别不可
+            // 重试）：流式静默回退落穿到这里的失败不得丢失可重试分类，否则一次
+            // 可恢复的 500 经回退后进不了外层重试预算
+            return classifyStreamingError(e);
         }
+    }
+
+    // ---- 流式路径 ----
+
+    /** 流式专用 client：SDK 内部自动重试禁用（maxRetries 0），重试预算由 AgentRunner 外层环独控。 */
+    private volatile OpenAIClient streamingClient;
+
+    private OpenAIClient streamingClient() {
+        OpenAIClient local = streamingClient;
+        if (local == null) {
+            synchronized (this) {
+                if (streamingClient == null) {
+                    OpenAIOkHttpClient.Builder builder = OpenAIOkHttpClient.builder()
+                            .apiKey(apiKey.isEmpty() ? "no-key" : apiKey)
+                            .putHeader("User-Agent", VersionUtils.userAgent())
+                            .maxRetries(0);
+                    if (!baseUrl.isEmpty()) {
+                        builder.baseUrl(baseUrl);
+                    }
+                    streamingClient = builder.build();
+                }
+                local = streamingClient;
+            }
+        }
+        return local;
+    }
+
+    /** 中止标记：abort 谓词在 chunk 之间命中时跳出流读取（区别于线程中断）。 */
+    static final class StreamingAbortException extends RuntimeException {
+        StreamingAbortException() { super("aborted between chunks"); }
+    }
+
+    /** 流式聚合结果（provider 内部累积，与事件通道增量同源）。 */
+    static final class StreamAggregation {
+        String content;
+        String reasoning;
+        String finishReason;
+        final TreeMap<Integer, StreamingToolCall> toolBuffers = new TreeMap<>();
+        Map<String, Integer> usage = Map.of();
+
+        boolean sawFinishReason() { return finishReason != null; }
+    }
+
+    /** 按 index 拼合的工具调用分片缓冲（Nanobot tc_bufs 同构）。 */
+    static final class StreamingToolCall {
+        String id;
+        String name;
+        final StringBuilder args = new StringBuilder();
+    }
+
+    /**
+     * 流式调用：先带 {@code stream_options.include_usage} 请求（stream:true 由 SDK 的
+     * createStreaming 注入）；网关因此 400 时去掉该选项重试一次（保持流式）。
+     * <b>零增量失败静默回退</b>：尚未向消费者交付任何 delta 且非中止/中断类失败时
+     * 返回 {@code null}——调用方落穿非流式路径重发（支持流式与否的协商失败不
+     * 应让整个调用失败，也不得把完整结果伪装成流式）。
+     */
+    private LLMResponse doGenerateStreaming(ChatCompletionCreateParams.Builder paramsBuilder, LlmCallOptions options) {
+        boolean[] emittedAnyDelta = {false};
+        LlmCallOptions tracked = trackDeltaEmission(options, emittedAnyDelta);
+        try {
+            LLMResponse response = drainStreaming(paramsBuilder
+                    .streamOptions(ChatCompletionStreamOptions.builder().includeUsage(true).build())
+                    .build(), tracked);
+            // 非异常失败（如提前 EOF 判可重试）：零增量同样具备静默回退资格
+            if (response.isError()) {
+                return silentFallbackOrClassifyResponse(response, emittedAnyDelta[0]);
+            }
+            return response;
+        } catch (Exception e) {
+            if (isStreamOptionsRejected(e)) {
+                log.warn("[{}] gateway rejected stream_options/include_usage ({}); retrying streaming without it",
+                        providerName, e.getMessage());
+                try {
+                    return drainStreaming(paramsBuilder
+                            .streamOptions(java.util.Optional.empty())
+                            .build(), tracked);
+                } catch (Exception retry) {
+                    return silentFallbackOrClassify(retry, emittedAnyDelta[0]);
+                }
+            }
+            return silentFallbackOrClassify(e, emittedAnyDelta[0]);
+        }
+    }
+
+    /** 包装消费者记录"是否交付过任何 delta"（回退资格判定）。 */
+    private static LlmCallOptions trackDeltaEmission(LlmCallOptions options, boolean[] emittedAnyDelta) {
+        org.gitee.jmeter.ai.agent.model.StreamDeltaListener raw = options.getStreamDeltaListener();
+        return LlmCallOptions.builder()
+                .model(options.getModel())
+                .temperature(options.getTemperature())
+                .maxTokens(options.getMaxTokens())
+                .reasoningEffort(options.getReasoningEffort())
+                .abortCheck(options.getAbortCheck())
+                .streamCloseRegistry(options.getStreamCloseRegistry())
+                .streamDeltaListener(new org.gitee.jmeter.ai.agent.model.StreamDeltaListener() {
+                    @Override public void onContentDelta(String text) {
+                        emittedAnyDelta[0] = true;
+                        raw.onContentDelta(text);
+                    }
+
+                    @Override public void onReasoningDelta(String text) {
+                        emittedAnyDelta[0] = true;
+                        raw.onReasoningDelta(text);
+                    }
+                })
+                .build();
+    }
+
+    /**
+     * 零增量、非中止/中断、且非定性客户端错误 → null（静默回退信号）；否则按
+     * 分类错误返回。401/403/404/429 属定性错误（鉴权/模型不存在/限额）：换
+     * 非流式再发一次既浪费请求也可能掩盖配置错误——直接以分类错误回给外层
+     * （429 走外层重试环，4xx 即时失败）。
+     */
+    private static LLMResponse silentFallbackOrClassify(Throwable e, boolean emittedAnyDelta) {
+        LLMResponse classified = classifyStreamingError(e);
+        if (!emittedAnyDelta && !isAbortKind(classified) && !isDefinitiveClientError(classified)) {
+            return null;
+        }
+        return classified;
+    }
+
+    /** 同 {@link #silentFallbackOrClassify}，但输入已是分类错误响应（非异常路径）。 */
+    private static LLMResponse silentFallbackOrClassifyResponse(LLMResponse error, boolean emittedAnyDelta) {
+        if (!emittedAnyDelta && !isAbortKind(error) && !isDefinitiveClientError(error)) {
+            return null;
+        }
+        return error;
+    }
+
+    private static boolean isAbortKind(LLMResponse classified) {
+        String kind = classified.getErrorKind();
+        return "aborted".equals(kind) || "interrupted".equals(kind);
+    }
+
+    /** 定性客户端错误（鉴权 401/403、模型不存在 404、限额 429）：非流式重试同样必败或应走重试环。 */
+    private static boolean isDefinitiveClientError(LLMResponse classified) {
+        Integer code = classified.getStatusCode();
+        if (code == null) {
+            return false;
+        }
+        return code == 401 || code == 403 || code == 404 || code == 429;
+    }
+
+    private LLMResponse drainStreaming(ChatCompletionCreateParams params, LlmCallOptions options) {
+        log.info("[{}] Opening streaming completion (model={})", providerName, params.model());
+        StreamCloseRegistry.Registration closeRegistration = null;
+        StreamAggregation agg;
+        try (StreamResponse<ChatCompletionChunk> streamResponse =
+                     streamingClient().chat().completions().createStreaming(params)) {
+            if (options.getStreamCloseRegistry() != null) {
+                // 注册 close 句柄：取消路径可主动关闭停滞流（阻塞读不响应线程中断）
+                closeRegistration = options.getStreamCloseRegistry().register(streamResponse::close);
+            }
+            agg = aggregateStream(streamResponse.stream(), options.getStreamDeltaListener(), options.getAbortCheck());
+        } finally {
+            if (closeRegistration != null) {
+                closeRegistration.close();
+            }
+        }
+
+        if (!agg.sawFinishReason()) {
+            // 流结束但缺终止标记：按可重试网络失败处理，截断内容不得作为成功结果返回
+            log.warn("[{}] stream ended without finish_reason (truncated connection?)", providerName);
+            return LLMResponse.error("LLM stream ended without finish_reason (connection truncated)",
+                    true, null, "eof");
+        }
+
+        List<ToolCall> toolCalls = buildToolCallsFromBuffers(agg.toolBuffers);
+        return LLMResponse.builder()
+                .content(agg.content == null || agg.content.isEmpty() ? null : agg.content)
+                .finishReason(agg.finishReason)
+                .reasoningContent(agg.reasoning == null || agg.reasoning.isEmpty() ? null : agg.reasoning)
+                .usage(agg.usage)
+                .streamed(true)
+                .toolCalls(toolCalls.isEmpty() ? null : toolCalls)
+                .build();
+    }
+
+    /**
+     * 聚合 chunk 流并向 listener 逐片发射原始增量（不做分段/节流——那是发射器层的事）。
+     * usage-only 尾包（choices 为空且 usage 非空）显式接受，不误判错误。
+     */
+    static StreamAggregation aggregateStream(java.util.stream.Stream<ChatCompletionChunk> chunks,
+                                             StreamDeltaListener listener,
+                                             java.util.function.BooleanSupplier abortCheck) {
+        StreamAggregation agg = new StreamAggregation();
+        StringBuilder content = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
+        Iterator<ChatCompletionChunk> it = chunks.iterator();
+        while (it.hasNext()) {
+            ChatCompletionChunk chunk = it.next();
+            if (abortCheck != null && abortCheck.getAsBoolean()) {
+                throw new StreamingAbortException();
+            }
+            var usageOpt = chunk.usage();
+            if (usageOpt != null && usageOpt.isPresent()) {
+                var usage = usageOpt.get();
+                agg.usage = Map.of("prompt_tokens", (int) usage.promptTokens(),
+                        "completion_tokens", (int) usage.completionTokens());
+            }
+            List<ChatCompletionChunk.Choice> choices;
+            try {
+                choices = chunk.choices();
+            } catch (com.openai.errors.OpenAIInvalidDataException e) {
+                choices = List.of();
+            }
+            if (choices == null || choices.isEmpty()) {
+                continue; // usage-only 尾包 / keepalive
+            }
+            ChatCompletionChunk.Choice choice = choices.get(0);
+            var finishReasonField = choice.finishReason();
+            if (finishReasonField != null && finishReasonField.isPresent()
+                    && finishReasonField.get() != null) {
+                agg.finishReason = finishReasonField.get().asString();
+            }
+            ChatCompletionChunk.Choice.Delta delta = choice.delta();
+            if (delta == null) {
+                continue;
+            }
+            var contentOpt = delta.content();
+            if (contentOpt != null && contentOpt.isPresent() && contentOpt.get() != null
+                    && !contentOpt.get().isEmpty()) {
+                content.append(contentOpt.get());
+                if (listener != null) {
+                    listener.onContentDelta(contentOpt.get());
+                }
+            }
+            String reasoningFragment = extractDeltaReasoning(delta);
+            if (reasoningFragment != null && !reasoningFragment.isEmpty()) {
+                reasoning.append(reasoningFragment);
+                if (listener != null) {
+                    listener.onReasoningDelta(reasoningFragment);
+                }
+            }
+            var toolCallsOpt = delta.toolCalls();
+            if (toolCallsOpt != null && toolCallsOpt.isPresent() && toolCallsOpt.get() != null) {
+                for (var frag : toolCallsOpt.get()) {
+                    mergeToolCallFragment(agg, frag);
+                }
+            }
+        }
+        agg.content = content.toString();
+        agg.reasoning = reasoning.toString();
+        return agg;
+    }
+
+    /** 从 delta 的 additional properties 读取 reasoning_content（DeepSeek 系思考通道）。 */
+    private static String extractDeltaReasoning(ChatCompletionChunk.Choice.Delta delta) {
+        try {
+            Map<String, com.openai.core.JsonValue> props = delta._additionalProperties();
+            if (props != null && props.containsKey("reasoning_content")) {
+                com.openai.core.JsonValue value = props.get("reasoning_content");
+                if (value != null) {
+                    return value.convert(String.class);
+                }
+            }
+        } catch (Exception e) {
+            // 字段形态不符则按无思考增量处理
+        }
+        return null;
+    }
+
+    /** 按 index 拼合工具调用分片：id/name 取首个非空值，arguments 顺序追加。 */
+    private static void mergeToolCallFragment(StreamAggregation agg, ChatCompletionChunk.Choice.Delta.ToolCall frag) {
+        int index = (int) frag.index();
+        StreamingToolCall buf = agg.toolBuffers.computeIfAbsent(index, k -> new StreamingToolCall());
+        var idField = frag.id();
+        if (idField != null && idField.isPresent() && idField.get() != null && !idField.get().isEmpty()) {
+            buf.id = idField.get();
+        }
+        var fnField = frag.function();
+        if (fnField != null && fnField.isPresent() && fnField.get() != null) {
+            var fn = fnField.get();
+            var nameField = fn.name();
+            if (nameField != null && nameField.isPresent() && nameField.get() != null
+                    && !nameField.get().isEmpty()) {
+                buf.name = nameField.get();
+            }
+            var argsField = fn.arguments();
+            if (argsField != null && argsField.isPresent() && argsField.get() != null) {
+                buf.args.append(argsField.get());
+            }
+        }
+    }
+
+    /** 把分片缓冲解析为完整工具调用（参数 JSON 解析失败的分片按既有非流式口径跳过并记日志）。 */
+    static List<ToolCall> buildToolCallsFromBuffers(TreeMap<Integer, StreamingToolCall> buffers) {
+        List<ToolCall> toolCalls = new ArrayList<>();
+        for (Map.Entry<Integer, StreamingToolCall> entry : buffers.entrySet()) {
+            StreamingToolCall buf = entry.getValue();
+            if (buf.name == null || buf.name.isEmpty()) {
+                log.warn("Skipping streamed tool call without a name (index={})", entry.getKey());
+                continue;
+            }
+            String rawArgs = buf.args.length() > 0 ? buf.args.toString() : "{}";
+            try {
+                Map<String, Object> arguments = new ObjectMapper().readValue(
+                        rawArgs, new TypeReference<Map<String, Object>>() {});
+                String id = buf.id != null && !buf.id.isEmpty() ? buf.id : "call_stream_" + entry.getKey();
+                toolCalls.add(new ToolCall(id, buf.name, arguments));
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse streamed tool arguments for {}: rawArguments=[{}]",
+                        buf.name, rawArgs, e);
+            }
+        }
+        return toolCalls;
+    }
+
+    /** 网关因 stream_options/include_usage 拒绝（400 且报文点名该选项）时判定可去参重试。 */
+    static boolean isStreamOptionsRejected(Throwable e) {
+        if (!(e instanceof OpenAIServiceException)) {
+            return false;
+        }
+        OpenAIServiceException se = (OpenAIServiceException) e;
+        if (se.statusCode() != 400) {
+            return false;
+        }
+        String msg = se.getMessage() != null ? se.getMessage().toLowerCase(Locale.ROOT) : "";
+        return msg.contains("stream_options") || msg.contains("include_usage");
+    }
+
+    /**
+     * 流式错误分类（顺序敏感）：
+     * ① abort 标记 / 线程中断 → 不可重试（"Interrupted" 语义保留，runner 特判）；
+     * ② SocketTimeout 先于中断判别（它是 InterruptedIOException 子类）→ 可重试 timeout；
+     * ③ 其余 IO → 可重试 network；④ SDK 服务端异常 → 429/5xx 可重试、4xx 按类别不可重试；
+     * ⑤ 兜底不可重试（与现状一致：外层只重试显式可重试分类）。
+     */
+    static LLMResponse classifyStreamingError(Throwable e) {
+        if (e instanceof StreamingAbortException) {
+            return LLMResponse.error("Interrupted", false, null, "aborted");
+        }
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root instanceof java.net.SocketTimeoutException) {
+            return LLMResponse.error("LLM request timed out: " + root.getMessage(), true, null, "timeout");
+        }
+        if (isCausedByInterrupt(e)) {
+            Thread.currentThread().interrupt();
+            return LLMResponse.error("Interrupted", false, null, "interrupted");
+        }
+        if (root instanceof java.io.IOException) {
+            return LLMResponse.error("LLM network error: " + root.getMessage(), true, null, "network");
+        }
+        if (e instanceof OpenAIServiceException) {
+            OpenAIServiceException se = (OpenAIServiceException) e;
+            int code = se.statusCode();
+            String message = "Error calling LLM (HTTP " + code + "): " + se.getMessage();
+            if (code == 429) {
+                return LLMResponse.error(message, true, code, "rate_limit");
+            }
+            if (code >= 500) {
+                return LLMResponse.error(message, true, code, "server");
+            }
+            if (code == 401 || code == 403) {
+                return LLMResponse.error(message, false, code, "auth");
+            }
+            if (code == 404) {
+                return LLMResponse.error(message, false, code, "not_found");
+            }
+            return LLMResponse.error(message, false, code, "invalid_request");
+        }
+        return LLMResponse.error("Error calling LLM: " + e.getMessage(), false, null, "unknown");
     }
 
     /**

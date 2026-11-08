@@ -1,5 +1,6 @@
 package org.gitee.jmeter.ai.agent.hooks;
 
+import org.gitee.jmeter.ai.agent.model.StreamDelta;
 import org.gitee.jmeter.ai.agent.model.ToolCall;
 
 import java.util.List;
@@ -12,46 +13,24 @@ import java.util.Map;
 public interface AgentHook {
 
     /**
-     * Check if this hook wants streaming output.
-     * When true, onStream() will be called with partial content during generation.
+     * Check if this hook wants streaming output. When true the runner arms the
+     * streaming path for its runs (provider gets a delta listener via call
+     * options); subagent hooks keep the default false and never stream.
      */
     default boolean wantsStreaming() {
         return false;
     }
 
     /**
-     * Called when streaming content is available.
-     * Only invoked if wantsStreaming() returns true.
+     * Streaming segment event (started / cumulative-text delta / ended with
+     * SUCCESS|FAILED|ABORTED). Emitted by the runner's stream emitter, only for
+     * hooks that returned true from {@link #wantsStreaming()}.
      *
-     * @param content Partial content from LLM
-     * @param isFinal True if this is the final content
+     * @param delta structured payload (streamId + attemptSeq + channel text)
+     * @param context the run's hook context
      */
-    default void onStream(String content, boolean isFinal) {
+    default void onStreamDelta(StreamDelta delta, AgentHookContext context) {
         // Default: do nothing
-    }
-
-    /**
-     * Called when streaming completes.
-     *
-     * @param finalContent The complete final content
-     */
-    default void onStreamEnd(String finalContent) {
-        // Default: do nothing
-    }
-
-    /**
-     * Called when streaming completes, with indication of what happens next.
-     * This is more granular than onStreamEnd(finalContent).
-     *
-     * @param context The hook context
-     * @param resuming If true, streaming ended because there are tool calls to execute.
-     *                 If false, this is the final completion (no more tool calls).
-     */
-    default void onStreamEnd(AgentHookContext context, boolean resuming) {
-        // Default: delegate to the simpler version for backward compatibility
-        if (!resuming && context.getLastLlmResponse() != null) {
-            onStreamEnd(context.getLastLlmResponse().getContent());
-        }
     }
 
     /**
