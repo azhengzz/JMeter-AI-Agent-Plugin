@@ -15,6 +15,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jorphan.math.StatCalculatorLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +51,9 @@ public class AgentResultCollector extends AbstractTestElement
 
     private static final Logger log = LoggerFactory.getLogger(AgentResultCollector.class);
     public static final String ELEMENT_NAME = "__agent_result_collector__";
-    private static final int MAX_SAMPLES = 1000; // 最大保留采样数
+    // 仅约束 recentSamples 逐样本明细（样本表/详情/status_filter 的数据源），超出丢最旧。
+    // 聚合统计（计数/sum/min/max/百分位直方图/per-label）不受此限，始终覆盖全程。
+    private static final int MAX_SAMPLES = 1000;
     private static final int MAX_BODY_SIZE = 4096; // 单个响应体最大字符数，超出截断
 
     // --- All state is STATIC so clones share the same data ---
@@ -60,6 +63,14 @@ public class AgentResultCollector extends AbstractTestElement
     private static final AtomicLong responseTimeSum = new AtomicLong(0);
     private static final AtomicLong responseTimeMin = new AtomicLong(Long.MAX_VALUE);
     private static final AtomicLong responseTimeMax = new AtomicLong(0);
+
+    /**
+     * 全程响应时间直方图（JMeter Aggregate Report 同款 StatCalculatorLong：
+     * TreeMap&lt;时间值, 计数&gt;，精确百分位、内存 O(不同时间值个数)）。
+     * 非线程安全——读写两端均以自身为监视器 synchronized；reset 整体换新引用
+     * （volatile），旧代迟到采样已被 boundGeneration 门挡掉。
+     */
+    private static volatile StatCalculatorLong responseTimePercentiles = new StatCalculatorLong();
 
     private static final ConcurrentHashMap<String, PerLabelStats> perLabelStats = new ConcurrentHashMap<>();
 
@@ -119,6 +130,7 @@ public class AgentResultCollector extends AbstractTestElement
         responseTimeSum.set(0);
         responseTimeMin.set(Long.MAX_VALUE);
         responseTimeMax.set(0);
+        responseTimePercentiles = new StatCalculatorLong();
         perLabelStats.clear();
         recentSamples.clear();
         sampleCount.set(0);
@@ -203,6 +215,10 @@ public class AgentResultCollector extends AbstractTestElement
         responseTimeSum.addAndGet(time);
         updateMin(responseTimeMin, time);
         updateMax(responseTimeMax, time);
+        StatCalculatorLong percentiles = responseTimePercentiles;
+        synchronized (percentiles) {
+            percentiles.addValue(time);
+        }
         if (!success || errorCount > 0) {
             totalErrors.incrementAndGet();
         }
@@ -478,6 +494,7 @@ public class AgentResultCollector extends AbstractTestElement
         long sum = responseTimeSum.get();
         long min = responseTimeMin.get();
         long max = responseTimeMax.get();
+        long[] pct = percentileSnapshot(responseTimePercentiles);
 
         double avgTime = samples > 0 ? (double) sum / samples : 0;
         double errorRate = samples > 0 ? (double) errors / samples * 100 : 0;
@@ -498,7 +515,24 @@ public class AgentResultCollector extends AbstractTestElement
 
         return new SummaryStats(samples, errors, errorRate,
                 min == Long.MAX_VALUE ? 0 : min, max, avgTime,
+                pct[0], pct[1], pct[2], pct[3],
                 throughput, elapsed, testRunning, perLabel);
+    }
+
+    /**
+     * P50/P90/P95/P99 快照：与写点同一监视器，四个百分位取自同一一致状态
+     * （原生 getPercentPoint 容忍 CME 返 0 的撕裂读窗口在此被锁消除）。
+     * 空计算器各档返回 0，与 min 的 0 兜底口径一致。
+     */
+    private static long[] percentileSnapshot(StatCalculatorLong calc) {
+        synchronized (calc) {
+            return new long[] {
+                    calc.getPercentPoint(0.50).longValue(),
+                    calc.getPercentPoint(0.90).longValue(),
+                    calc.getPercentPoint(0.95).longValue(),
+                    calc.getPercentPoint(0.99).longValue()
+            };
+        }
     }
 
     public static List<SampleSnapshot> getRecentSamples(int limit, int offset) {
@@ -523,6 +557,10 @@ public class AgentResultCollector extends AbstractTestElement
         public final long minResponseTime;
         public final long maxResponseTime;
         public final double avgResponseTime;
+        public final long p50ResponseTime;
+        public final long p90ResponseTime;
+        public final long p95ResponseTime;
+        public final long p99ResponseTime;
         public final double throughput;
         public final long elapsedMs;
         public final boolean running;
@@ -530,6 +568,8 @@ public class AgentResultCollector extends AbstractTestElement
 
         public SummaryStats(int totalSamples, int totalErrors, double errorRate,
                             long minResponseTime, long maxResponseTime, double avgResponseTime,
+                            long p50ResponseTime, long p90ResponseTime,
+                            long p95ResponseTime, long p99ResponseTime,
                             double throughput, long elapsedMs, boolean running,
                             Map<String, SummaryStats> perLabel) {
             this.totalSamples = totalSamples;
@@ -538,6 +578,10 @@ public class AgentResultCollector extends AbstractTestElement
             this.minResponseTime = minResponseTime;
             this.maxResponseTime = maxResponseTime;
             this.avgResponseTime = avgResponseTime;
+            this.p50ResponseTime = p50ResponseTime;
+            this.p90ResponseTime = p90ResponseTime;
+            this.p95ResponseTime = p95ResponseTime;
+            this.p99ResponseTime = p99ResponseTime;
             this.throughput = throughput;
             this.elapsedMs = elapsedMs;
             this.running = running;
@@ -602,6 +646,7 @@ public class AgentResultCollector extends AbstractTestElement
         final AtomicLong timeSum = new AtomicLong(0);
         final AtomicLong timeMin = new AtomicLong(Long.MAX_VALUE);
         final AtomicLong timeMax = new AtomicLong(0);
+        final StatCalculatorLong percentiles = new StatCalculatorLong();
 
         void record(long time, boolean success) {
             count.incrementAndGet();
@@ -615,6 +660,9 @@ public class AgentResultCollector extends AbstractTestElement
             while (time > (current = timeMax.get())) {
                 if (timeMax.compareAndSet(current, time)) break;
             }
+            synchronized (percentiles) {
+                percentiles.addValue(time);
+            }
         }
 
         SummaryStats toSummary() {
@@ -623,8 +671,10 @@ public class AgentResultCollector extends AbstractTestElement
             long sum = timeSum.get();
             long min = timeMin.get();
             long max = timeMax.get();
+            long[] pct = percentileSnapshot(percentiles);
             return new SummaryStats(c, e, c > 0 ? (double) e / c * 100 : 0,
                     min == Long.MAX_VALUE ? 0 : min, max, c > 0 ? (double) sum / c : 0,
+                    pct[0], pct[1], pct[2], pct[3],
                     0, 0, false, null);
         }
     }

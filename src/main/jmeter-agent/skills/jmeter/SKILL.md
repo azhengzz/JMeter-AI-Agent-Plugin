@@ -35,7 +35,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` and startup JMeter `properties`)
   - `get_test_status` — Get real-time test execution status (running state, thread progress, elapsed time, sample counts)
-  - `get_test_results` — Get test results with summary statistics and optional sample details
+  - `get_test_results` — Get test results with summary statistics (incl. P50/P90/P95/P99 response-time percentiles, overall and per sampler) and optional sample details
 - **Cross-Instance Coordination Tools** (available when `jmeter.ai.ipc.enabled=true`, default on):
   - `list_instances` — List live JMeter AI instances on this machine with `instanceId`, pid, port, currently open `.jmx`, and start time; your own instance is marked `(self)`
   - `delegate_to_instance` — Delegate a task to the peer instance holding a given `.jmx` (or a specific `instanceId` from `list_instances`) and block for its agent's reply; the peer sees only the `task` text, so make it self-contained

@@ -291,7 +291,7 @@ Covers only the latest run in this GUI session (see `results` below). `**State**
 
 ### `results`
 
-Show test results: summary statistics and/or individual sample details.
+Show test results: summary statistics (incl. P50/P90/P95/P99 response-time percentiles, overall and per sampler) and/or individual sample details.
 
 ```bash
 jmeter-cli results --format both --limit 20 --json
@@ -300,7 +300,7 @@ jmeter-cli results --format samples --statusFilter failure --includeDetails true
 
 Options: `--format summary|samples|both` (default `summary`), `--limit <n>` (max 50, default 20), `--offset <n>`, `--includeDetails <bool>`, `--statusFilter all|success|failure`.
 
-Results are process-global and cover **only the most recent run** in this GUI session — starting another run clears them, including runs a human starts from the GUI. `status` prints a `**Started by**: USER|AGENT` line; check it matches the run you started. Only the most recent **1000 samples** are retained. Failed-assertion messages appear only with `--includeDetails true`.
+Results are process-global and cover **only the most recent run** in this GUI session — starting another run clears them, including runs a human starts from the GUI. `status` prints a `**Started by**: USER|AGENT` line; check it matches the run you started. Only the most recent **1000 samples** are retained (the sample table/details); summary statistics and percentiles always cover the **full run**. Failed-assertion messages appear only with `--includeDetails true`.
 
 ### `agent`
 

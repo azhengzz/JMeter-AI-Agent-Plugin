@@ -261,6 +261,97 @@ class AgentResultCollectorTest {
                 "a zero-sample smoke run must not arbitrate");
     }
 
+    // --- percentile statistics (P50/P90/P95/P99) ---
+
+    /** SampleResult with a deterministic elapsed time via the public (stamp, elapsed) constructor. */
+    private static SampleResult timedSample(String label, long durationMs) {
+        SampleResult result = new SampleResult(1_000_000L, durationMs);
+        result.setSampleLabel(label);
+        result.setSuccessful(true);
+        result.setResponseCode("200");
+        return result;
+    }
+
+    @Test
+    void percentileValuesMatchKnownDistribution() {
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 100; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("api", t), "tg"));
+        }
+
+        AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
+        // StatCalculator semantics: cumulative count reaches round(count * p)
+        assertEquals(50, summary.p50ResponseTime);
+        assertEquals(90, summary.p90ResponseTime);
+        assertEquals(95, summary.p95ResponseTime);
+        assertEquals(99, summary.p99ResponseTime);
+    }
+
+    @Test
+    void percentilesReflectFullRunNotRecentWindow() {
+        // recentSamples caps at 1000 entries; percentiles must cover the WHOLE run.
+        // 1200 samples with times 1..1200: full-run P99 = 1188, while the retained
+        // tail window (201..1200) would yield 1190 — the two are distinguishable.
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 1200; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("api", t), "tg"));
+        }
+
+        AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
+        assertEquals(1200, summary.totalSamples);
+        assertEquals(600, summary.p50ResponseTime);
+        assertEquals(1080, summary.p90ResponseTime);
+        assertEquals(1140, summary.p95ResponseTime);
+        assertEquals(1188, summary.p99ResponseTime,
+                "P99 must come from the full-run histogram, not the 1000-sample tail window");
+    }
+
+    @Test
+    void perLabelPercentilesIndependent() {
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 100; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("fast", t), "tg"));
+            collector.sampleOccurred(new SampleEvent(timedSample("slow", t * 10L), "tg"));
+        }
+
+        AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
+        AgentResultCollector.SummaryStats fast = summary.perLabel.get("fast");
+        AgentResultCollector.SummaryStats slow = summary.perLabel.get("slow");
+        assertNotNull(fast);
+        assertNotNull(slow);
+        assertEquals(95, fast.p95ResponseTime);
+        assertEquals(950, slow.p95ResponseTime);
+        assertEquals(99, fast.p99ResponseTime);
+        assertEquals(990, slow.p99ResponseTime);
+    }
+
+    @Test
+    void resetClearsPercentiles() {
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 100; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("api", t), "tg"));
+        }
+        assertEquals(95, AgentResultCollector.getSummary().p95ResponseTime);
+
+        AgentResultCollector.reset(AgentResultCollector.RunProvenance.USER);
+
+        AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
+        assertEquals(0, summary.p50ResponseTime);
+        assertEquals(0, summary.p90ResponseTime);
+        assertEquals(0, summary.p95ResponseTime);
+        assertEquals(0, summary.p99ResponseTime);
+    }
+
+    @Test
+    void emptyRunPercentilesAreZero() {
+        AgentResultCollector.SummaryStats summary = AgentResultCollector.getSummary();
+        assertEquals(0, summary.totalSamples);
+        assertEquals(0, summary.p50ResponseTime);
+        assertEquals(0, summary.p90ResponseTime);
+        assertEquals(0, summary.p95ResponseTime);
+        assertEquals(0, summary.p99ResponseTime);
+    }
+
     @Test
     void lateEventsFromPreviousRunGenerationAreIgnored() {
         // stop 后立即冒烟的幻影判定钉定：垂死引擎的迟到 testEnded/testStarted/sample

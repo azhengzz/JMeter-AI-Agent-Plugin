@@ -32,9 +32,9 @@ public class GetTestResultsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Get test execution results. Returns summary statistics (response times, throughput, error rate) " +
-                "and optionally individual sample details including request/response data. " +
-                "Can be called during or after test execution.";
+        return "Get test execution results. Returns summary statistics (response times incl. P50/P90/P95/P99 " +
+                "percentiles, throughput, error rate) and optionally individual sample details including " +
+                "request/response data. Can be called during or after test execution.";
     }
 
     @Override
@@ -136,6 +136,10 @@ public class GetTestResultsTool extends AbstractTool {
         sb.append(String.format("| Min Response Time | %d ms |\n", summary.minResponseTime));
         sb.append(String.format("| Max Response Time | %d ms |\n", summary.maxResponseTime));
         sb.append(String.format("| Avg Response Time | %.0f ms |\n", summary.avgResponseTime));
+        sb.append(String.format("| P50 Response Time | %d ms |\n", summary.p50ResponseTime));
+        sb.append(String.format("| P90 Response Time | %d ms |\n", summary.p90ResponseTime));
+        sb.append(String.format("| P95 Response Time | %d ms |\n", summary.p95ResponseTime));
+        sb.append(String.format("| P99 Response Time | %d ms |\n", summary.p99ResponseTime));
         sb.append(String.format("| Throughput | %.1f samples/sec |\n", summary.throughput));
         if (summary.elapsedMs > 0) {
             sb.append(String.format("| Duration | %s |\n", formatDuration(summary.elapsedMs)));
@@ -143,13 +147,15 @@ public class GetTestResultsTool extends AbstractTool {
 
         if (summary.perLabel != null && !summary.perLabel.isEmpty()) {
             sb.append("\n### Per-Sampler Breakdown\n\n");
-            sb.append("| Sampler | Samples | Errors | Error% | Avg(ms) | Min(ms) | Max(ms) |\n");
-            sb.append("|---------|---------|--------|--------|---------|---------|--------|\n");
+            sb.append("| Sampler | Samples | Errors | Error% | Avg(ms) | P50(ms) | P90(ms) | P95(ms) | P99(ms) | Min(ms) | Max(ms) |\n");
+            sb.append("|---------|---------|--------|--------|---------|---------|---------|---------|---------|---------|--------|\n");
             for (Map.Entry<String, AgentResultCollector.SummaryStats> entry : summary.perLabel.entrySet()) {
                 AgentResultCollector.SummaryStats s = entry.getValue();
-                sb.append(String.format("| %s | %d | %d | %.1f%% | %.0f | %d | %d |\n",
+                sb.append(String.format("| %s | %d | %d | %.1f%% | %.0f | %d | %d | %d | %d | %d | %d |\n",
                         entry.getKey(), s.totalSamples, s.totalErrors, s.errorRate,
-                        s.avgResponseTime, s.minResponseTime, s.maxResponseTime));
+                        s.avgResponseTime, s.p50ResponseTime, s.p90ResponseTime,
+                        s.p95ResponseTime, s.p99ResponseTime,
+                        s.minResponseTime, s.maxResponseTime));
             }
         }
     }

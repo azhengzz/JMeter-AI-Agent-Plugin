@@ -65,6 +65,50 @@ class GetTestResultsToolTest {
         assertTrue(content.contains("Expected code=0 but got 401"), "failure message expected");
     }
 
+    private static SampleResult timedSample(String label, long durationMs) {
+        SampleResult result = new SampleResult(1_000_000L, durationMs);
+        result.setSampleLabel(label);
+        result.setSuccessful(true);
+        result.setResponseCode("200");
+        return result;
+    }
+
+    @Test
+    void summaryIncludesPercentileRows() {
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 100; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("api", t), "tg"));
+        }
+
+        ToolResult result = tool.executeInternal(Map.of("format", "summary"));
+
+        assertTrue(result.isSuccess());
+        String content = result.getContent();
+        assertTrue(content.contains("| P50 Response Time | 50 ms |"), "P50 row expected");
+        assertTrue(content.contains("| P90 Response Time | 90 ms |"), "P90 row expected");
+        assertTrue(content.contains("| P95 Response Time | 95 ms |"), "P95 row expected");
+        assertTrue(content.contains("| P99 Response Time | 99 ms |"), "P99 row expected");
+    }
+
+    @Test
+    void perSamplerBreakdownIncludesPercentileColumns() {
+        AgentResultCollector collector = new AgentResultCollector();
+        for (int t = 1; t <= 100; t++) {
+            collector.sampleOccurred(new SampleEvent(timedSample("api", t), "tg"));
+        }
+
+        ToolResult result = tool.executeInternal(Map.of("format", "summary"));
+
+        assertTrue(result.isSuccess());
+        String content = result.getContent();
+        assertTrue(content.contains("P50(ms)"), "per-sampler P50 column expected");
+        assertTrue(content.contains("P90(ms)"), "per-sampler P90 column expected");
+        assertTrue(content.contains("P95(ms)"), "per-sampler P95 column expected");
+        assertTrue(content.contains("P99(ms)"), "per-sampler P99 column expected");
+        assertTrue(content.contains("| api | 100 | 0 | 0.0% | 51 | 50 | 90 | 95 | 99 | 1 | 100 |"),
+                "per-sampler row must carry percentile values between Avg and Min/Max");
+    }
+
     @Test
     void noAssertionFailureKeepsLegacyOutputShape() {
         new AgentResultCollector().sampleOccurred(new SampleEvent(plainSample("ping"), "tg-1"));

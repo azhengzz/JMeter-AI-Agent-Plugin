@@ -254,10 +254,10 @@ class RunTestToolTest {
         // 零样本 = 什么都没验证（禁用采样器/条件为假/空线程组），不得记 PASS
         // 解锁 goal 完成；只有「发过流量且零 error」才是硬标准
         assertFalse(RunTestTool.isSmokePass(
-                new AgentResultCollector.SummaryStats(0, 0, 0, 0, 0, 0, 0, 0, false, null)));
+                new AgentResultCollector.SummaryStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, null)));
         assertTrue(RunTestTool.isSmokePass(
-                new AgentResultCollector.SummaryStats(3, 0, 0, 0, 0, 0, 0, 0, false, null)));
+                new AgentResultCollector.SummaryStats(3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, null)));
         assertFalse(RunTestTool.isSmokePass(
-                new AgentResultCollector.SummaryStats(3, 2, 0, 0, 0, 0, 0, 0, false, null)));
+                new AgentResultCollector.SummaryStats(3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, null)));
     }
 }
