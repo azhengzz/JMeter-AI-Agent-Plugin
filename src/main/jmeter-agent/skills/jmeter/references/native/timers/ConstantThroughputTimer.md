@@ -13,7 +13,7 @@ Note that the throughput value should not be changed too often during a test - i
 
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
-| `throughput` | Yes | `0` | Target throughput in samples per minute. Throughput we want the timer to try to generate. | `"60"` |
+| `throughput` | Yes | `0` | Target throughput in samples per minute. Throughput we want the timer to try to generate. | `"60.0"` |
 | `calcMode` | Yes | `0` | Scope for throughput calculation. See Calculation Modes below. | `"0"` |
 
 ### Calculation Modes
@@ -39,7 +39,7 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "限速-60次/分钟"
 - properties:
-  - throughput: "60"
+  - throughput: "60.0"
   - calcMode: "0"
 ```
 
@@ -50,7 +50,7 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "全局限速-100次/分钟"
 - properties:
-  - throughput: "100"
+  - throughput: "100.0"
   - calcMode: "3"
 ```
 
@@ -61,7 +61,7 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "线程组限速-300次/分钟"
 - properties:
-  - throughput: "300"
+  - throughput: "300.0"
   - calcMode: "4"
 ```
 
@@ -72,7 +72,7 @@ create_jmeter_element with:
 - elementType: "constantthroughputtimer"
 - elementName: "模拟生产流量-600次/分钟"
 - properties:
-  - throughput: "600"
+  - throughput: "600.0"
   - calcMode: "1"
 ```
 

@@ -78,7 +78,7 @@ jmeter-cli log --maxLines 100
   scheduler).
 - Pacing: one `uniformrandomtimer` per thread group for think time
   (`{"ConstantTimer.delay":"500","RandomTimer.range":1500.0}` — the range is a **Double**, so
-  `1500` is rejected), or `constantthroughputtimer`
+  use a decimal-point form; a bare `1500` is not a Double), or `constantthroughputtimer`
   (`{"throughput":600.0,"calcMode":1}` = 600 samples/min across all threads — also a Double).
 - Disable graphical listeners you are not reading:
   `batch-toggle --elementIds <ids> --action disable`.

@@ -112,7 +112,7 @@ Test Plan
 - Use **CSV Data Set Config** for data parameterization
 - Variable names use lowercase with underscores: `${user_name}`, `${order_id}`
 - Place CSV files in `data/` directory
-- When creating/updating elements via tools, numeric fields (e.g. `ThreadGroup.num_threads`, `LoopController.loops`) accept either a JSON number or a `${...}` variable reference (`${__P(threads,10)}` is the common CI form); plain numeric strings like `"50"` are rejected. Boolean/enum fields stay strict — pass a literal value
+- When creating/updating elements via tools, prefer canonical JSON literals (`50`, `800.0`, `true`). Literal strings (`"50"`, `"800.0"`, `"true"`) are accepted and normalized to the declared type. Numeric fields also accept `${...}` variable references (`${__P(threads,10)}` is the common CI form). Boolean/enum fields reject variable references and non-literal strings — **this is a plugin policy, not a JMeter limitation**: the engine also resolves `${...}` on boolean fields when it is carried as a `stringProp` (a `boolProp` cannot hold it and silently becomes false). The plugin keeps booleans literal because an unresolved variable silently reads `false`. String-typed fields still need a quoted string. See the "Value types for `properties`" section of SKILL.md
 
 ### 4.2 Assertions
 

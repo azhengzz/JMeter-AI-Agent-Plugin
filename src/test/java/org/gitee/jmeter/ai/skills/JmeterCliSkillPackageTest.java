@@ -143,9 +143,9 @@ class JmeterCliSkillPackageTest {
     }
 
     /**
-     * ComponentValidator.isValidType is exact: STRING requires a String, DOUBLE requires a
-     * Double/Float. A JSON integer is rejected for a Double field, and a JSON number is rejected
-     * for a String field. Both were documented the wrong way round.
+     * Type rules must not promise coercion the validator does not perform, and must still
+     * teach the decimal form for Double fields. Literal quoted strings ARE normalized now
+     * (Boolean/numeric only), but a bare number is still rejected for a String-typed field.
      */
     @Test
     void valueTypeRulesDoNotPromiseCoercion() throws IOException {
@@ -154,6 +154,8 @@ class JmeterCliSkillPackageTest {
                 "claims a number is accepted for a String-typed field; the validator rejects it");
         assertTrue(all.contains("800.0") || all.contains("600.0"),
                 "Double-typed fields need a documented decimal form (800.0, not 800)");
+        assertTrue(all.contains("normalized") || all.contains("converted"),
+                "the lenient literal-string normalization must be documented for external agents");
     }
 
     /** {@code __P} with no default yields the literal "1", and HTTPsampler.Files is lower-case. */

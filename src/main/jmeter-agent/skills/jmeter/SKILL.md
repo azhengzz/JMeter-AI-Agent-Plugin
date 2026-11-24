@@ -43,6 +43,30 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
 - `run_test.properties` are global JMeter properties; read them with `${__P(name)}` or `props.get("name")`
 - **Parent-child compatibility is automatically validated** — the tool checks if elements can be added together
 
+## Value types for `properties`
+
+Schema-driven, with automatic normalization of literal strings. Prefer the canonical JSON
+literal in every example; the quoted equivalent is accepted and converted for you.
+
+| Declared type | Canonical | Also accepted | Rejected |
+|---|---|---|---|
+| Boolean | `true` / `false` | `"true"` / `"false"` | `${flag}`, `1`, `"yes"` |
+| Integer / Long | `50` | `"50"` | `"abc"`, `1.5` |
+| Double / Float | `800.0` (decimal point required) | `"800.0"` | `800` (bare integer), `"abc"` |
+| String | `"value"` | — | a bare number or boolean |
+| Enum | one literal from the schema | — | anything else |
+
+`${...}` variable references are accepted **only** on numeric fields (Integer / Long / Float /
+Double / Number) — this is a **plugin policy**, not a JMeter limitation. JMeter's engine also
+resolves `${...}` on boolean fields when the value is stored as a `stringProp`, but the plugin
+deliberately requires a boolean literal here: an unresolved variable silently reads as `false`,
+and `getBooleanValue()` only accepts the literal `true`. Never put `${...}` inside a `boolProp`
+or `intProp` — the former silently becomes false, the latter makes the `.jmx` unopenable.
+String-typed numeric fields exist (e.g. `ConstantTimer.delay`,
+`JSONPostProcessor.match_numbers`) — those still need a quoted string. When a value has the
+wrong shape, the validation error names the expected type, the value received, and a worked
+`{"property": value}` example.
+
 ## Workflow
 
 1. **Requirements Analysis**

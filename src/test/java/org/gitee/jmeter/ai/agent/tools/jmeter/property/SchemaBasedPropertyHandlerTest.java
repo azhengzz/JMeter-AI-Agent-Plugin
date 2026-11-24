@@ -860,4 +860,23 @@ class SchemaBasedPropertyHandlerTest {
         assertTrue(message.contains("Check the exact property name"), "suggests checking the name: " + message);
         assertTrue(message.contains("JMeter GUI"), "offers the GUI fallback: " + message);
     }
+
+    // ===== Lenient scalar strings must be written as typed properties, not StringProperty =====
+    @Test
+    void lenientBooleanAndNumericStrings_writeTypedProperties() {
+        ComponentSchema schema = schemaLoader.loadSchema("httpsampler");
+        assertNotNull(schema, "httpsampler schema must be loaded");
+
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        Map<String, Object> properties = new HashMap<>();
+        properties.put("HTTPSampler.postBodyRaw", "true");
+        properties.put("HTTPSampler.connect_timeout", "5000");
+
+        handler.setProperties(sampler, properties, schema);
+
+        assertTrue(sampler.getProperty("HTTPSampler.postBodyRaw").getBooleanValue(),
+                "string \"true\" must land as a real boolean property");
+        assertEquals(5000, sampler.getProperty("HTTPSampler.connect_timeout").getIntValue(),
+                "numeric string must land as a real numeric property");
+    }
 }

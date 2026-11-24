@@ -10,7 +10,7 @@ Uniform Random Timer adds a random pause with uniform distribution. Each pause i
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
 | `ConstantTimer.delay` | Yes | `0` | Number of milliseconds to pause in addition to the random delay | `1000` |
-| `RandomTimer.range` | Yes | `100.0` | Maximum random number of milliseconds to pause | `500` |
+| `RandomTimer.range` | Yes | `100.0` | Maximum random number of milliseconds to pause | `500.0` |
 
 ## Usage Examples
 
@@ -22,7 +22,7 @@ create_jmeter_element with:
 - elementName: "思考时间-1到3秒"
 - properties:
   - ConstantTimer.delay: "1000"
-  - RandomTimer.range: "2000"
+  - RandomTimer.range: "2000.0"
 ```
 
 ### Example 2: Small Random Delay
@@ -33,7 +33,7 @@ create_jmeter_element with:
 - elementName: "随机间隔-100到500ms"
 - properties:
   - ConstantTimer.delay: "100"
-  - RandomTimer.range: "400"
+  - RandomTimer.range: "400.0"
 ```
 
 ### Example 3: Base Delay with Random Variation
@@ -44,7 +44,7 @@ create_jmeter_element with:
 - elementName: "基础2秒+随机1秒"
 - properties:
   - ConstantTimer.delay: "2000"
-  - RandomTimer.range: "1000"
+  - RandomTimer.range: "1000.0"
 ```
 
 ## How It Works
@@ -129,7 +129,7 @@ create_jmeter_element with:
 - elementName: "阅读登录页"
 - properties:
   - ConstantTimer.delay: "2000"
-  - RandomTimer.range: "1000"
+  - RandomTimer.range: "1000.0"
 
 // Submit login
 create_jmeter_element with:
@@ -142,7 +142,7 @@ create_jmeter_element with:
 - elementName: "浏览页面"
 - properties:
   - ConstantTimer.delay: "3000"
-  - RandomTimer.range: "2000"
+  - RandomTimer.range: "2000.0"
 ```
 
 ## Notes

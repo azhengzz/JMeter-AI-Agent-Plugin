@@ -10,22 +10,30 @@ Case trap: there are **two** containers spelled `HTTPsampler.*` with a lower-cas
 (`domain`, `path`, `method`, `postBodyRaw`, `DO_MULTIPART_POST`). Writing `HTTPSampler.Files`
 rejects the whole call, so a file upload silently never gets configured.
 
-**Value types** (schema-driven, and strict — there is no numeric/string coercion):
+**Value types** (schema-driven, with automatic normalization of literal strings):
 
-| Field kind | Accepts | Rejects |
-|---|---|---|
-| Integer / Long | JSON number `5`, or a `${...}` reference | `"5"`, and `5` for a Double field |
-| Double / Float | JSON number **with a decimal point** (`600.0`, `1500.0`), or `${...}` | the bare integer `600` / `1500` |
-| Boolean | JSON `true` / `false` | `"true"` |
-| Enum | one of the literals listed by the schema | anything else |
-| String | a JSON **string** only | a bare number: `"ConstantTimer.delay": 500` is rejected, use `"500"` |
+| Field kind | Canonical | Also accepted | Rejected |
+|---|---|---|---|
+| Integer / Long | JSON number `5` | `"5"`, `${...}` reference | `"abc"`, `1.5` |
+| Double / Float | JSON number **with a decimal point** (`600.0`, `1500.0`) | `"600.0"`, `${...}` | the bare integer `600` / `1500` (not a Double) |
+| Boolean | JSON `true` / `false` | `"true"` / `"false"` | `${flag}`, `1`, `"yes"` |
+| Enum | one of the literals listed by the schema | — | anything else |
+| String | a JSON **string** only | — | a bare number: `"ConstantTimer.delay": 500` is rejected, use `"500"` |
 
-The Double row bites hardest: `RandomTimer.range` and `throughput` are Double, and JSON `800`
-deserializes as an Integer, which the validator rejects. Always write `800.0`.
+Literal quoted strings are converted to the declared type before the write, so `"true"` lands
+as a real boolean property and `"5"` as a real numeric property. Prefer the canonical literal
+in examples. The Double row still bites: `RandomTimer.range` and `throughput` are Double, so
+write `800.0` (or `"800.0"`) — a bare `800` deserializes as an Integer.
 
-String-typed numeric fields exist — e.g. `ConstantTimer.delay` and
-`JSONPostProcessor.match_numbers` are **String** — so `"500"` is correct there and `500` is
-rejected. When in doubt let the error message tell you.
+`${...}` references are accepted only on numeric fields. **This is a plugin policy, not a
+JMeter limitation** — JMeter's engine also resolves `${...}` on boolean fields when the value
+is stored as a `stringProp`. The plugin requires a boolean literal instead, because an
+unresolved variable silently reads as `false` and `getBooleanValue()` accepts only `true`.
+Never put `${...}` inside a `boolProp` (silently false) or `intProp` (the `.jmx` then fails to
+open). String-typed numeric fields exist —
+e.g. `ConstantTimer.delay` and `JSONPostProcessor.match_numbers` are **String** — so `"500"`
+is correct there and `500` is rejected. When in doubt let the error message tell you: it
+names the expected type, the received value, and a worked `{"property": value}` example.
 
 After any write, read it back: `jmeter-cli get --elementId <id> --includeProperties true --maxDepth 0`.
 

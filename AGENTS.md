@@ -340,7 +340,7 @@ CDP 直连 Chrome 的浏览器录制能力（无代理/无 MITM 证书）：两�
   - 枚举值限制（`enum`）
   - 数值范围（`min`/`max`）
   - 正则表达式模式（`pattern`）
-  - 类型驱动的 `${...}` 变量引用（数值类型 Integer/Long/Float/Double/Number 接受 `${...}` 引用字符串、Boolean/枚举拒绝；无需字段级开关——JMeter 引擎在运行前统一把整棵树的 `${...}` 编译为 FunctionProperty 再求值，对所有组件的数值属性一致适用）
+  - 类型驱动的 `${...}` 变量引用（数值类型 Integer/Long/Float/Double/Number 接受引用字符串；Boolean/枚举/Object/Array 拒绝；无需字段级开关）。注意这是**插件策略而非 JMeter 引擎限制**：JMeter 5.6.3 的 PreCompiler/ValueReplacer 把 `stringProp` 里的 `${...}` 编译为 FunctionProperty，之后 `getIntValue()`/`getDoubleValue()`/`getBooleanValue()` 都解析已求值字符串，因此引擎对 Boolean 与数值一视同仁；真正约束只是载体必须是 `stringProp`（`boolProp` 静默变 false、`intProp` 会导致 .jmx 打不开）。插件对 Boolean 保持严格，是因未定义变量会静默读作 false、`getBooleanValue()` 只认字面 `true`、且 GUI 的表达式入口是隐藏的右键菜单（`JBooleanPropertyEditor`，5.6 起 EXPERIMENTAL）
   - 嵌套属性（`properties`）和集合项属性（`itemProperties`）
 
 **部署位置：** 构建时复制到 `{JMETER_HOME}/bin/jmeter-agent/skills/jmeter/references/`

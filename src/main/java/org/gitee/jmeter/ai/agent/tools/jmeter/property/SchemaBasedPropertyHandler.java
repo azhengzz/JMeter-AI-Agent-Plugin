@@ -7,6 +7,7 @@ import org.apache.jmeter.testelement.property.MapProperty;
 import org.apache.jmeter.testelement.property.ObjectProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.gitee.jmeter.ai.agent.validation.ComponentSchema;
+import org.gitee.jmeter.ai.agent.validation.ComponentValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +53,13 @@ public class SchemaBasedPropertyHandler {
             }
             return violations;
         }
+
+        // The validator accepts lenient string forms ("true"/"50"/"800.0") for
+        // Boolean/numeric fields; convert them here too so the write lands a
+        // boolProp/intProp instead of a StringProperty (JMeter loads typed
+        // properties by their serialized value, not by the field declaration).
+        // Applied to the whole map once so array items and nested objects are covered.
+        properties = ComponentValidator.normalizeScalarStrings(schema, properties);
 
         for (Map.Entry<String, Object> entry : properties.entrySet()) {
             String propName = entry.getKey();

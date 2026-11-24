@@ -19,7 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Float/Double/Number) accept a "${...}" reference string in place of a JSON
  * number — the engine resolves it at run time (JMeter precompiles the whole
  * tree into FunctionProperty before running). Boolean/enum fields stay strict.
- * Plain numeric strings ("50") are rejected with guidance.
+ * The Boolean exclusion is a PLUGIN POLICY, not an engine limitation: JMeter
+ * resolves ${...} on boolean fields too when the value is a stringProp. Kept
+ * strict because an unresolved variable silently reads false.
+ * Plain numeric strings ("50") are accepted and normalized; garbage ("abc")
+ * is rejected with guidance.
  */
 class ComponentValidatorVariableTest {
 
@@ -104,15 +108,19 @@ class ComponentValidatorVariableTest {
         assertTrue(errorsOf(Map.of("TestVar.ratio", "${rate}")).isEmpty());
     }
 
-    // ---- decision: plain numeric strings still rejected, with guidance ----
+    // ---- literal numeric strings are accepted and normalized; garbage is rejected ----
 
     @Test
-    void numericFieldRejectsPlainStringWithGuidance() {
-        String errors = joinErrors(Map.of("TestVar.num", "50"));
+    void numericFieldAcceptsPlainNumericString() {
+        assertTrue(errorsOf(Map.of("TestVar.num", "50")).isEmpty());
+    }
+
+    @Test
+    void numericFieldRejectsGarbageStringWithGuidance() {
+        String errors = joinErrors(Map.of("TestVar.num", "abc"));
         assertFalse(errors.isEmpty());
         assertTrue(errors.contains("Only a JSON number"), errors);
         assertTrue(errors.contains("variable reference"), errors);
-        assertTrue(errors.contains("plain strings are not"), errors);
     }
 
     @Test
@@ -132,18 +140,20 @@ class ComponentValidatorVariableTest {
         assertTrue(errorsOf(Map.of("TestVar.num", "${v}")).isEmpty());
     }
 
-    // ---- boolean / enum: strict (no guarantee of runtime resolution) ----
+    // ---- Boolean/enum: literal strings accepted, ${...} references still rejected ----
 
     @Test
     void booleanFieldRejectsReferenceWithHint() {
         String errors = joinErrors(Map.of("TestVar.flag", "${useFlag}"));
         assertFalse(errors.isEmpty());
-        assertTrue(errors.contains("Only a JSON boolean (true/false) is accepted"), errors);
+        assertTrue(errors.contains("Only a JSON boolean (true/false) is accepted"
+                + " (the equivalent quoted string is also accepted and normalized)"), errors);
     }
 
     @Test
     void booleanFieldAcceptsLiteral() {
         assertTrue(errorsOf(Map.of("TestVar.flag", true)).isEmpty());
+        assertTrue(errorsOf(Map.of("TestVar.flag", "true")).isEmpty());
     }
 
     @Test
@@ -170,17 +180,17 @@ class ComponentValidatorVariableTest {
     }
 
     @Test
-    void nestedNumericRejectsPlainString() {
+    void nestedNumericAcceptsPlainNumericString() {
         Map<String, Object> nested = Map.of("LoopController.loops", "10");
-        assertFalse(errorsOf(Map.of("TestVar.controller", nested)).isEmpty());
+        assertTrue(errorsOf(Map.of("TestVar.controller", nested)).isEmpty());
     }
 
     // ---- update path (validateUpdate) shares the behavior ----
 
     @Test
-    void updatePathAcceptsReferenceAndRejectsPlainString() {
+    void updatePathAcceptsReferenceAndPlainNumericString() {
         assertTrue(validator.validateUpdate("testvar", Map.of("TestVar.num", "${n}")).isValid());
-        assertFalse(validator.validateUpdate("testvar", Map.of("TestVar.num", "50")).isValid());
+        assertTrue(validator.validateUpdate("testvar", Map.of("TestVar.num", "50")).isValid());
     }
 
     // ---- sanity: the fixture schema actually loaded ----

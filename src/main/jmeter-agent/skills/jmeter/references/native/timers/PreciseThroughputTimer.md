@@ -19,7 +19,7 @@ Constant Throughput Timer converges to the specified rate, however it tends to p
 
 | Property | Required | Default | Description | Example |
 |----------|----------|---------|-------------|---------|
-| `throughput` | Yes | `"60"` | Maximum number of samples you want to obtain per "throughput period", including all threads in group, from all affected samplers. | `"60"` |
+| `throughput` | Yes | `"60"` | Maximum number of samples you want to obtain per "throughput period", including all threads in group, from all affected samplers. | `"60.0"` |
 | `throughputPeriod` | Yes | `"60"` | Throughput period in seconds. For example, if throughput is set to 42 and throughputPeriod to 21 sec, then you'll get 2 samples per second. | `"60"` |
 | `duration` | Yes | `"0"` | Test duration in seconds. This is used to ensure you'll get throughput*duration samples during "test duration" timeframe. Does NOT limit test duration; it is just a hint for the timer. Set to 0 for no duration constraint. | `"300"` |
 | `batchSize` | Yes | `"1"` | Number of threads that depart simultaneously in each batch. If > 1, multiple threads leave at once while maintaining average throughput. | `"1"` |
@@ -35,7 +35,7 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "精确吞吐量-60次/分钟"
 - properties:
-  - throughput: "60"
+  - throughput: "60.0"
   - throughputPeriod: "60"
 ```
 
@@ -46,7 +46,7 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "精确吞吐量-60次/小时"
 - properties:
-  - throughput: "60"
+  - throughput: "60.0"
   - throughputPeriod: "3600"
   - duration: "3600"
 ```
@@ -58,7 +58,7 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "精确吞吐量-5分钟测试"
 - properties:
-  - throughput: "300"
+  - throughput: "300.0"
   - throughputPeriod: "300"
   - duration: "300"
 ```
@@ -70,7 +70,7 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "可重现延迟的吞吐量"
 - properties:
-  - throughput: "60"
+  - throughput: "60.0"
   - throughputPeriod: "60"
   - randomSeed: "42"
 ```
@@ -82,7 +82,7 @@ create_jmeter_element with:
 - elementType: "precisethroughputTimer"
 - elementName: "批量事件吞吐量"
 - properties:
-  - throughput: "120"
+  - throughput: "120.0"
   - throughputPeriod: "60"
   - batchSize: "5"
   - batchThreadDelay: "42"

@@ -44,6 +44,9 @@ public class ComponentValidator {
         // Normalize JMeter historical property-name quirks before any schema lookup,
         // so callers may use the natural spelling (e.g. Assertion.test_strings)
         properties = normalizePropertyNames(properties);
+        // Convert accepted lenient string forms ("true"/"50"/"800.0") to the declared
+        // JSON type so the four validation passes see the same values the write path gets.
+        properties = normalizeScalarStrings(elementType, properties);
 
         ValidationResult.Builder builder = ValidationResult.builder();
 
@@ -87,8 +90,9 @@ public class ComponentValidator {
         log.debug("Validating component type: {} with schema (update mode - skipping required checks)", elementType);
 
         // Same normalization as validate(): unknown/type/value lookups must all see
-        // the canonical spelling the schema registers
+        // the canonical spelling the schema registers, and the coerced JSON types.
         properties = normalizePropertyNames(properties);
+        properties = normalizeScalarStrings(elementType, properties);
 
         ValidationResult.Builder builder = ValidationResult.builder();
 
@@ -399,11 +403,12 @@ public class ComponentValidator {
             if (!isValidType(value, propDef.getType())
                     && !(isVariableExpression(value) && acceptsVariableExpressions(propDef))) {
                 String error = String.format(
-                    "Parameter '%s' has invalid type. Expected %s but got %s%s",
+                    "Parameter '%s' has invalid type. Expected %s but got %s (received: %s)%s",
                     propName,
                     propDef.getType(),
-                    value != null ? value.getClass().getSimpleName() : "null",
-                    typeMismatchHint(propDef, value)
+                    friendlyTypeName(value),
+                    echoValue(value),
+                    typeMismatchHint(propDef)
                 );
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
@@ -458,8 +463,12 @@ public class ComponentValidator {
         if (items == null) {
             return; // non-list shape — the outer isValidType check already flagged it
         }
-        String example = itemType == ComponentSchema.PropertyType.STRING
-                ? "[\"200\", \"201\"]" : "[1, 2]";
+        String example = switch (itemType) {
+            case STRING -> "[\"200\", \"201\"]";
+            case BOOLEAN -> "[true, false]";
+            case FLOAT, DOUBLE -> "[1.0, 2.0]";
+            default -> "[1, 2]";
+        };
         for (int i = 0; i < items.size(); i++) {
             Object item = items.get(i);
             if (item == null) {
@@ -468,10 +477,10 @@ public class ComponentValidator {
             if (!isValidType(item, itemType)
                     && !(isVariableExpression(item) && acceptsVariableExpressions(itemType))) {
                 String error = String.format(
-                    "Parameter '%s' expects a flat list of %s items (e.g. %s), but item #%d is %s — "
+                    "Parameter '%s' expects a flat list of %s items (e.g. %s), but item #%d is %s (received: %s) — "
                     + "nested objects/arrays and mismatched scalar types are not accepted",
                     propName, itemType.name().toLowerCase(), example, i + 1,
-                    item.getClass().getSimpleName());
+                    friendlyTypeName(item), echoValue(item));
                 builder.addError(error);
                 log.debug("Validation failed: {}", error);
             }
@@ -551,10 +560,10 @@ public class ComponentValidator {
             if (!isValidType(nestedPropValue, nestedDef.getType())
                     && !(isVariableExpression(nestedPropValue) && acceptsVariableExpressions(nestedDef))) {
                 builder.addError(String.format(
-                    "Nested property '%s.%s' has invalid type. Expected %s but got %s%s",
+                    "Nested property '%s.%s' has invalid type. Expected %s but got %s (received: %s)%s",
                     propDef.getName(), nestedPropName, nestedDef.getType(),
-                    nestedPropValue != null ? nestedPropValue.getClass().getSimpleName() : "null",
-                    typeMismatchHint(nestedDef, nestedPropValue)
+                    friendlyTypeName(nestedPropValue), echoValue(nestedPropValue),
+                    typeMismatchHint(nestedDef)
                 ));
                 log.debug("Validation failed: nested property {}.{} type mismatch",
                     propDef.getName(), nestedPropName);
@@ -602,7 +611,7 @@ public class ComponentValidator {
             if (!isValidArrayValue(value)) {
                 builder.addError(String.format(
                     "Property '%s' must be an array (e.g., ['value1', 'value2']). Received: %s (type: %s)",
-                    propDef.getName(), value, value.getClass().getSimpleName()
+                    propDef.getName(), echoValue(value), friendlyTypeName(value)
                 ));
                 log.debug("Validation failed: property {} is not a valid array", propDef.getName());
                 return;
@@ -845,6 +854,17 @@ public class ComponentValidator {
                     continue; // Already reported in validateArrayItemUnknownParameters
                 }
 
+                // Enforce the item's declared type (coercible strings were already
+                // converted by normalizeScalarStrings, so they pass here naturally).
+                if (!isValidType(itemPropValue, itemPropDef.getType())
+                        && !(isVariableExpression(itemPropValue) && acceptsVariableExpressions(itemPropDef))) {
+                    builder.addError(String.format(
+                        "Array item property '%s[%d].%s' has invalid type. Expected %s but got %s%s",
+                        propDef.getName(), i, itemPropName, itemPropDef.getType(),
+                        friendlyTypeName(itemPropValue), typeMismatchHint(itemPropDef)));
+                    continue;
+                }
+
                 // Validate value constraints (enum, range, pattern)
                 validatePropertyConstraints(itemPropDef, itemPropValue, builder);
             }
@@ -944,7 +964,7 @@ public class ComponentValidator {
         if (!isValidArrayValue(value)) {
             builder.addError(String.format(
                 "Property '%s' must be a nested array (e.g., [['val1', 'val2'], ['val3', 'val4']]). Received: %s (type: %s)",
-                propDef.getName(), value, value.getClass().getSimpleName()
+                propDef.getName(), echoValue(value), friendlyTypeName(value)
             ));
             return builder.build();
         }
@@ -965,8 +985,7 @@ public class ComponentValidator {
             if (!isValidArrayValue(innerItem)) {
                 builder.addError(String.format(
                     "Property '%s' inner element at index %d must be an array. Received: %s (type: %s)",
-                    propDef.getName(), i, innerItem,
-                    innerItem != null ? innerItem.getClass().getSimpleName() : "null"
+                    propDef.getName(), i, echoValue(innerItem), friendlyTypeName(innerItem)
                 ));
                 continue;
             }
@@ -977,9 +996,9 @@ public class ComponentValidator {
                 Object element = innerList.get(j);
                 if (!isValidType(element, innerItemType)) {
                     builder.addError(String.format(
-                        "Property '%s' inner element [%d][%d] has invalid type. Expected: %s, Received: %s",
+                        "Property '%s' inner element [%d][%d] has invalid type. Expected: %s, Received: %s (got %s)",
                         propDef.getName(), i, j, innerItemType,
-                        element != null ? element.getClass().getSimpleName() : "null"
+                        echoValue(element), friendlyTypeName(element)
                     ));
                 }
             }
@@ -1056,15 +1075,16 @@ public class ComponentValidator {
      * Check if a value looks like a JMeter variable/function reference
      * (e.g. ${threadNum}, ${__P(threads,10)}).
      * <p>
-     * This is a deliberately loose pre-check, matching JMeter's own GUI-side gate
-     * (WrapperEditor.isExpression: {@code text.contains("${")}) rather than the
-     * engine's strict parser (FunctionParser.compileString, a char-by-char state
-     * machine that also honours backslash escapes and treats a malformed "${" as
-     * a literal). Aligning with the GUI gate keeps the tool's acceptance a superset
-     * of what a human can type in the GUI; being stricter here would reject inputs
-     * the engine happily accepts. Malformed or unresolved references degrade to 0
-     * for numeric fields at run time via AbstractProperty.getIntValue() — JMeter's
-     * existing lenient semantics, not a risk introduced here.
+     * Deliberately loose: a simple {@code contains("${")}, matching the GUI-side
+     * gates (WrapperEditor.isExpression in the older TestBean GUI, and the
+     * "Use Expression" entry of JEditableCheckBox/JTextComponentBinding in 5.6).
+     * It is NOT equivalent to the engine's FunctionParser.compileString, which
+     * honours backslash escapes ({@code \${var}} is a literal) and treats a
+     * malformed "${" as a literal. So this check is a superset: an escaped or
+     * malformed reference may be accepted here but stays a literal string at run
+     * time, where AbstractProperty.getIntValue()/getDoubleValue() parse it to 0
+     * (and getBooleanValue() to false). That silent degradation is JMeter's
+     * existing behaviour, not a risk introduced here.
      */
     private static boolean isVariableExpression(Object value) {
         return value instanceof String s && s.contains("${");
@@ -1072,14 +1092,29 @@ public class ComponentValidator {
 
     /**
      * Whether a ${...} variable-reference string is accepted in place of the declared type.
-     * Purely type-driven: numeric fields accept it, everything else does not.
+     * Numeric fields accept it; Boolean does not — by PLUGIN POLICY, not because the engine
+     * forbids it.
      * <p>
-     * Rationale (verified against JMeter 5.6.3 sources): the engine replaces variable
-     * references on the whole tree before running (StandardJMeterEngine precompiles via
-     * PreCompiler/ValueReplacer), turning any "${...}" string into a FunctionProperty
-     * whose getIntValue() parses the resolved value. This applies uniformly to every
-     * numeric property of every component, so no per-field opt-in is needed. Non-numeric
-     * fields (Boolean, enum, Object, Array) have no such guarantee and stay strict.
+     * Engine (JMeter 5.6.3): StandardJMeterEngine runs PreCompiler/ValueReplacer before the
+     * test, which turns a StringProperty holding "${...}" into a FunctionProperty. That class
+     * defines no typed getters, so every scalar read goes through
+     * AbstractProperty.getIntValue/getDoubleValue/getBooleanValue — all of which parse the
+     * resolved string. Boolean and numeric fields are therefore EQUIVALENT in the engine.
+     * The real constraint is the carrier: the value must be a StringProperty (stringProp).
+     * A boolProp/intProp/doubleProp cannot hold the literal (Boolean.valueOf silently yields
+     * false, Integer.parseInt fails to open the .jmx, NumberProperty.setObjectValue swallows
+     * the NumberFormatException and keeps 0).
+     * <p>
+     * The plugin's write path already lands a StringProperty for any non-Number/non-Boolean
+     * value, so numeric ${...} is safe end-to-end. Boolean is kept strict deliberately: an
+     * unresolved reference silently reads as false, getBooleanValue() only accepts the literal
+     * "true", and the GUI expression entry is a hidden right-click "Use Expression" menu
+     * (JBooleanPropertyEditor, @since 5.6, EXPERIMENTAL). Requiring a literal avoids silently
+     * misconfigured switches. If this policy is ever relaxed, no write-path change is needed —
+     * only this gate and the docs.
+     * <p>
+     * enum/Object/Array are genuinely different: they have no parse-on-read semantics for a
+     * resolved string, so they stay strict.
      */
     private static boolean acceptsVariableExpressions(ComponentSchema.PropertyDefinition propDef) {
         return acceptsVariableExpressions(propDef.getType());
@@ -1096,23 +1131,77 @@ public class ComponentValidator {
         };
     }
 
+    /** Bounded, caller-friendly rendering of a received value for error messages. */
+    private static final int MAX_ECHO_CHARS = 120;
+
+    private static String echoValue(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        String s = String.valueOf(value);
+        return s.length() <= MAX_ECHO_CHARS ? s : s.substring(0, MAX_ECHO_CHARS) + "...(truncated)";
+    }
+
+    /** Java class names such as Map1 / ImmutableCollections$MapN are unhelpful to callers. */
+    private static String friendlyTypeName(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Map) {
+            return "Map";
+        }
+        if (value instanceof Iterable || value.getClass().isArray()) {
+            return "Array";
+        }
+        return value.getClass().getSimpleName();
+    }
+
+    /** A correct JSON literal for this type, used in the worked call example. */
+    private static String exampleLiteral(ComponentSchema.PropertyType type) {
+        return switch (type) {
+            case INTEGER, LONG, NUMBER -> "50";
+            case FLOAT, DOUBLE -> "800.0";
+            case BOOLEAN -> "true";
+            case STRING -> "\"value\"";
+            case ARRAY, ARRAY_2D -> "[]";
+            case OBJECT -> "{}";
+        };
+    }
+
+    /** Worked call fragment using the actual property name, e.g. {"HTTPSampler.postBodyRaw": true}. */
+    private static String callExample(String propName, ComponentSchema.PropertyType type) {
+        return String.format("{\"%s\": %s}", propName, exampleLiteral(type));
+    }
+
     /**
      * Guidance appended to type-mismatch errors, telling the caller which
      * literal forms are accepted for this field.
      */
-    private static String typeMismatchHint(ComponentSchema.PropertyDefinition propDef, Object value) {
+    private static String typeMismatchHint(ComponentSchema.PropertyDefinition propDef) {
         String literal = switch (propDef.getType()) {
-            case INTEGER, LONG, FLOAT, DOUBLE, NUMBER -> "a JSON number (e.g. 50)";
+            case INTEGER, LONG, NUMBER -> "a JSON number (e.g. 50)";
+            case FLOAT, DOUBLE -> "a JSON number with a decimal point (e.g. 800.0)";
             case BOOLEAN -> "a JSON boolean (true/false)";
             case ARRAY, ARRAY_2D -> "an array";
             case OBJECT -> "an object";
             case STRING -> "a string";
         };
+        String accepted = "Only " + literal;
         if (acceptsVariableExpressions(propDef)) {
-            return ". Only " + literal + " or a ${...} variable reference (e.g. ${varName}) is accepted"
-                    + (value instanceof String ? "; plain strings are not" : "");
+            accepted += " or a ${...} variable reference (e.g. ${varName}) is accepted";
+        } else {
+            accepted += " is accepted";
         }
-        return ". Only " + literal + " is accepted";
+        // Lenient literal string forms are also accepted; say so explicitly.
+        if (propDef.getType() == ComponentSchema.PropertyType.BOOLEAN
+                || propDef.getType() == ComponentSchema.PropertyType.INTEGER
+                || propDef.getType() == ComponentSchema.PropertyType.LONG
+                || propDef.getType() == ComponentSchema.PropertyType.FLOAT
+                || propDef.getType() == ComponentSchema.PropertyType.DOUBLE
+                || propDef.getType() == ComponentSchema.PropertyType.NUMBER) {
+            accepted += " (the equivalent quoted string is also accepted and normalized)";
+        }
+        return ". " + accepted + ". Example: " + callExample(propDef.getName(), propDef.getType());
     }
 
     /**
@@ -1135,6 +1224,148 @@ public class ComponentValidator {
             case ARRAY -> value instanceof Iterable || value.getClass().isArray();
             case ARRAY_2D -> value instanceof Iterable || value.getClass().isArray();  // Top-level is iterable
         };
+    }
+
+    // =================================================================================
+    // Lenient scalar strings: "true"/"50"/"800.0" are accepted for Boolean/numeric fields
+    // and normalized to the declared JSON type before the write path sees them.
+    //
+    // Rationale: the write path (SchemaBasedPropertyHandler.coerceValue) and JMeter's own
+    // AbstractProperty.getBooleanValue already coerce these strings. Rejecting them in the
+    // validator created a needless split between the tool contract and the engine. Only
+    // literal strings are accepted: ${...} references on Boolean fields stay rejected, and
+    // unparseable strings ("yes", "abc") still fail with a precise type error.
+    // =================================================================================
+
+    /**
+     * Whether a String value is an accepted lenient form for the declared type.
+     * Shared by validation (to allow) and normalization (to convert), so the two
+     * can never disagree about what is coercible.
+     */
+    public static boolean isCoercibleString(Object value, ComponentSchema.PropertyType type) {
+        if (!(value instanceof String s) || isVariableExpression(value)) {
+            return false;
+        }
+        String t = s.trim();
+        return switch (type) {
+            case BOOLEAN -> "true".equalsIgnoreCase(t) || "false".equalsIgnoreCase(t);
+            case INTEGER -> parseIntOrNull(t) != null;
+            case LONG -> parseLongOrNull(t) != null;
+            case FLOAT -> parseFloatOrNull(t) != null;
+            case DOUBLE -> parseDoubleOrNull(t) != null;
+            case NUMBER -> parseDoubleOrNull(t) != null;
+            default -> false;
+        };
+    }
+
+    /** Convert a coercible String to the declared JSON type; return unchanged otherwise. */
+    public static Object coerceScalarString(Object value, ComponentSchema.PropertyType type) {
+        if (!isCoercibleString(value, type)) {
+            return value;
+        }
+        String t = ((String) value).trim();
+        return switch (type) {
+            case BOOLEAN -> Boolean.valueOf(t);
+            case INTEGER -> parseIntOrNull(t);
+            case LONG -> parseLongOrNull(t);
+            case FLOAT -> parseFloatOrNull(t);
+            case DOUBLE, NUMBER -> parseDoubleOrNull(t);
+            default -> value;
+        };
+    }
+
+    private static Integer parseIntOrNull(String s) {
+        try { return Integer.valueOf(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Long parseLongOrNull(String s) {
+        try { return Long.valueOf(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Float parseFloatOrNull(String s) {
+        try { return Float.valueOf(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Double parseDoubleOrNull(String s) {
+        try { return Double.valueOf(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    /**
+     * Return a copy of {@code properties} with coercible strings converted to the
+     * schema-declared JSON type. Covers top-level, nested OBJECT, array itemProperties
+     * and flat itemType arrays. Used by both the validator (before the 4 passes) and
+     * the write path so the value that is validated is the value that is written.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> normalizeScalarStrings(String elementType, Map<String, Object> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return properties;
+        }
+        ComponentSchema schema = schemaLoader.loadSchema(elementType);
+        if (schema == null) {
+            return properties; // No schema = skip validation (backward compatibility)
+        }
+        return normalizeScalarStrings(schema, properties);
+    }
+
+    /** Schema-object overload for callers that already hold the loaded schema. */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> normalizeScalarStrings(ComponentSchema schema, Map<String, Object> properties) {
+        if (properties == null || properties.isEmpty() || schema == null) {
+            return properties;
+        }
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String name = ComponentSchema.normalizePropertyName(entry.getKey());
+            Object value = entry.getValue();
+            ComponentSchema.PropertyDefinition def = schema.getProperty(name);
+            result.put(entry.getKey(), def == null ? value : normalizeValue(value, def));
+        }
+        return result;
+    }
+
+    private static Object normalizeValue(Object value, ComponentSchema.PropertyDefinition def) {
+        if (value == null) {
+            return null;
+        }
+        ComponentSchema.PropertyType type = def.getType();
+        if (type == null) {
+            return value;
+        }
+        if (type == ComponentSchema.PropertyType.OBJECT && value instanceof Map && def.hasNestedProperties()) {
+            Map<String, Object> nested = new java.util.LinkedHashMap<>();
+            for (Map.Entry<String, Object> e : ((Map<String, Object>) value).entrySet()) {
+                ComponentSchema.PropertyDefinition nestedDef = def.getNestedProperties().stream()
+                        .filter(p -> e.getKey().equals(p.getName())).findFirst().orElse(null);
+                nested.put(e.getKey(), nestedDef == null ? e.getValue() : normalizeValue(e.getValue(), nestedDef));
+            }
+            return nested;
+        }
+        if ((type == ComponentSchema.PropertyType.ARRAY || type == ComponentSchema.PropertyType.ARRAY_2D)
+                && value instanceof Iterable<?>) {
+            List<Object> list = new ArrayList<>();
+            for (Object item : (Iterable<?>) value) {
+                list.add(normalizeArrayItem(item, def));
+            }
+            return list;
+        }
+        return coerceScalarString(value, type);
+    }
+
+    private static Object normalizeArrayItem(Object item, ComponentSchema.PropertyDefinition def) {
+        if (item instanceof Map && def.hasItemProperties()) {
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            for (Map.Entry<String, Object> e : ((Map<String, Object>) item).entrySet()) {
+                ComponentSchema.PropertyDefinition itemDef = def.getItemProperties().stream()
+                        .filter(p -> e.getKey().equals(p.getName())).findFirst().orElse(null);
+                row.put(e.getKey(), itemDef == null ? e.getValue() : normalizeValue(e.getValue(), itemDef));
+            }
+            return row;
+        }
+        if (def.hasItemType()) {
+            return coerceScalarString(item, def.getItemType());
+        }
+        return item;
     }
 
     /**

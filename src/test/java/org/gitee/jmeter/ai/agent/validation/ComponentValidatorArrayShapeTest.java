@@ -120,8 +120,11 @@ class ComponentValidatorArrayShapeTest {
     }
 
     @Test
-    void v6numeric_stringLiteralsStillRejectedForNumericItemType() {
-        assertFalse(errorsOf(Map.of("Arr.nums", List.of("50"))).isEmpty());
+    void v6numeric_stringLiteralsAcceptedForNumericItemType() {
+        // Literal numeric strings are coerced to the declared itemType (lenient contract);
+        // non-numeric garbage still fails.
+        assertTrue(errorsOf(Map.of("Arr.nums", List.of("50"))).isEmpty());
+        assertFalse(errorsOf(Map.of("Arr.nums", List.of("abc"))).isEmpty());
     }
 
     // ---- update path shares the behavior ----
