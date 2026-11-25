@@ -31,6 +31,7 @@
 |--------|------|
 | `parse_jmx_file` | 解析外部 JMX 脚本文件（返回组件树，或按条件过滤查询元素） |
 | `open_jmx_file` | 在当前 GUI 中打开外部 JMX 文件（默认替换当前计划，可合并加载） |
+| `save_test_plan` | 把当前测试计划保存到磁盘（不传 `filePath`：存回关联文件；传 `filePath`：另存并改关联；覆盖已有文件需 `overwrite: true`）。仅在用户要求保存时调用 |
 | `get_script_info` | 获取当前脚本与运行环境信息（脚本路径、保存状态、JMeter/JDK 版本、JMETER_HOME） |
 | `get_log_panel_content` | 按行范围读取 JMeter LoggerPanel 日志面板内容 |
 

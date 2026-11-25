@@ -203,6 +203,8 @@ public final class JmeterCli {
                 return cmdFind(p.opts, p.json);
             case "open":
                 return cmdOpen(p.opts, p.json);
+            case "save":
+                return cmdSave(p.opts, p.json);
             case "batch":
                 return cmdBatch(p.opts, p.json);
             case "batch-delete":
@@ -407,6 +409,27 @@ public final class JmeterCli {
         putBoolIfPresent(opts, params, "includeProperties");
         putIntIfPresent(opts, params, "maxDepth");
         return execTool(opts, json, "open_jmx_file", params);
+    }
+
+    private static int cmdSave(Map<String, String> opts, boolean json) throws Exception {
+        return execTool(opts, json, "save_test_plan", buildSaveParameters(opts));
+    }
+
+    /**
+     * {@code save} 的参数构建(包内可见供单测):{@code --file} → filePath,缺省不投递(= 存回关联文件);
+     * {@code --overwrite} 是存在型旗标(同 {@code --wait}):无值即 true,垃圾值带旗标名报 usage 错误。
+     * 路径形态约束与覆盖保护全在工具端校验,CLI 不复制。
+     */
+    static Map<String, Object> buildSaveParameters(Map<String, String> opts) {
+        Map<String, Object> params = new HashMap<>();
+        if (opts.containsKey("file")) {
+            // --file 后面没跟值 = usage 错误;放行空串会被工具当成"未传"而静默存回关联文件
+            params.put("filePath", require(opts, "file"));
+        }
+        if (opts.containsKey("overwrite")) {
+            params.put("overwrite", parseStrictBool("overwrite", opts.get("overwrite"), true));
+        }
+        return params;
     }
 
     private static int cmdBatch(Map<String, String> opts, boolean json) throws Exception {
@@ -1231,6 +1254,31 @@ public final class JmeterCli {
             new String[]{
                 "jmeter-cli open --file /path/to/plan.jmx",
                 "jmeter-cli open --file plan.jmx --merge true --includeProperties false"
+            }),
+
+        new Cmd("save",
+            "Save the current test plan to disk.",
+            "jmeter-cli save [--file <path>] [--overwrite]",
+            """
+            Saves the live test plan through JMeter's own Save action (wraps save_test_plan; Ctrl+S equivalent).
+            Without --file: writes the plan back to its associated .jmx. With --file (ABSOLUTE path ending in
+            .jmx, parent directory must exist): Save As - writes there and re-associates the plan with the new
+            path, so later runs and saves target the new file. --file pointing at an EXISTING file requires
+            --overwrite; without it the save is refused and the file stays untouched. A never-saved plan has no
+            associated file: 'save' without --file then fails (exit 1) - pass --file. Relative paths, non-.jmx
+            extensions and missing parent directories are rejected (exit 1). The plan's file association is
+            an autosave snapshot after opening one: 'save' without --file is refused there too - pass --file
+            to write the plan to a proper location. NOTE: a Save As into another directory makes JMeter resolve
+            relative paths (CSV files, includes) from that directory, exactly like Save As in the GUI.""",
+            new String[][]{
+                {"--file <path>", "optional. absolute path ending in .jmx; omit to save back to the associated file"},
+                {"--overwrite", "required when --file points at an existing file (default: refuse)"},
+                {"--json, --pid, --token, --jmeter-home", "global options (see jmeter-cli help)"}
+            },
+            new String[]{
+                "jmeter-cli save",
+                "jmeter-cli save --file D:/plans/login-v2.jmx",
+                "jmeter-cli save --file D:/plans/login.jmx --overwrite"
             }),
 
         new Cmd("parse",

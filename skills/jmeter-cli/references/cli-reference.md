@@ -55,6 +55,22 @@ Options: `--file <path>` required; `--elementType <t>` switches to query mode �
 
 Read-only: the GUI plan is untouched, and the output has **no `elementId`** — parsed nodes cannot be used with `update`/`move`/`delete`/`copy`. To modify a file, `open` it first. `--includeProperties` defaults to `true`; query mode defaults `--maxDepth` to 0. Pass an absolute path.
 
+### `save`
+
+Save the live test plan to disk through JMeter's own Save action (Ctrl+S equivalent). Without `--file` it writes back to the plan's associated `.jmx`; with `--file` it saves as that path and re-associates the plan with it.
+
+```bash
+jmeter-cli save --json
+jmeter-cli save --file "D:/tests/api-v2.jmx" --json
+jmeter-cli save --file "D:/tests/api.jmx" --overwrite --json
+```
+
+Options: `--file <path>` optional (absolute, ending in `.jmx`, parent directory must exist), `--overwrite` (required when `--file` points at an existing file).
+
+The payload is `{filePath, fileName, mode, bytes}` with `mode` = `save` (back to the associated file) or `save_as`. It **overwrites** — run `script-info` first to see which file a plain `save` rewrites. A Save As moves the plan's association: later runs and saves target the new file, and JMeter resolves relative paths inside the plan (CSV files, includes) from the new directory.
+
+Refused with exit code 1 and nothing written: a never-saved plan without `--file` (there is no associated file — pass `--file`); an existing `--file` target without `--overwrite`; a relative path, a non-`.jmx` extension or a missing parent directory; and a plain `save` while the association points at a file under `{workspace}/autosave/` (after opening a snapshot — pass `--file` to write the plan to a proper location).
+
 ### `get`
 
 Get one element by `elementId`, or the current GUI selection when omitted.
@@ -257,7 +273,7 @@ Options: `--properties <json>` (global JMeter properties injected before start, 
 
 **Smoke verdicts** (the payload text, not the exit code): `Smoke validation completed: PASS (zero errors)` · `Smoke validation completed: FAIL` · `Smoke validation completed: FAIL (zero samples executed ...)` — nothing ran, do not count as a pass · `Smoke validation still running` / `Turn budget exhausted` — **no verdict**, poll `status` then `results`. Smoke blocks up to **180 s** internally.
 
-**`run` can rewrite the open `.jmx`.** JMeter defaults to `save_automatically_before_run=true`, so `run` (smoke included) saves the live tree to the plan's associated file before starting.
+**`run` can rewrite the open `.jmx`.** JMeter defaults to `save_automatically_before_run=true`, so `run` (smoke included) saves the live tree to the plan's associated file before starting. Use `save` when the file must be written without a run, or written to a new path.
 
 **`--wait` timing out does not stop the test.** The CLI exits 1 while the test keeps running and is never cancelled — poll `status` yourself or give it more `--timeout`.
 
@@ -362,6 +378,7 @@ The IPC server only allows these tools over `jmeter-cli tool`.
 - `parse_jmx_file`: `{ "filePath": "path.jmx", "includeProperties": true, "maxDepth": -1 }`
 - `parse_jmx_file` query mode: `{ "filePath": "path.jmx", "elementType": "httpsampler", "propertyName": "HTTPSampler.domain", "propertyValue": "example.com", "matchMode": "contains", "offset": 0, "limit": 20 }`
 - `open_jmx_file`: `{ "filePath": "path.jmx", "merge": false, "includeProperties": false, "maxDepth": -1 }`
+- `save_test_plan`: `{}` (save back to the associated file) or `{ "filePath": "path.jmx", "overwrite": true }` (Save As; `overwrite` required when the file exists) — prefer the `save` command.
 
 ### Test Execution
 
@@ -398,6 +415,15 @@ jmeter-cli open --file "D:/tests/api.jmx" --includeProperties false --maxDepth 2
 
 `parse` is read-only and returns **no** `elementId`s; `open` replaces the live plan (unsaved edits
 are discarded without prompting). Use absolute paths. See [workflows.md](workflows.md) Recipe E.
+
+### Deliver the edited plan as a `.jmx`
+
+```bash
+jmeter-cli save --file "D:/tests/api-v2.jmx" --json   # mode: "save_as"
+jmeter-cli save --json                                # rewrite the associated file instead
+```
+
+`--file` needs `--overwrite` when the target already exists; the payload carries `filePath` and `bytes`.
 
 ### Run and collect results
 

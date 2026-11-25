@@ -19,10 +19,11 @@ jmeter-cli copy --elementId <id>                                # 深拷贝元�
 jmeter-cli batch-toggle --elementIds 5,6,7 --action disable     # 批量禁用
 jmeter-cli validate                                             # 静态校验当前计划
 jmeter-cli run --mode smoke                                     # 冒烟运行(全 TG 1×1,阻塞至判定)
+jmeter-cli save                                                 # 保存当前计划(无 --file 存回关联文件;另存加 --file <绝对路径>)
 jmeter-cli agent "再加一个 5 用户的线程组"
 ```
 
-完整命令清单、109 条测试用例与一键回归脚本见 [../docs/test/jmeter-cli-test-cases.md](../docs/test/jmeter-cli-test-cases.md)；实现方案见 [../TODO/cli-support-plan.md](../TODO/cli-support-plan.md)。
+完整命令清单、127 条测试用例与一键回归脚本见 [../docs/test/jmeter-cli-test-cases.md](../docs/test/jmeter-cli-test-cases.md)；实现方案见 [../TODO/cli-support-plan.md](../TODO/cli-support-plan.md)。
 
 `skills/jmeter-cli/` 是面向**第三方 Agent**（如 OpenClaw、Hermes、Codex 等外部自动化工具）使用的 skill 文档，指导它们通过 `jmeter-cli` 命令操作运行中的 JMeter GUI 实例。它不在插件内加载，而是由外部 Agent 的 skill 系统读取。
 
@@ -76,6 +77,7 @@ CLI 命令到 IPC 工具的映射见下表（`list`/`health`/`agent` 不经 `/to
 | `script-info` | `get_script_info` | 无参 |
 | `open` | `open_jmx_file` | `--file`→filePath；`--merge`/`--includeProperties`/`--maxDepth` 直传 |
 | `parse` | `parse_jmx_file` | `--file`→filePath；`--elementType`/`--includeProperties`/`--maxDepth` 直传 |
+| `save` | `save_test_plan` | 无 `--file` = 存回关联文件（投空参数）；`--file`→filePath；`--overwrite`→overwrite；路径形态与覆盖保护由工具端校验 |
 | `create` | `create_jmeter_element` | `--elementType`/`--elementName` 必填；`--parentId` 直传；`--properties` JSON |
 | `copy` | `copy_paste_jmeter_element` | `--elementId` 必填；`--targetParentId`/`--position` 直传（缺省=原位复制） |
 | `update` | `update_jmeter_element` | `--elementId` 必填；`--properties` JSON 必填 |

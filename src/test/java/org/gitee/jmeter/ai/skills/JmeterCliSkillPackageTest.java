@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>"exit 0 means success" while {@code validate}/{@code run --mode smoke} exit 0 on FAIL —
  *       inverts the only verification signal the package has;</li>
  *   <li>no JMeter domain vocabulary at all (HTTP argument shapes, assertions, extractors);</li>
+ *   <li>"No save command" / "only the human can save" — true until {@code jmeter-cli save} shipped
+ *       and wrong after it: the package must document the command and its overwrite protection;</li>
  *   <li>dangling relative links, which read as available knowledge but resolve to nothing.</li>
  * </ul>
  *
@@ -98,8 +100,12 @@ class JmeterCliSkillPackageTest {
         assertTrue(all.contains("HeaderManager.headers"), "header manager shape missing");
         assertTrue(all.contains("save_automatically_before_run"),
                 "the run-saves-the-.jmx hazard must be documented");
-        assertTrue(all.contains("No save command") || all.contains("no save command"),
-                "the absence of a save command must be stated");
+        assertTrue(all.contains("jmeter-cli save"),
+                "the save command must be documented: the package used to tell agents only a human can save");
+        assertTrue(all.contains("--overwrite"),
+                "save's overwrite protection (--overwrite) must be documented");
+        assertFalse(all.contains("No save command") || all.contains("no save command"),
+                "the package claims there is no save command; 'jmeter-cli save' exists");
     }
 
     /** A skill that points at files it does not ship silently promises knowledge it cannot deliver. */

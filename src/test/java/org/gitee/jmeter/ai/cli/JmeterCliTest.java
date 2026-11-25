@@ -160,7 +160,7 @@ class JmeterCliTest {
 
         // 每个新动词都有 SPECS 条目且 -h 级帮助打印不抛异常
         for (String cmd : new String[]{"batch-delete", "batch-move", "batch-toggle", "validate",
-                "copy", "tree", "script-info", "query", "parse", "log"}) {
+                "copy", "tree", "script-info", "query", "parse", "log", "save"}) {
             java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
             assertTrue(JmeterCli.printCommandHelp(new java.io.PrintStream(buf, true), cmd),
                     "缺少 SPECS 帮助条目: " + cmd);
@@ -260,12 +260,48 @@ class JmeterCliTest {
     }
 
     @Test
+    void buildSaveParametersOmitEverythingByDefault() {
+        // save:无参 = 存回关联文件(投空参数);--file → filePath;--overwrite 是存在型旗标
+        assertEquals(java.util.Map.of(), JmeterCli.buildSaveParameters(Map.of()));
+        assertEquals(java.util.Map.of("filePath", "D:/plans/a.jmx"),
+                JmeterCli.buildSaveParameters(Map.of("file", "D:/plans/a.jmx")));
+        assertEquals(java.util.Map.of("overwrite", true),
+                JmeterCli.buildSaveParameters(Map.of("overwrite", "")));
+        assertEquals(java.util.Map.of("filePath", "D:/plans/a.jmx", "overwrite", true),
+                JmeterCli.buildSaveParameters(Map.of("file", "D:/plans/a.jmx", "overwrite", "true")));
+    }
+
+    @Test
+    void overwriteFlagIsStrictAndEmptyFileIsUsageError() {
+        // --overwrite 垃圾值、--file 没跟值都是 usage 错误(exit 2):
+        // 放行空 file 会被工具当成"未传"而静默存回关联文件
+        IllegalArgumentException garbage = assertThrows(IllegalArgumentException.class,
+                () -> JmeterCli.buildSaveParameters(Map.of("overwrite", "yes")));
+        assertTrue(garbage.getMessage().contains("--overwrite"), garbage.getMessage());
+        IllegalArgumentException emptyFile = assertThrows(IllegalArgumentException.class,
+                () -> JmeterCli.buildSaveParameters(Map.of("file", "")));
+        assertTrue(emptyFile.getMessage().contains("--file"), emptyFile.getMessage());
+    }
+
+    @Test
+    void saveHelpDocumentsOverwriteProtection() {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        assertTrue(JmeterCli.printCommandHelp(new java.io.PrintStream(buf, true), "save"),
+                "缺少 SPECS 帮助条目: save");
+        String help = buf.toString();
+        assertTrue(help.contains("Usage: jmeter-cli save"), help);
+        assertTrue(help.contains("--overwrite"), help);
+        assertTrue(help.contains("existing file"), "must state that overwriting needs --overwrite: " + help);
+    }
+
+    @Test
     void allowedFlagsCoverAllConsumedFlags() {
         // F3 守卫:关键旗标硬编码映射(独立于 usage 文本,防 usage 手误→误拒合法调用)
         java.util.Map<String, String[]> keyFlags = java.util.Map.ofEntries(
                 java.util.Map.entry("agent", new String[]{"message", "session"}),
                 java.util.Map.entry("tool", new String[]{"name", "params"}),
                 java.util.Map.entry("run", new String[]{"mode", "wait", "ignoreTimers", "properties"}),
+                java.util.Map.entry("save", new String[]{"file", "overwrite"}),
                 java.util.Map.entry("parse", new String[]{"file", "elementType", "limit", "offset", "maxDepth"}),
                 java.util.Map.entry("query", new String[]{"propertyName", "propertyValue", "matchMode", "limit"}),
                 java.util.Map.entry("create", new String[]{"elementType", "elementName", "parentId", "properties"}),

@@ -55,7 +55,10 @@ Call `update_goal` with action='complete' only after the objective is actually
 achieved and verified (or the smoke budget is exhausted); use 'cancel' when the
 user cancels, 'block' when progress is genuinely blocked, 'replace' only when
 the objective changes. Every terminal action requires a recap covering:
-objective, verification results, smoke rounds used, residual risks.
+objective, verification results, smoke rounds used, residual risks. Before calling
+update_goal(complete) on a verified test_plan goal, save the plan yourself with
+save_test_plan (no filePath = write back to the associated file), then report the
+save outcome in your final reply.
 
 Non-test-plan goals: when the goal was created with `verification='non_test_plan'`
 (the objective is not about building or fixing the JMeter test plan — the task may

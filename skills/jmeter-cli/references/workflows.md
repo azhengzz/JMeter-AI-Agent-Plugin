@@ -94,8 +94,11 @@ jmeter-cli log --maxLines 100
 - To modify: `jmeter-cli open --file <abs path>` (replaces the live plan; unsaved edits are
   discarded without a prompt). Then operate on ids from `tree`.
 - Absolute paths only — relative paths resolve inside the JMeter process, not your shell.
-- There is **no save command**. When done, ask the human to save in the GUI, or accept that `run`
-  will save the live tree over the associated file.
+- Save when the user asked for it: `jmeter-cli save` rewrites the associated file (Ctrl+S
+  equivalent); `jmeter-cli save --file <abs path>` produces a new `.jmx` and re-associates the
+  plan with it (`--overwrite` if that file already exists). Until you save, edits live only in
+  the GUI — and remember that `run` already saves the live tree over the associated file before
+  starting.
 - Prefer `get --elementId <id> --includeProperties true` over re-parsing the file: the live element
   is what will actually run.
 
@@ -107,7 +110,9 @@ jmeter-cli agent "/goal make the login flow pass with assertions on status and t
 
 Use it when the objective needs many iterations or a type that `create` cannot build. It edits,
 validates, smoke-runs and repairs across turns, and it leaves a pre-turn baseline under
-`{workspace}/autosave/`. **Two kinds of files live there** — pick the right one:
+`{workspace}/autosave/`. When a `/goal` finishes with verification evidence, it saves the plan
+itself before completing and reports the save outcome in its reply. **Two kinds of files live
+there** — pick the right one:
 
 | Name pattern | What it is |
 |---|---|
@@ -118,7 +123,9 @@ Names sort chronologically and the newest is usually an `agent-run-*` file for t
 turn just did — opening that rolls you to the *post*-edit state, not the pre-turn one. Filter to
 the timestamped turn baselines before picking "the newest".
 
-Open one with `open --file <abs snapshot path>`, then have the human Save As — a plain save
-overwrites the snapshot itself. It blocks up to `agentTimeoutMs` + 10 s; on timeout the turn is
+Open one with `open --file <abs snapshot path>`. The plan's association then points at the
+snapshot itself, so a plain `save` is refused there — write the restored plan back with
+`save --file <real path> --overwrite` when the user wants that, and never overwrite the snapshot.
+The agent turn blocks up to `agentTimeoutMs` + 10 s; on timeout the turn is
 cancelled server-side and edits may be partial — re-read `tree`. A reply of
 `Message injected into current conversation.` means your text was queued, not executed.

@@ -79,6 +79,8 @@ public final class IpcServer {
      * (HeaderManager 鉴权头、JDBC 密码等);{@code open_jmx_file} 还会把脚本加载进 GUI(替换当前计划)。
      * 暂未做目录限制 —— TODO:让其校验 {@code agent.tools.filesystem.allowed.dirs} 与 {@code denied.dirs},
      * 复用 read_file 的文件系统沙箱(见 {@code TODO/TODO.md})。
+     * {@code save_test_plan} 同样接受任意 filePath,可覆写磁盘上任一可写的 .jmx——写盘面只由
+     * 「仅 .jmx 扩展名」与「另存覆盖须显式 overwrite」约束,目录限制同样适用上述 TODO。
      * <p>包内可见以便守卫测试断言「白名单 ⊆ 服务端注册表注册名」(防手抖错名)。
      */
     static final Set<String> ALLOWED_TOOLS = Set.of(
@@ -96,8 +98,10 @@ public final class IpcServer {
             // 测试执行(与 Agent 同信任边界,无密钥泄露面)
             "run_test", "get_test_status", "get_test_results",
             // 加载/解析外部脚本 / 读取日志面板
-            // ⚠ parse_jmx_file / open_jmx_file 待按 allowed.dirs 限制(见 TODO/TODO.md)
-            "parse_jmx_file", "open_jmx_file", "get_log_panel_content"
+            // ⚠ parse_jmx_file / open_jmx_file / save_test_plan 待按 allowed.dirs 限制(见 TODO/TODO.md)
+            "parse_jmx_file", "open_jmx_file", "get_log_panel_content",
+            // 保存(写盘:存回关联文件 / 另存并改关联)
+            "save_test_plan"
     );
 
     private static final IpcServer INSTANCE = new IpcServer();
@@ -274,7 +278,7 @@ public final class IpcServer {
             if (!ALLOWED_TOOLS.contains(req.getTool())) {
                 sendError(ex, 400, "tool not allowed over IPC: " + req.getTool()
                         + " (allowlist: element CRUD + read-only query + static validation "
-                        + "+ test execution + jmx load/parse/log)");
+                        + "+ test execution + jmx load/parse/save + log)");
                 return;
             }
             Map<String, Object> params = req.getParams() == null ? Map.of() : req.getParams();

@@ -44,6 +44,7 @@ public class JMeterToolRegistry {
         registry.register(new GetTestPlanTreeTool());
         registry.register(new ParseJmxFileTool());
         registry.register(new OpenJmxFileTool());
+        registry.register(new SaveTestPlanTool());
         registry.register(new FindElementTool());
         registry.register(new CreateJMeterElementTool());
         registry.register(new UpdateJMeterElementTool());

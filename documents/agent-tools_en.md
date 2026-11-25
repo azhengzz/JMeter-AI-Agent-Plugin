@@ -31,6 +31,7 @@ Except for the subagent tools (off by default), every tool below is registered a
 |--------|------|
 | `parse_jmx_file` | Parse an external JMX script file (returns the component tree, or queries elements with filters) |
 | `open_jmx_file` | Open an external JMX file in the current GUI (replaces the current plan by default; can merge-load) |
+| `save_test_plan` | Save the live test plan to disk (without `filePath`: back to the associated file; with `filePath`: Save As, re-associating the plan with that path; overwriting an existing file requires `overwrite: true`). Called only when the user asks to save |
 | `get_script_info` | Get current script and runtime environment info (script path, save state, JMeter/JDK versions, JMETER_HOME) |
 | `get_log_panel_content` | Read JMeter LoggerPanel log content by line range |
 

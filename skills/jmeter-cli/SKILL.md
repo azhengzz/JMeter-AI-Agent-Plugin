@@ -1,14 +1,15 @@
 ---
 name: jmeter-cli
-description: Operate a running JMeter GUI through the `jmeter-cli` command — inspect and edit test plans (thread groups, HTTP samplers, assertions, extractors, timers, CSV data), validate, smoke-run, read results and diagnose failures. Use when a task needs JMeter driven from a terminal, a test plan built or repaired by automation, a plan executed, or a failing JMeter test explained.
+description: Operate a running JMeter GUI through the `jmeter-cli` command — inspect and edit test plans (thread groups, HTTP samplers, assertions, extractors, timers, CSV data), validate, smoke-run, save them as `.jmx` files, read results and diagnose failures. Use when a task needs JMeter driven from a terminal, a test plan built, repaired or saved by automation, a plan executed, or a failing JMeter test explained.
 ---
 
 # JMeter CLI
 
 `jmeter-cli` is a thin client: it discovers a running JMeter GUI from
 `<JMETER_HOME>/bin/jmeter-agent/ipc/port-<pid>.json`, sends loopback HTTP requests with the IPC
-token, and the plugin performs the actual tree operations inside the GUI process. Nothing here
-writes a `.jmx` file — you are editing the live plan held in the running GUI.
+token, and the plugin performs the actual tree operations inside the GUI process. You are editing
+the live plan held in the running GUI; only `save` (and JMeter's save-before-run on `run`) writes
+a `.jmx` file.
 
 ## Preconditions
 
@@ -24,13 +25,11 @@ Read this before promising anything. Each row is a hard limit, not a configurati
 
 | Need | Reality |
 |---|---|
-| Save the plan to disk | **No save command.** Edits live only in the running GUI's memory |
 | Undo an edit | No undo. Direct CLI edits leave **no snapshot** |
 | Run part of the plan | `run` always starts the whole plan; cannot target a sub-tree |
 | Create any JMeter element | Only **75 of 166** type keys are creatable (see `element-types.md`) |
 | Read an older run | `status`/`results` cover **only the latest run** in this GUI session |
 | Inspect a long run | Only the most recent **1000 samples** are retained |
-| Deliver a `.jmx` file | You cannot produce one; only the human can save in the GUI |
 
 ## Safety rules
 
@@ -39,6 +38,13 @@ Read this before promising anything. Each row is a hard limit, not a configurati
   After `open --file plan.jmx`, any run overwrites `plan.jmx` with your edits. Copy the file first
   if it must not change. On a never-saved plan, `run` writes a throwaway file under
   `{workspace}/autosave/` and the plan stays unsaved.
+- **`save` overwrites files.** Without `--file` it rewrites the plan's associated `.jmx` (run
+  `script-info` first to see which file that is). With `--file <abs path>` it writes there and
+  re-associates the plan, so later runs and saves target the new file. An existing target needs
+  `--overwrite`; without it the save is refused and nothing changes. On a never-saved plan `save`
+  without `--file` fails (exit 1) — pass `--file`. When the association points at a file under
+  `{workspace}/autosave/` (after opening a snapshot), `save` without `--file` is refused — pass
+  `--file` to write the plan to a proper location.
 - **No undo, no snapshot for direct commands.** `create`/`update`/`delete`/`move`/`copy`/`batch`
   mutate the live tree irreversibly. Before the first mutating command on an existing plan, run
   `jmeter-cli script-info` and back up the file it reports. Treat `delete`, `batch-delete` and
@@ -52,10 +58,11 @@ Read this before promising anything. Each row is a hard limit, not a configurati
   graceful) and re-check before structural changes.
 - **Always pass `--parentId` to `create`.** Omitting it lands the element on the GUI's current
   selection; the reply echoes the landing path — read that line.
-- **Pass absolute paths to `--file`** (`open`, `parse`). Relative paths resolve inside the JMeter
-  process (typically `$JMETER_HOME/bin`), not your shell's working directory. Relative paths
-  *inside* a plan (CSV files, includes) resolve against the plan's base directory — check with
-  `parse` before `open`.
+- **Pass absolute paths to `--file`** (`open`, `parse`, `save`). `open` and `parse` resolve a
+  relative path inside the JMeter process (typically `$JMETER_HOME/bin`), not your shell's working
+  directory; `save` rejects one outright. Relative paths *inside* a plan (CSV files, includes)
+  resolve against the plan's base directory — check with `parse` before `open`, and note that a
+  `save --file` into another directory moves that base directory.
 - **Keep updates surgical.** `update` and `batch` touch only the listed properties.
 - **Windows:** quote arguments containing cmd metacharacters (`& | < > ^`); the `.bat` launcher
   passes `%*` through cmd. Prefer `jmeter-cli.sh` or a direct `java` call in scripted environments.
@@ -140,6 +147,9 @@ re-read `tree` after a move. No `jq` is assumed: to pull the first id out of any
    jmeter-cli results --format both --limit 20
    ```
 
+7. **Save only when the user asked for it** — `save` writes back to the associated file,
+   `save --file <abs path>` produces a new `.jmx`. Until then your edits live only in the GUI.
+
 ## Verify before reporting done
 
 After any tree change, verify before you answer — unless the user asked you not to run anything.
@@ -173,10 +183,12 @@ and FAIL. Gate on the payload text, never on `$?` alone.
 
 ## Command choice
 
-- Prefer the top-level verbs for everything they cover: `list`, `health`, `open`, `parse`, `get`,
-  `find`, `query`, `tree`, `script-info`, `log`, `create`, `copy`, `update`, `delete`,
+- Prefer the top-level verbs for everything they cover: `list`, `health`, `open`, `parse`, `save`,
+  `get`, `find`, `query`, `tree`, `script-info`, `log`, `create`, `copy`, `update`, `delete`,
   `batch-delete`, `move`, `batch-move`, `toggle`, `batch-toggle`, `batch`, `validate`, `run`,
   `stop`, `shutdown`, `status`, `results`.
+- Save only when the user asked for it: `save` (back to the associated file) or
+  `save --file <abs path>` (a new `.jmx`). Edits before that live only in the GUI's memory.
 - Use `tool <name> --params '<json>'` only for capabilities without a wrapper (e.g.
   `parse_jmx_file` property filters `propertyName`/`propertyValue`/`matchMode`).
 - `batch`, `batch-delete`, `batch-move`, `batch-toggle` take **at most 50 ids**, and `batch`
@@ -196,6 +208,8 @@ jmeter-cli agent "add an XPath extractor to the third request"      # one-off ed
 
 It edits the live plan, validates, smoke-runs, reads failures and iterates across turns, and it
 leaves a pre-turn rollback baseline in `{workspace}/autosave/` (direct CLI edits leave none).
+A `/goal` turn saves the plan itself before completing: once validation passes it calls `save_test_plan`
+and reports the save outcome in its reply. You do not need to `save` on its behalf.
 
 Caveats:
 - It runs in the **GUI's shared chat session**; the reply is visible in the panel. Pass

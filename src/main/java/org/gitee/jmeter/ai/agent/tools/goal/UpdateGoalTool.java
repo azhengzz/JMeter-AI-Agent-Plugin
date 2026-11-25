@@ -46,7 +46,11 @@ public class UpdateGoalTool extends AbstractTool {
                 + "stated completion evidence is met; 'cancel' when the user cancels; 'block' when "
                 + "progress is genuinely blocked; 'replace' only when the objective changes (/goal turns "
                 + "only). Terminal actions require a recap: objective, verification results, smoke rounds "
-                + "used, residual risks.";
+                + "used, residual risks. Before completing a test_plan goal with verification evidence, "
+                + "save the plan yourself by calling save_test_plan (no filePath = write back to the "
+                + "associated file), then relay the save outcome in your final reply. If the plan has "
+                + "never been saved, save_test_plan refuses: ask the user for a save path instead of "
+                + "guessing one.";
     }
 
     @Override

@@ -31,6 +31,7 @@ This project uses **JMeter API** to create, edit, update, optimize, and delete t
   - `query_element_properties` — Query elements by property name/value with `elementType` filter and match modes (`exact`, `contains`); optional `parentId` scopes the query to a subtree (inclusive)
   - `parse_jmx_file` — Parse an external JMX script file, returning full tree or filtered/query results without loading it into JMeter GUI
   - `open_jmx_file` — Load an external JMX script into the JMeter GUI as the live test plan (replaces the current plan; `merge=true` merges into it); returns the loaded tree in the same format as `get_test_plan_tree`
+  - `save_test_plan` — Save the live test plan to disk via JMeter's own Save action (Ctrl+S equivalent). No `filePath`: write back to the associated `.jmx`; with `filePath` (absolute path ending in `.jmx`, parent directory must exist): Save As, re-associating the plan with that path (`overwrite: true` needed if the file already exists). Call it only when the user asks to save
   - `get_log_panel_content` — Read JMeter LoggerPanel log content by line range (default tail mode). Line numbers match the "Selected: Log Panel / line=N" context, so use it to fetch surrounding log content when the user selects a row for troubleshooting
 - **Test Execution Tools:**
   - `run_test` — Start, stop, or shutdown test execution (supports `ignore_timers` and startup JMeter `properties`)

@@ -91,7 +91,10 @@ Typical procedure:
 5. **Save As to a proper location** (do NOT Ctrl+S immediately): after `open_jmx_file`
    the plan's file association points at the snapshot file itself — a plain Ctrl+S would
    silently overwrite that baseline, and the instance's IPC registry would broadcast the
-   snapshot path as the "open jmx". Copy the plan to its real path instead.
+   snapshot path as the "open jmx". When the user wants the restored plan written back,
+   call `save_test_plan` with `filePath` set to the real path (`overwrite: true` when that
+   file already exists). `save_test_plan` without `filePath` is refused in this state on
+   purpose, so the baseline cannot be overwritten by mistake.
 
 ## Notes
 

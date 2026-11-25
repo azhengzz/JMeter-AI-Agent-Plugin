@@ -434,6 +434,44 @@ class GoalToolsTest {
         assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
     }
 
+    // --- goal 完成保存：update_goal 不写盘，保存由模型按指引调 save_test_plan ---
+
+    /** 建一个静态 PASS + 冒烟 PASS 证据齐全的 test_plan 目标。 */
+    private void goalWithEvidence() {
+        bindTurn(true);
+        assertTrue(createTool.executeInternal(Map.of("objective", "o")).isSuccess());
+        GoalState goal = GoalState.load(session());
+        goal.recordStaticPass();
+        goal.recordSmokePass();
+        GoalState.store(session(), goal);
+    }
+
+    @Test
+    void verifiedCompleteDoesNotSaveByHost() {
+        goalWithEvidence();
+
+        ToolResult result = updateTool.executeInternal(Map.of("action", "complete", "recap", "objective met"));
+
+        assertTrue(result.isSuccess(), result.getError());
+        assertEquals(GoalState.Status.COMPLETED, GoalState.load(session()).getStatus());
+        assertTrue(result.getContent().contains("Recap"), "termination reply echoes the recap");
+        assertFalse(result.getContent().contains("Plan saved"),
+                "the host must not save the plan itself; saving is the model's job via save_test_plan");
+        assertFalse(result.getContent().contains("Plan NOT saved"),
+                "no host save outcome is appended to the update_goal result");
+    }
+
+    @Test
+    void updateGoalDescriptionInstructsModelToSaveBeforeCompleting() {
+        String description = updateTool.getDescription();
+        assertTrue(description.contains("save_test_plan"),
+                "description must tell the model to save via save_test_plan");
+        assertTrue(description.contains("Before completing"),
+                "description must place the save before completion");
+        assertTrue(description.contains("never been saved"),
+                "description must cover the never-saved refusal path");
+    }
+
     @Test
     void terminalRequiresRecap() {
         bindTurn(true);

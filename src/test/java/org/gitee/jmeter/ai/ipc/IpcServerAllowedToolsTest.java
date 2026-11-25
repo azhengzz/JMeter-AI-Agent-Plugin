@@ -56,14 +56,14 @@ class IpcServerAllowedToolsTest {
     }
 
     /**
-     * CLI dispatch 投递的工具名目录(22 个,与 JmeterCli 各 cmdXxx 的字面量同步维护)与
+     * CLI dispatch 投递的工具名目录(23 个,与 JmeterCli 各 cmdXxx 的字面量同步维护)与
      * IPC 白名单集合相等:白名单漂移(误删/错拼)或新增动词未同步目录都会在此失败。
      */
     @Test
     void cliDispatchedToolCatalogMatchesAllowlistExactly() {
         Set<String> dispatched = Set.of(
                 "get_script_info", "get_selected_element", "get_test_plan_tree",
-                "parse_jmx_file", "open_jmx_file", "find_element",
+                "parse_jmx_file", "open_jmx_file", "save_test_plan", "find_element",
                 "create_jmeter_element", "update_jmeter_element", "batch_update_jmeter_elements",
                 "delete_jmeter_element", "batch_delete_jmeter_elements",
                 "move_jmeter_element", "batch_move_jmeter_elements",

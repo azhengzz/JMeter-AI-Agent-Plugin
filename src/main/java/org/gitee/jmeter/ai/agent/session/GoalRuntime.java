@@ -171,6 +171,13 @@ public final class GoalRuntime {
                             ? "static PASS + smoke PASS (hard standard met)"
                             : "incomplete (static " + (goal.hasStaticPass() ? "PASS" : "missing")
                             + ", smoke " + (goal.hasSmokePass() ? "PASS" : "missing") + ")");
+            // 代码侧实时渲染（workspace 的 goal.md 模板陈旧时同样生效）：验证通过后、调用
+            // update_goal(complete) 之前，由模型自己调 save_test_plan 存回计划
+            sb.append("\nPlan persistence: once validation passes (static PASS + smoke zero errors), "
+                    + "call save_test_plan yourself BEFORE update_goal(complete) to write the plan back "
+                    + "to its associated file, then report the save outcome in your final reply. If the "
+                    + "plan has never been saved, save_test_plan refuses — ask the user for a save path "
+                    + "instead of guessing one.");
         }
         sb.append("\nStarted at: ").append(goal.getStartedAt());
         return sb.toString();
@@ -295,7 +302,10 @@ public final class GoalRuntime {
                 achieved and verified (or the smoke budget is exhausted); use 'cancel' when the
                 user cancels, 'block' when progress is genuinely blocked, 'replace' only when
                 the objective changes. Every terminal action requires a recap covering:
-                objective, verification results, smoke rounds used, residual risks.
+                objective, verification results, smoke rounds used, residual risks. Before calling
+                update_goal(complete) on a verified test_plan goal, save the plan yourself with
+                save_test_plan (no filePath = write back to the associated file), then report the
+                save outcome in your final reply.
 
                 Non-test-plan goals: when the goal was created with `verification='non_test_plan'`
                 (the objective is not about building or fixing the JMeter test plan — the task

@@ -18,10 +18,11 @@ jmeter-cli copy --elementId <id>                                # deep-copy an e
 jmeter-cli batch-toggle --elementIds 5,6,7 --action disable     # batch disable
 jmeter-cli validate                                             # statically validate the current plan
 jmeter-cli run --mode smoke                                     # smoke run (all TGs 1×1, blocks until verdict)
+jmeter-cli save                                                 # save the plan (no --file: back to the associated file; --file <abs path> to Save As)
 jmeter-cli agent "add another thread group with 5 users"
 ```
 
-The full command list, 109 test cases, and a one-shot regression script are in [../docs/test/jmeter-cli-test-cases.md](../docs/test/jmeter-cli-test-cases.md) (Chinese); the implementation plan is in [../TODO/cli-support-plan.md](../TODO/cli-support-plan.md) (Chinese).
+The full command list, 127 test cases, and a one-shot regression script are in [../docs/test/jmeter-cli-test-cases.md](../docs/test/jmeter-cli-test-cases.md) (Chinese); the implementation plan is in [../TODO/cli-support-plan.md](../TODO/cli-support-plan.md) (Chinese).
 
 `skills/jmeter-cli/` is the skill documentation for **third-party agents** (external automation tools such as OpenClaw, Hermes, and Codex), guiding them to operate a running JMeter GUI instance via `jmeter-cli` commands. It is not loaded inside the plugin; it is read by the external agent's skill system.
 
@@ -75,6 +76,7 @@ The table below maps CLI commands to IPC tools (`list`/`health`/`agent` do not g
 | `script-info` | `get_script_info` | no parameters |
 | `open` | `open_jmx_file` | `--file`→filePath; `--merge`/`--includeProperties`/`--maxDepth` passed through |
 | `parse` | `parse_jmx_file` | `--file`→filePath; `--elementType`/`--includeProperties`/`--maxDepth` passed through |
+| `save` | `save_test_plan` | no `--file` = save back to the associated file (empty params); `--file`→filePath; `--overwrite`→overwrite; path shape and overwrite protection are validated by the tool |
 | `create` | `create_jmeter_element` | `--elementType`/`--elementName` required; `--parentId` passed through; `--properties` JSON |
 | `copy` | `copy_paste_jmeter_element` | `--elementId` required; `--targetParentId`/`--position` passed through (default = in-place copy) |
 | `update` | `update_jmeter_element` | `--elementId` required; `--properties` JSON required |
